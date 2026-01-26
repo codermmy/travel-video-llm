@@ -14,10 +14,7 @@ export interface PasswordStrengthProps {
   style?: object;
 }
 
-export const PasswordStrength: React.FC<PasswordStrengthProps> = ({
-  password,
-  style,
-}) => {
+export const PasswordStrength: React.FC<PasswordStrengthProps> = ({ password, style }) => {
   const strengthInfo = getPasswordStrengthInfo(password);
 
   // 进度条宽度动画
@@ -45,9 +42,7 @@ export const PasswordStrength: React.FC<PasswordStrengthProps> = ({
     <View style={[styles.container, style]}>
       <View style={styles.header}>
         <Text style={styles.label}>密码强度</Text>
-        <Text style={[styles.label, { color: strengthInfo.color }]}>
-          {strengthInfo.label}
-        </Text>
+        <Text style={[styles.label, { color: strengthInfo.color }]}>{strengthInfo.label}</Text>
       </View>
       <View style={styles.progressBar}>
         <View style={styles.progressBackground}>

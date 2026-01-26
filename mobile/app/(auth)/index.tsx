@@ -61,12 +61,7 @@ export default function WelcomeScreen() {
         >
           设备登录
         </Button>
-        <Button
-          mode="outlined"
-          onPress={goToLogin}
-          disabled={isLoading}
-          style={styles.button}
-        >
+        <Button mode="outlined" onPress={goToLogin} disabled={isLoading} style={styles.button}>
           邮箱登录
         </Button>
       </View>

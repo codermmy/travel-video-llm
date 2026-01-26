@@ -82,10 +82,7 @@ export function isPasswordMatch(password: string, confirmPassword: string): bool
  * @param confirmPassword 确认密码
  * @returns 错误消息，无错误返回 null
  */
-export function getConfirmPasswordError(
-  password: string,
-  confirmPassword: string,
-): string | null {
+export function getConfirmPasswordError(password: string, confirmPassword: string): string | null {
   if (!confirmPassword) {
     return '请再次输入密码';
   }

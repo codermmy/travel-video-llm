@@ -1,17 +1,58 @@
-import { StyleSheet, View, Text } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
+import { useRouter } from 'expo-router';
+import { eventApi } from '@/services/api/eventApi';
+import type { EventRecord } from '@/types/event';
+import { MapViewContainer } from '@/components/map/MapViewContainer';
 
-/**
- * 地图主页 (足迹)
- * 显示高德地图和事件标记
- * TODO: Task-19 集成高德地图
- */
 export default function MapScreen() {
+  const router = useRouter();
+  const [events, setEvents] = useState<EventRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  const loadEvents = async () => {
+    try {
+      setLoading(true);
+      const data = await eventApi.listAllEvents();
+      setEvents(data);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to load events for map:', err);
+      setError('Failed to load events');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEventPress = (eventId: string) => {
+    router.push(`/events/${eventId}`);
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#000" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <Text style={styles.retryText} onPress={loadEvents}>Tap to retry</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <View style={styles.placeholder}>
-        <Text style={styles.title}>地图视图</Text>
-        <Text style={styles.subtitle}>高德地图集成将在 Task-19 实现</Text>
-      </View>
+      <MapViewContainer events={events} onEventPress={handleEventPress} />
     </View>
   );
 }
@@ -19,22 +60,19 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#fff',
   },
-  placeholder: {
+  centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+  errorText: {
+    color: 'red',
     marginBottom: 8,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+  retryText: {
+    color: '#007AFF',
+    textDecorationLine: 'underline',
   },
 });

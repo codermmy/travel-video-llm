@@ -7,12 +7,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.common import ApiResponse
-from app.schemas.user import (
-    AuthResponse,
-    EmailPasswordLogin,
-    EmailPasswordRegister,
-    UserRegister,
-)
+from app.schemas.user import AuthResponse, EmailPasswordLogin, EmailPasswordRegister, UserRegister
 
 router = APIRouter()
 
@@ -30,9 +25,7 @@ def register_device(
 ) -> ApiResponse[AuthResponse]:
     """设备 ID 注册/登录。如果设备已存在则返回现有用户。"""
     if not payload.device_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
 
     stmt = select(User).where(User.device_id == payload.device_id)
     user = db.scalar(stmt)

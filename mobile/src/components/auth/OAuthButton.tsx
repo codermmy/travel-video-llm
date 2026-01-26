@@ -4,13 +4,7 @@
  */
 
 import React from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  GestureResponderEvent,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View, GestureResponderEvent } from 'react-native';
 
 import { AuthColors, AuthSpacing, AuthTypography } from '@/constants';
 

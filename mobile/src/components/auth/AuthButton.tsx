@@ -8,7 +8,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  View,
   ActivityIndicator,
   Animated,
   GestureResponderEvent,
@@ -99,11 +98,7 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
         disabled={disabled || loading}
       >
         {loading ? (
-          <ActivityIndicator
-            size="small"
-            color={getTextColor()}
-            style={styles.indicator}
-          />
+          <ActivityIndicator size="small" color={getTextColor()} style={styles.indicator} />
         ) : (
           <Text style={[styles.text, { color: getTextColor() }]}>{title}</Text>
         )}

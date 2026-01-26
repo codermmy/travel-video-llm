@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { AuthColors } from '@/constants';
@@ -14,10 +14,7 @@ export interface AuthBackgroundProps {
   style?: object;
 }
 
-export const AuthBackground: React.FC<AuthBackgroundProps> = ({
-  children,
-  style,
-}) => {
+export const AuthBackground: React.FC<AuthBackgroundProps> = ({ children, style }) => {
   return (
     <LinearGradient
       style={[styles.container, style]}

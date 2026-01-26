@@ -7,13 +7,13 @@ export const UNIT = 4;
 
 // 间距值
 export const SPACING = {
-  xs: UNIT * 1,      // 4
-  sm: UNIT * 2,      // 8
-  md: UNIT * 3,      // 12
-  lg: UNIT * 4,      // 16
-  xl: UNIT * 6,      // 24
-  xxl: UNIT * 8,     // 32
-  xxxl: UNIT * 10,   // 40
+  xs: UNIT * 1, // 4
+  sm: UNIT * 2, // 8
+  md: UNIT * 3, // 12
+  lg: UNIT * 4, // 16
+  xl: UNIT * 6, // 24
+  xxl: UNIT * 8, // 32
+  xxxl: UNIT * 10, // 40
 } as const;
 
 // 组件内边距

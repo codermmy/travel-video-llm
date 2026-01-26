@@ -3,7 +3,6 @@ import { create } from 'zustand';
 import { setUnauthorizedHandler } from '@/services/api/client';
 import {
   getLocalUserInfo,
-  isAuthenticated,
   isApiError,
   loginWithEmail,
   logout,
@@ -11,6 +10,8 @@ import {
   registerWithEmail,
 } from '@/services/api/authApi';
 import { tokenStorage } from '@/services/storage/tokenStorage';
+
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 type AuthState = {
   token: string | null;
@@ -142,14 +143,37 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     try {
       const authCheck = Promise.all([
-        isAuthenticated(),
         getLocalUserInfo(),
         tokenStorage.getToken(),
+        tokenStorage.getTokenSavedAt(),
       ]);
 
-      const [authed, info, token] = await Promise.race([authCheck, timeout]) as [boolean, { userId: string | null; deviceId: string | null; email: string | null }, string | null];
+      const [info, token, tokenSavedAt] = (await Promise.race([authCheck, timeout])) as [
+        { userId: string | null; deviceId: string | null; email: string | null },
+        string | null,
+        number | null,
+      ];
 
-      if (authed && info.userId && token) {
+      if (token) {
+        const now = Date.now();
+
+        if (tokenSavedAt === null) {
+          await tokenStorage.touchTokenSavedAt();
+        } else if (now - tokenSavedAt > TOKEN_TTL_MS) {
+          await tokenStorage.clearAll();
+          set({
+            token: null,
+            userId: null,
+            deviceId: null,
+            email: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+          return;
+        }
+      }
+
+      if (info.userId && token) {
         set({
           token,
           userId: info.userId,

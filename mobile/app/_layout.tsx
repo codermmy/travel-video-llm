@@ -17,7 +17,7 @@ export default function RootLayout() {
       hasCheckedAuth.current = true;
       checkAuth();
     }
-  }, []);
+  }, [checkAuth]);
 
   if (isLoading) {
     return (

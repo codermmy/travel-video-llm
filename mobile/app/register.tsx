@@ -1,5 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
-import { StyleSheet, View, Text, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -110,9 +119,7 @@ export default function RegisterScreen() {
               placeholder="给自己起个名字"
             />
 
-            {displayError && (
-              <Text style={styles.errorText}>{displayError}</Text>
-            )}
+            {displayError && <Text style={styles.errorText}>{displayError}</Text>}
 
             <Button
               mode="contained"
@@ -126,7 +133,9 @@ export default function RegisterScreen() {
           </View>
 
           <Pressable onPress={() => router.back()} style={styles.footer}>
-            <Text style={styles.footerText}>已有账号？<Text style={styles.link}>立即登录</Text></Text>
+            <Text style={styles.footerText}>
+              已有账号？<Text style={styles.link}>立即登录</Text>
+            </Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>

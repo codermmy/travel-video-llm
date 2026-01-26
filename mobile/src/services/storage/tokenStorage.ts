@@ -9,6 +9,7 @@ import { Platform } from 'react-native';
 let AsyncStorage: typeof import('@react-native-async-storage/async-storage').default | null = null;
 
 const TOKEN_KEY = 'auth_token';
+const TOKEN_SAVED_AT_KEY = 'auth_token_saved_at';
 const USER_ID_KEY = 'user_id';
 const DEVICE_ID_KEY = 'device_id';
 const EMAIL_KEY = 'user_email';
@@ -54,15 +55,34 @@ async function getStorage() {
 export const tokenStorage = {
   async saveToken(token: string): Promise<void> {
     const storage = await getStorage();
-    await storage.setItem(TOKEN_KEY, token);
+    await Promise.all([
+      storage.setItem(TOKEN_KEY, token),
+      storage.setItem(TOKEN_SAVED_AT_KEY, String(Date.now())),
+    ]);
   },
   async getToken(): Promise<string | null> {
     const storage = await getStorage();
     return storage.getItem(TOKEN_KEY);
   },
+  async getTokenSavedAt(): Promise<number | null> {
+    const storage = await getStorage();
+    const raw = await storage.getItem(TOKEN_SAVED_AT_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  },
+  async touchTokenSavedAt(): Promise<void> {
+    const storage = await getStorage();
+    await storage.setItem(TOKEN_SAVED_AT_KEY, String(Date.now()));
+  },
   async removeToken(): Promise<void> {
     const storage = await getStorage();
-    await storage.removeItem(TOKEN_KEY);
+    await Promise.all([
+      storage.removeItem(TOKEN_KEY),
+      storage.removeItem(TOKEN_SAVED_AT_KEY),
+    ]);
   },
   async saveUserId(userId: string): Promise<void> {
     const storage = await getStorage();
@@ -104,6 +124,7 @@ export const tokenStorage = {
     const storage = await getStorage();
     await Promise.all([
       storage.removeItem(TOKEN_KEY),
+      storage.removeItem(TOKEN_SAVED_AT_KEY),
       storage.removeItem(USER_ID_KEY),
       storage.removeItem(DEVICE_ID_KEY),
       storage.removeItem(EMAIL_KEY),

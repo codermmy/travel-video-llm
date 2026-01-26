@@ -46,9 +46,10 @@ export function calculatePasswordStrength(password: string): number {
 
   // 3. 复杂度评分（最多 30 分）
   // 检查是否有连续字符
-  const hasSequentialChars = /(abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789|890)/i.test(
-    password,
-  );
+  const hasSequentialChars =
+    /(abc|bcd|cde|def|efg|fgh|ghi|hij|ijk|jkl|klm|lmn|mno|nop|opq|pqr|qrs|rst|stu|tuv|uvw|vwx|wxy|xyz|012|123|234|345|456|567|678|789|890)/i.test(
+      password,
+    );
   if (!hasSequentialChars) {
     score += 10;
   }

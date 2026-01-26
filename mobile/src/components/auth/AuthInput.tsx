@@ -4,15 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import {
-  Pressable,
-  StyleSheet,
-  TextInput,
-  TextInputProps,
-  View,
-  Animated,
-  Text,
-} from 'react-native';
+import { Pressable, StyleSheet, TextInput, TextInputProps, View, Animated } from 'react-native';
 import { Eye, EyeOff } from 'lucide-react-native';
 
 import { AuthColors, AuthSpacing, AuthTypography } from '@/constants';
@@ -42,9 +34,7 @@ export const AuthInput: React.FC<AuthInputProps> = ({
   const [hasValue, setHasValue] = useState(Boolean(value));
 
   // 浮动标签动画
-  const labelAnim = React.useRef(
-    new Animated.Value(hasValue || isFocused ? 1 : 0),
-  ).current;
+  const labelAnim = React.useRef(new Animated.Value(hasValue || isFocused ? 1 : 0)).current;
 
   const isPasswordField = isPassword;
 
@@ -101,12 +91,7 @@ export const AuthInput: React.FC<AuthInputProps> = ({
 
   return (
     <View style={[styles.container, containerStyle]}>
-      <View
-        style={[
-          styles.inputWrapper,
-          { borderColor },
-        ]}
-      >
+      <View style={[styles.inputWrapper, { borderColor }]}>
         <View style={styles.inputContainer}>
           <Animated.Text
             style={[
@@ -138,11 +123,7 @@ export const AuthInput: React.FC<AuthInputProps> = ({
           />
         </View>
         {isPasswordField && (
-          <Pressable
-            style={styles.eyeIcon}
-            onPress={togglePasswordVisibility}
-            hitSlop={8}
-          >
+          <Pressable style={styles.eyeIcon} onPress={togglePasswordVisibility} hitSlop={8}>
             {isPasswordVisible ? (
               <EyeOff size={ICON_SIZE.md} color={AuthColors.textSecondary} />
             ) : (
@@ -151,11 +132,7 @@ export const AuthInput: React.FC<AuthInputProps> = ({
           </Pressable>
         )}
       </View>
-      {error && (
-        <Animated.Text style={styles.errorText}>
-          {error}
-        </Animated.Text>
-      )}
+      {error && <Animated.Text style={styles.errorText}>{error}</Animated.Text>}
     </View>
   );
 };

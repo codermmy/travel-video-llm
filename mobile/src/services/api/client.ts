@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosHeaders } from 'axios';
 
 import { API_BASE_URL } from '@/constants/api';
 import { tokenStorage } from '@/services/storage/tokenStorage';
@@ -19,10 +19,22 @@ export const apiClient = axios.create({
 apiClient.interceptors.request.use(async (config) => {
   const token = await tokenStorage.getToken();
   if (token) {
-    config.headers = {
-      ...config.headers,
-      Authorization: `Bearer ${token}`,
-    };
+    const headers = config.headers;
+
+    if (!headers) {
+      config.headers = new AxiosHeaders({ Authorization: `Bearer ${token}` });
+      return config;
+    }
+
+    if (
+      headers instanceof AxiosHeaders ||
+      ('set' in headers && typeof (headers as { set?: unknown }).set === 'function')
+    ) {
+      (headers as AxiosHeaders).set('Authorization', `Bearer ${token}`);
+      return config;
+    }
+
+    (headers as Record<string, unknown>)['Authorization'] = `Bearer ${token}`;
   }
   return config;
 });

@@ -35,11 +35,7 @@ export type ApiError = {
 };
 
 export function isApiError(error: unknown): error is ApiError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'response' in error
-  );
+  return typeof error === 'object' && error !== null && 'response' in error;
 }
 
 export async function register(nickname?: string): Promise<ApiResponse<AuthResponse>> {
@@ -78,10 +74,7 @@ export async function registerWithEmail(
 export async function loginWithEmail(
   params: EmailPasswordLoginParams,
 ): Promise<ApiResponse<AuthResponse>> {
-  const res = await apiClient.post<ApiResponse<AuthResponse>>(
-    '/api/v1/auth/login',
-    params,
-  );
+  const res = await apiClient.post<ApiResponse<AuthResponse>>('/api/v1/auth/login', params);
   if (res.data?.data) {
     await tokenStorage.saveToken(res.data.data.token);
     await tokenStorage.saveUserId(res.data.data.user_id);

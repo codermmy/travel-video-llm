@@ -1,5 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
-import { StyleSheet, View, Text, Pressable, ScrollView, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -65,9 +74,7 @@ export default function LoginScreen() {
               secureTextEntry
             />
 
-            {error && (
-              <Text style={styles.errorText}>{error}</Text>
-            )}
+            {error && <Text style={styles.errorText}>{error}</Text>}
 
             <Button
               mode="contained"
@@ -81,7 +88,9 @@ export default function LoginScreen() {
           </View>
 
           <Pressable onPress={() => router.push('/register')} style={styles.footer}>
-            <Text style={styles.footerText}>还没有账号？<Text style={styles.link}>立即注册</Text></Text>
+            <Text style={styles.footerText}>
+              还没有账号？<Text style={styles.link}>立即注册</Text>
+            </Text>
           </Pressable>
 
           <Pressable onPress={() => router.back()} style={styles.backButton}>

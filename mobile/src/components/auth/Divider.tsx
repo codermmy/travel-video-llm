@@ -13,10 +13,7 @@ export interface DividerProps {
   style?: object;
 }
 
-export const Divider: React.FC<DividerProps> = ({
-  text = '或',
-  style,
-}) => {
+export const Divider: React.FC<DividerProps> = ({ text = '或', style }) => {
   return (
     <View style={[styles.container, style]}>
       <View style={styles.line} />

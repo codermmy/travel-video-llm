@@ -21,11 +21,7 @@ import { ArrowLeft } from 'lucide-react-native';
 import { AuthButton, AuthInput, PasswordStrength } from '@/components/auth';
 import { AuthColors, AuthSpacing, AuthTypography } from '@/constants';
 import { useAuthStore } from '@/stores/authStore';
-import {
-  getEmailError,
-  getPasswordError,
-  getConfirmPasswordError,
-} from '@/utils/validators';
+import { getEmailError, getPasswordError, getConfirmPasswordError } from '@/utils/validators';
 import type { RootStackParamList } from '@/navigation/types';
 
 export const RegisterScreen: React.FC = () => {
@@ -104,11 +100,7 @@ export const RegisterScreen: React.FC = () => {
       return;
     }
 
-    const success = await registerWithEmail(
-      email,
-      password,
-      nickname || undefined,
-    );
+    const success = await registerWithEmail(email, password, nickname || undefined);
 
     if (success) {
       // 注册成功后自动登录，导航由 app.tsx 处理

@@ -23,9 +23,7 @@ class EmailPasswordRegister(BaseModel):
     @classmethod
     def validate_email(cls, v: str) -> str:
         """验证邮箱格式。"""
-        email_regex = re.compile(
-            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        )
+        email_regex = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
         if not email_regex.match(v):
             raise ValueError("邮箱格式不正确")
         return v.lower()
@@ -55,9 +53,7 @@ class EmailPasswordLogin(BaseModel):
     @classmethod
     def validate_email(cls, v: str) -> str:
         """验证邮箱格式。"""
-        email_regex = re.compile(
-            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        )
+        email_regex = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
         if not email_regex.match(v):
             raise ValueError("邮箱格式不正确")
         return v.lower()
