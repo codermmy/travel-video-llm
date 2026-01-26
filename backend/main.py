@@ -12,7 +12,7 @@ from app.core.config import settings
 def create_app() -> FastAPI:
     app = FastAPI(title="Travel Album API")
 
-    cors_origins = settings.cors_origins
+    cors_origins = settings.cors_origins_list
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins if cors_origins else ["*"],
