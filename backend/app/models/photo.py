@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from decimal import Decimal
+from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -15,10 +16,37 @@ class Photo(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
-    event_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("events.id"), nullable=True)
+    event_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("events.id"), nullable=True
+    )
+
+    file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    local_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    thumbnail_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    gps_lat: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
+    gps_lon: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
+    shoot_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), default="uploaded")
     uri: Mapped[str] = mapped_column(String(2048), default="")
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        Index("idx_photos_user_hash", "user_id", "file_hash", unique=True),
+        Index("idx_photos_shoot_time", "shoot_time"),
+        Index("idx_photos_event", "event_id"),
     )
 
     if TYPE_CHECKING:
