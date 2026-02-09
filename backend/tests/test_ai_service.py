@@ -25,11 +25,31 @@ def test_analyze_event_photos_sampling_and_cache() -> None:
     calls: list[str] = []
 
     class FakeClient:
+        def provider_name(self) -> str:
+            return "fake"
+
+        def current_models(self) -> dict[str, str]:
+            return {"vision_model": "fake-v", "story_model": "fake-s"}
+
+        def configuration_error_code(self) -> str:
+            return "fake_api_key_not_configured"
+
+        def is_configured(self) -> bool:
+            return True
+
         def analyze_image(self, image_url: str, prompt: str = "") -> dict[str, Any] | None:
             calls.append(image_url)
             if image_url.endswith("0.jpg"):
                 return {"description": "开心", "emotion": "Happy"}
             return {"description": "宁静", "emotion": "Calm"}
+
+        def generate_event_story(
+            self, location: str, date_range: str, photo_descriptions: list[str]
+        ):
+            return None
+
+        def get_last_error_code(self):
+            return None
 
     setattr(svc, "client", FakeClient())
 

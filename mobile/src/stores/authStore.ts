@@ -173,7 +173,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
 
-      if (info.userId && token) {
+      if (token) {
         set({
           token,
           userId: info.userId,
@@ -182,16 +182,17 @@ export const useAuthStore = create<AuthState>((set) => ({
           isAuthenticated: true,
           isLoading: false,
         });
-      } else {
-        set({
-          token: null,
-          userId: null,
-          deviceId: null,
-          email: null,
-          isAuthenticated: false,
-          isLoading: false,
-        });
+        return;
       }
+
+      set({
+        token: null,
+        userId: null,
+        deviceId: null,
+        email: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
     } catch (error) {
       console.error('Failed to check auth:', error);
       // 确保任何情况下都结束 loading 状态

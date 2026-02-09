@@ -6,7 +6,8 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from app.integrations.tongyi import tongyi_client
+from app.integrations.providers.base import AIProvider
+from app.integrations.providers.factory import provider_factory
 from app.utils.cache import simple_cache
 
 logger = logging.getLogger(__name__)
@@ -18,22 +19,43 @@ class AIService:
     提供图像分析和故事生成的业务层封装，包含缓存机制。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, provider: Optional[AIProvider] = None) -> None:
         """初始化 AI 服务"""
-        self.client = tongyi_client
+        self.client: AIProvider = provider or provider_factory.get_provider()
         self.cache_ttl = 86400  # 缓存 24 小时
+        self.last_error_code: Optional[str] = None
+
+    def _provider_name(self) -> str:
+        provider_name = getattr(self.client, "provider_name", None)
+        if callable(provider_name):
+            value = provider_name()
+            if isinstance(value, str) and value:
+                return value
+        return "unknown"
+
+    def _get_provider_error_code(self) -> Optional[str]:
+        get_last_error_code = getattr(self.client, "get_last_error_code", None)
+        if callable(get_last_error_code):
+            code = get_last_error_code()
+            if isinstance(code, str) and code:
+                return code
+        return None
 
     def _get_cache_key(self, prefix: str, identifier: str) -> str:
-        """生成缓存键
+        """生成缓存键"""
+        return f"ai:{self._provider_name()}:{prefix}:{identifier}"
 
-        Args:
-            prefix: 缓存前缀
-            identifier: 唯一标识符
+    def is_configured(self) -> bool:
+        return bool(self.client.is_configured())
 
-        Returns:
-            缓存键
-        """
-        return f"ai:{prefix}:{identifier}"
+    def configuration_error_code(self) -> str:
+        return self.client.configuration_error_code()
+
+    def provider_name(self) -> str:
+        return self._provider_name()
+
+    def current_models(self) -> dict[str, str]:
+        return self.client.current_models()
 
     def generate_event_story(
         self,
@@ -43,26 +65,14 @@ class AIService:
         end_time: str,
         photo_descriptions: list[str],
     ) -> dict[str, Any] | None:
-        """为事件生成故事
-
-        Args:
-            event_id: 事件 ID
-            location: 地点
-            start_time: 开始时间
-            end_time: 结束时间
-            photo_descriptions: 照片描述
-
-        Returns:
-            生成结果 {title, story, emotion}
-        """
-        # 检查缓存
+        """为事件生成故事"""
         cache_key = self._get_cache_key("story", str(event_id))
         cached = simple_cache(cache_key)
         if isinstance(cached, dict):
-            logger.info(f"从缓存获取事件 {event_id} 的故事")
+            logger.info("从缓存获取事件 %s 的故事", event_id)
+            self.last_error_code = None
             return cached
 
-        # 格式化时间范围
         try:
             start = datetime.fromisoformat(start_time)
             end = datetime.fromisoformat(end_time)
@@ -70,17 +80,18 @@ class AIService:
         except ValueError:
             date_range = start_time
 
-        # 调用 API
         result = self.client.generate_event_story(
             location=location,
             date_range=date_range,
             photo_descriptions=photo_descriptions,
         )
 
+        self.last_error_code = self._get_provider_error_code()
+
         if result:
-            # 缓存结果
             simple_cache(cache_key, result, self.cache_ttl)
-            logger.info(f"事件 {event_id} 故事生成成功并已缓存")
+            logger.info("事件 %s 故事生成成功并已缓存", event_id)
+            self.last_error_code = None
 
         return result
 
@@ -89,21 +100,19 @@ class AIService:
         photo_urls: list[str],
         prompt: str = "请描述这张照片的内容",
     ) -> list[dict[str, Any] | None]:
-        """批量分析照片
-
-        Args:
-            photo_urls: 照片 URL 列表
-            prompt: 提示词
-
-        Returns:
-            分析结果列表
-        """
-        results = []
+        """批量分析照片"""
+        results: list[dict[str, Any] | None] = []
+        latest_error: Optional[str] = None
 
         for url in photo_urls:
             result = self.client.analyze_image(url, prompt)
+            if result is None:
+                provider_error = self._get_provider_error_code()
+                if provider_error:
+                    latest_error = provider_error
             results.append(result)
 
+        self.last_error_code = latest_error
         return results
 
     def select_photos_for_analysis(
@@ -111,27 +120,13 @@ class AIService:
         photo_urls: list[str],
         photo_count: int,
     ) -> list[str]:
-        """选择用于 AI 分析的代表性照片
-
-        采样策略：
-        - 照片数量 >= 10：取第 1、5、10 张
-        - 照片数量 < 10：取首、中、尾
-
-        Args:
-            photo_urls: 所有照片 URL 列表
-            photo_count: 照片总数
-
-        Returns:
-            选中的照片 URL 列表
-        """
+        """选择用于 AI 分析的代表性照片"""
         if not photo_urls:
             return []
 
         if photo_count >= 10:
-            # 取第 1、5、10 张（索引 0, 4, 9）
             indices = [0, 4, 9]
         else:
-            # 取首、中、尾
             indices = [0, photo_count // 2, photo_count - 1]
 
         selected = []
@@ -139,7 +134,7 @@ class AIService:
             if idx < len(photo_urls):
                 selected.append(photo_urls[idx])
 
-        return list(dict.fromkeys(selected))  # 去重
+        return list(dict.fromkeys(selected))
 
     def analyze_event_photos(
         self,
@@ -147,29 +142,16 @@ class AIService:
         photo_urls: list[str],
         location: str,
     ) -> dict[str, Any]:
-        """分析事件照片，生成描述和情感标签
-
-        Args:
-            event_id: 事件 ID
-            photo_urls: 照片 URL 列表
-            location: 地点
-
-        Returns:
-            分析结果 {descriptions, emotion}
-        """
-        # 检查缓存
+        """分析事件照片，生成描述和情感标签"""
         cache_key = self._get_cache_key("photo_analysis", str(event_id))
         cached = simple_cache(cache_key)
         if isinstance(cached, dict):
+            self.last_error_code = None
             return cached
 
-        # 选择代表性照片
         selected_urls = self.select_photos_for_analysis(photo_urls, len(photo_urls))
-
-        # 批量分析
         results = self.analyze_photo_batch(selected_urls)
 
-        # 提取描述
         descriptions = []
         emotion_scores = {"Happy": 0, "Calm": 0, "Epic": 0, "Romantic": 0}
 
@@ -177,13 +159,12 @@ class AIService:
             if result:
                 desc = result.get("description", "")
                 if desc:
-                    descriptions.append(desc[:100])  # 截断过长描述
+                    descriptions.append(str(desc)[:100])
 
                 emotion = result.get("emotion", "Calm")
                 if emotion in emotion_scores:
                     emotion_scores[emotion] += 1
 
-        # 确定主导情感
         dominant_emotion = max(emotion_scores.keys(), key=lambda k: emotion_scores[k])
 
         result = {
@@ -191,11 +172,9 @@ class AIService:
             "emotion": dominant_emotion,
         }
 
-        # 缓存结果
         simple_cache(cache_key, result, self.cache_ttl)
 
         return result
 
 
-# 导出服务实例
 ai_service = AIService()

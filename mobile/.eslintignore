@@ -1,0 +1,7 @@
+node_modules/
+patches/
+android/
+ios/
+src/utils/__tests__/
+**/*.test.ts
+**/*.test.tsx

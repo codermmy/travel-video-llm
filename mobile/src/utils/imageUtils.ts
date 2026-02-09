@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system/build/legacy/FileSystem';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 import { FILE_SIZE_UNITS, THUMBNAIL_CONFIG } from '@/constants/appConstants';

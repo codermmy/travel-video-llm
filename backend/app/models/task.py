@@ -20,6 +20,7 @@ class AsyncTask(Base):
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    stage: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 

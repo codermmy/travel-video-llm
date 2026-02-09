@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Optional
 
 import httpx
+
+from app.core.config import settings
+from app.integrations.providers.base import detect_emotion_from_text, parse_story_json_payload
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,8 @@ class TongyiClient:
         api_key: Optional[str] = None,
         base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         timeout: int = 30,
+        vision_model: str = "qwen-vl-max",
+        story_model: str = "qwen-plus",
     ) -> None:
         """初始化客户端
 
@@ -32,9 +36,26 @@ class TongyiClient:
         """
         import os
 
-        self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY", "")
-        self.base_url = base_url
+        if api_key is not None:
+            self.api_key = api_key
+        else:
+            self.api_key = (
+                settings.dashscope_api_key
+                or settings.tongyi_api_key
+                or os.getenv("DASHSCOPE_API_KEY", "")
+                or os.getenv("TONGYI_API_KEY", "")
+            )
+        self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.vision_model = vision_model
+        self.story_model = story_model
+        self._last_error_code: Optional[str] = None
+
+    def _set_error(self, code: Optional[str]) -> None:
+        self._last_error_code = code
+
+    def get_last_error_code(self) -> Optional[str]:
+        return self._last_error_code
 
     def _get_headers(self) -> dict[str, str]:
         """获取请求头"""
@@ -62,13 +83,14 @@ class TongyiClient:
             分析结果，包含 description、tags、emotion
         """
         if not self.is_configured():
+            self._set_error("tongyi_api_key_not_configured")
             logger.warning("DASHSCOPE_API_KEY 未配置，跳过图像分析")
             return None
 
         url = f"{self.base_url}/chat/completions"
 
         payload = {
-            "model": "qwen-vl-max",
+            "model": self.vision_model,
             "messages": [
                 {
                     "role": "system",
@@ -93,15 +115,19 @@ class TongyiClient:
 
                 if data.get("choices"):
                     content = data["choices"][0]["message"]["content"]
+                    self._set_error(None)
                     return self._parse_image_result(content)
 
+                self._set_error("tongyi_response_parse_failed")
                 return None
 
         except httpx.HTTPError as e:
-            logger.error(f"通义万相 API 请求失败: {e}")
+            self._set_error("tongyi_http_error")
+            logger.error("通义万相 API 请求失败: %s", e)
             return None
         except Exception as e:
-            logger.error(f"图像分析失败: {e}")
+            self._set_error("tongyi_http_error")
+            logger.error("图像分析失败: %s", e)
             return None
 
     def _parse_image_result(self, content: str) -> dict[str, Any]:
@@ -128,35 +154,7 @@ class TongyiClient:
         Returns:
             情感标签：Happy/Calm/Epic/Romantic
         """
-        text_lower = text.lower()
-
-        # 关键词匹配
-        emotion_keywords = {
-            "Happy": ["开心", "快乐", "笑容", "欢笑", "欢乐", "愉快", "幸福", "喜悦"],
-            "Calm": ["宁静", "安静", "平静", "悠闲", "舒适", "放松", "平和", "恬静"],
-            "Epic": ["壮观", "宏大", "雄伟", "震撼", "气势", "宏伟", "辽阔", "壮丽"],
-            "Romantic": [
-                "浪漫",
-                "温馨",
-                "甜蜜",
-                "温柔",
-                "夕阳",
-                "花朵",
-                "美丽",
-                "柔美",
-            ],
-        }
-
-        scores = {}
-        for emotion, keywords in emotion_keywords.items():
-            score = sum(1 for kw in keywords if kw in text_lower)
-            if score > 0:
-                scores[emotion] = score
-
-        if not scores:
-            return "Calm"  # 默认
-
-        return max(scores.keys(), key=lambda k: scores[k])
+        return detect_emotion_from_text(text)
 
     def generate_story(
         self,
@@ -175,13 +173,14 @@ class TongyiClient:
             生成的文本
         """
         if not self.is_configured():
+            self._set_error("tongyi_api_key_not_configured")
             logger.warning("DASHSCOPE_API_KEY 未配置，跳过文本生成")
             return None
 
         url = f"{self.base_url}/chat/completions"
 
         payload = {
-            "model": "qwen-plus",
+            "model": self.story_model,
             "messages": [
                 {
                     "role": "system",
@@ -204,15 +203,19 @@ class TongyiClient:
                 data = response.json()
 
                 if data.get("choices"):
+                    self._set_error(None)
                     return data["choices"][0]["message"]["content"]
 
+                self._set_error("tongyi_response_parse_failed")
                 return None
 
         except httpx.HTTPError as e:
-            logger.error(f"通义千问 API 请求失败: {e}")
+            self._set_error("tongyi_http_error")
+            logger.error("通义千问 API 请求失败: %s", e)
             return None
         except Exception as e:
-            logger.error(f"文本生成失败: {e}")
+            self._set_error("tongyi_http_error")
+            logger.error("文本生成失败: %s", e)
             return None
 
     def generate_event_story(
@@ -231,7 +234,6 @@ class TongyiClient:
         Returns:
             故事生成结果 {title, story, emotion}
         """
-        # 构建提示词
         desc_text = "\n".join([f"- {d}" for d in photo_descriptions])
 
         prompt = f"""请根据以下信息生成一个简短的旅行故事：
@@ -258,37 +260,15 @@ class TongyiClient:
         response_text = self.generate_story(prompt, max_tokens=800)
 
         if not response_text:
+            if self.get_last_error_code() is None:
+                self._set_error("story_generation_failed")
             return None
 
-        # 尝试解析 JSON
-        try:
-            # 提取 JSON 部分
-            if "```json" in response_text:
-                json_start = response_text.index("```json") + 7
-                json_end = response_text.index("```", json_start)
-                json_str = response_text[json_start:json_end].strip()
-            elif "{" in response_text:
-                json_start = response_text.index("{")
-                json_end = response_text.rindex("}") + 1
-                json_str = response_text[json_start:json_end]
-            else:
-                raise ValueError("No JSON found")
-
-            result = json.loads(json_str)
-            return result
-
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"JSON 解析失败: {e}")
-
-        # 解析失败，返回默认格式
-        return {
-            "title": f"{location}之旅",
-            "story": response_text[:200] if len(response_text) > 200 else response_text,
-            "emotion": "Calm",
-        }
+        story = parse_story_json_payload(response_text=response_text, location=location)
+        self._set_error(None)
+        return story
 
 
-# 导出单例
 _tongyi_client: Optional[TongyiClient] = None
 
 

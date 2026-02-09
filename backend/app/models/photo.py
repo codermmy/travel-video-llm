@@ -24,6 +24,8 @@ class Photo(Base):
     local_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    storage_provider: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    object_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     gps_lat: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)

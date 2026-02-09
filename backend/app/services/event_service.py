@@ -101,7 +101,10 @@ class EventService:
             "total": int(total),
             "byEmotion": by_emotion,
             "clustered": int(by_status.get("clustered", 0)),
+            "aiPending": int(by_status.get("ai_pending", 0)),
+            "aiProcessing": int(by_status.get("ai_processing", 0)),
             "generated": int(by_status.get("generated", 0)),
+            "aiFailed": int(by_status.get("ai_failed", 0)),
         }
 
 

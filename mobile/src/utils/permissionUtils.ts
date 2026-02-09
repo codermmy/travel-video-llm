@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
@@ -19,6 +20,28 @@ export async function requestPhotoLibraryPermission(): Promise<{
   }
 
   const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  return {
+    granted: status === 'granted',
+    canAskAgain,
+  };
+}
+
+export async function requestMediaLibraryPermission(): Promise<{
+  granted: boolean;
+  canAskAgain: boolean;
+}> {
+  const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+  return {
+    granted: status === 'granted',
+    canAskAgain,
+  };
+}
+
+export async function checkMediaLibraryPermission(): Promise<{
+  granted: boolean;
+  canAskAgain: boolean;
+}> {
+  const { status, canAskAgain } = await MediaLibrary.getPermissionsAsync();
   return {
     granted: status === 'granted',
     canAskAgain,

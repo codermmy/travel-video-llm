@@ -56,9 +56,10 @@ def test_task_status_api() -> None:
             task_id="celery-task-001",
             task_type="clustering",
             status="success",
+            stage="ai",
             progress=100,
             total=3,
-            result="创建了 1 个事件",
+            result="创建了 1 个事件 (provider=openai,visionModel=gpt-5.1-codex,storyModel=gpt-5.1-codex)",
             error=None,
         )
         db.add(task)
@@ -72,6 +73,7 @@ def test_task_status_api() -> None:
     assert data["taskId"] == "celery-task-001"
     assert data["taskType"] == "clustering"
     assert data["status"] == "success"
+    assert data["stage"] == "ai"
     assert data["progress"] == 100
     assert data["total"] == 3
-    assert data["result"] == "创建了 1 个事件"
+    assert "provider=openai" in data["result"]

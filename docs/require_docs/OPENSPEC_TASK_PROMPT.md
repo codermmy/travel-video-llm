@@ -21,7 +21,7 @@
 2. `@/docs/require_docs/require_step_by_step/[TASK_FILE_2]`
 3. `@/docs/require_docs/require_step_by_step/[TASK_FILE_3]`
 
-同时参考以下项目文档：
+同时参考以下项目文档（）：
 - `@/docs/require_docs/01-项目需求文档.md` - 产品需求
 - `@/docs/require_docs/02-系统技术架构.md` - 技术架构
 - `@/docs/require_docs/04-开发规范.md` - 开发规范

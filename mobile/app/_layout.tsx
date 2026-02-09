@@ -1,39 +1,55 @@
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { Stack } from 'expo-router';
+import { PaperProvider } from 'react-native-paper';
+
 import { useAuthStore } from '@/stores/authStore';
+import { appTheme } from '@/styles/theme';
 
 /**
- * 根布局 - 认证检查与重定向
- * 根据认证状态决定显示认证流程还是主应用
+ * 根布局 - 认证检查与路由分流
  */
 export default function RootLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
   const hasCheckedAuth = useRef(false);
 
   useEffect(() => {
-    // 确保只调用一次
     if (!hasCheckedAuth.current) {
       hasCheckedAuth.current = true;
       checkAuth();
     }
   }, [checkAuth]);
 
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
-
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      {!isAuthenticated ? (
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+    <PaperProvider theme={appTheme}>
+      {isLoading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" />
+        </View>
       ) : (
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false }}>
+          {!isAuthenticated ? (
+            <>
+              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+              <Stack.Screen name="login" options={{ headerShown: false }} />
+              <Stack.Screen name="register" options={{ headerShown: false }} />
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="photo-viewer"
+                options={{ headerShown: false, presentation: 'fullScreenModal' }}
+              />
+              <Stack.Screen
+                name="slideshow"
+                options={{ headerShown: false, presentation: 'fullScreenModal' }}
+              />
+              <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
+            </>
+          )}
+        </Stack>
       )}
-    </Stack>
+    </PaperProvider>
   );
 }

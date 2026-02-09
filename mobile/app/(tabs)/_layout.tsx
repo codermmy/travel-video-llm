@@ -8,10 +8,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 export default function TabLayout() {
   return (
     <Tabs
+      detachInactiveScreens={false}
       screenOptions={{
         tabBarActiveTintColor: '#6200EE',
         tabBarInactiveTintColor: '#999',
         headerShown: false,
+        lazy: false,
+        freezeOnBlur: false,
       }}
     >
       <Tabs.Screen

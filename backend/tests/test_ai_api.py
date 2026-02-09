@@ -122,6 +122,14 @@ def test_generate_ai_story_writes_back(monkeypatch) -> None:
         db.commit()
 
         monkeypatch.setattr(
+            "app.tasks.clustering_tasks.ai_service.is_configured",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "app.tasks.clustering_tasks.ai_service.configuration_error_code",
+            lambda: "openai_api_key_not_configured",
+        )
+        monkeypatch.setattr(
             "app.tasks.clustering_tasks.ai_service.analyze_event_photos",
             lambda event_id, photo_urls, location: {
                 "descriptions": ["d1", "d2"],

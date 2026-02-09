@@ -1,7 +1,8 @@
-import * as FileSystem from 'expo-file-system/build/legacy/FileSystem';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 import { formatFileSize, generateThumbnail, ThumbnailResult } from '@/utils/imageUtils';
+import { calculateFileHash, isValidHash } from '@/utils/hashUtils';
 
 function getThumbnailDir(): string {
   const baseDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
@@ -64,19 +65,53 @@ export async function generateAndSaveThumbnail(
   return { ...thumbnail, uri: targetPath };
 }
 
+export type HashedThumbnailResult = ThumbnailResult & {
+  hash: string;
+};
+
+export async function generateAndSaveThumbnailWithHash(
+  uri: string,
+): Promise<HashedThumbnailResult> {
+  await ensureDirExists();
+
+  const thumbnail = await generateThumbnail(uri);
+  const hash = await calculateFileHash(thumbnail.uri);
+  if (!isValidHash(hash)) {
+    await FileSystem.deleteAsync(thumbnail.uri, { idempotent: true });
+    throw new Error('invalid_thumbnail_hash');
+  }
+
+  const targetPath = getThumbnailPath(hash);
+  const targetInfo = await FileSystem.getInfoAsync(targetPath);
+  if (targetInfo.exists) {
+    await FileSystem.deleteAsync(thumbnail.uri, { idempotent: true });
+    return { ...thumbnail, uri: targetPath, hash };
+  }
+
+  await FileSystem.moveAsync({ from: thumbnail.uri, to: targetPath });
+  return { ...thumbnail, uri: targetPath, hash };
+}
+
 export async function generateThumbnailsForPhotos(
   photos: { uri: string; hash: string }[],
   onProgress?: (current: number, total: number) => void,
 ): Promise<ThumbnailResult[]> {
   await ensureDirExists();
-  const results: ThumbnailResult[] = [];
+  const results: ThumbnailResult[] = new Array(photos.length);
 
   for (let i = 0; i < photos.length; i += 1) {
     const photo = photos[i];
     try {
-      results.push(await generateAndSaveThumbnail(photo.uri, photo.hash));
+      results[i] = await generateAndSaveThumbnail(photo.uri, photo.hash);
     } catch (error) {
       console.warn('generateAndSaveThumbnail failed:', photo.uri, error);
+      results[i] = {
+        uri: '',
+        width: 0,
+        height: 0,
+        size: 0,
+        sizeFormatted: formatFileSize(0),
+      };
     } finally {
       onProgress?.(i + 1, photos.length);
     }

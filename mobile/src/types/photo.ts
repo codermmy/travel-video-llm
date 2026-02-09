@@ -26,6 +26,7 @@ export interface PhotoHashResult {
 export interface PhotoRecord {
   id: string;
   fileHash?: string | null;
+  photoUrl?: string | null;
   thumbnailUrl?: string | null;
   gpsLat?: number | null;
   gpsLon?: number | null;

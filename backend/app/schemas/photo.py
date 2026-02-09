@@ -28,7 +28,8 @@ class PhotoUploadItem(BaseModel):
 
 
 class PhotoUploadRequest(BaseModel):
-    photos: Annotated[list[PhotoUploadItem], Field(min_length=1, max_length=50)]
+    photos: Annotated[list[PhotoUploadItem], Field(min_length=1, max_length=2000)]
+    triggerClustering: bool = True
 
 
 class PhotoUploadData(BaseModel):
@@ -41,6 +42,8 @@ class PhotoOut(BaseModel):
     id: str
     fileHash: Optional[str] = None
     thumbnailUrl: Optional[str] = None
+    storageProvider: Optional[str] = None
+    objectKey: Optional[str] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
     shootTime: Optional[datetime] = None

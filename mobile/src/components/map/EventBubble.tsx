@@ -23,7 +23,11 @@ export const EventBubble: React.FC<EventBubbleProps> = ({ event, onPressDetails,
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <TouchableOpacity style={styles.contentContainer} onPress={onPressDetails} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.contentContainer}
+          onPress={onPressDetails}
+          activeOpacity={0.8}
+        >
           <View style={styles.imageContainer}>
             {event.coverPhotoUrl ? (
               <Image source={{ uri: event.coverPhotoUrl }} style={styles.image} />
@@ -60,7 +64,11 @@ export const EventBubble: React.FC<EventBubbleProps> = ({ event, onPressDetails,
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.closeButton} onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={onClose}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Ionicons name="close-circle" size={24} color="#ccc" />
         </TouchableOpacity>
       </View>

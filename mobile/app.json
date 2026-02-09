@@ -3,6 +3,7 @@
     "name": "mobile",
     "slug": "mobile",
     "version": "1.0.0",
+    "scheme": "travelalbum",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,15 +14,37 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.maoyuan.travelalbum",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Allow access to your photo library to organize travel photos.",
+        "NSLocationWhenInUseUsageDescription": "Allow access to your location to show events on the map."
+      }
     },
     "android": {
+      "package": "com.maoyuan.travelalbum",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "ACCESS_MEDIA_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
+    },
+    "extra": {
+      "amap": {
+        "androidKey": "b83d0e9f268966db7e99c716e4c5325e",
+        "iosKey": "__AMAP_IOS_KEY__"
+      },
+      "eas": {
+        "projectId": "eddae9f0-4089-4d46-a838-19c6d63e3c49"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 import app.models  # noqa: F401
 from app.api.v1.router import api_v1_router
@@ -20,6 +23,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
     app.include_router(api_v1_router, prefix="/api/v1")
     return app

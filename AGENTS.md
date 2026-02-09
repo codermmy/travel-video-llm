@@ -1,21 +1,3 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
-
-These instructions are for AI assistants working in this project.
-
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
-<!-- OPENSPEC:END -->
 # AI开发工作流与自动化模板
 
 > **本文档作用**: 定义AI辅助开发的标准化工作流和任务模板,确保每次开发都遵循统一流程。
@@ -353,6 +335,42 @@ AI: 我将使用 frontend-design skill 来优化个人中心的视觉设计...
 
 ## 风险提示
 [可能的问题]
+```
+
+---
+
+## 📱 新手友好交付要求
+
+为照顾新手用户,AI 在"每次改动完成后"都必须额外说明以下内容:
+
+1. **是否需要重新 Build 并安装到手机** (明确写: 需要 / 不需要)
+2. **判断原因** (例如: 仅 JS/TS 代码变更,或涉及原生层配置/依赖)
+3. **可直接执行的命令** (按步骤给出,可复制粘贴)
+
+### Build 判断规则 (移动端)
+- **通常不需要重新 Build**:
+  - 仅修改 `mobile/` 下 JS/TS 业务代码、页面样式、路由逻辑
+  - 可通过 Metro 热更新/重载生效
+- **通常需要重新 Build 并重新安装**:
+  - 修改 `mobile/package.json` 依赖 (尤其原生依赖)
+  - 修改 `mobile/android/`、`mobile/ios/` 原生代码或配置
+  - 修改 `app.json` / `app.config.*` 中会影响原生工程的配置 (权限、插件、原生能力等)
+  - 新增或修改 `patches/` 下原生库 patch
+
+### 常用命令模板 (Android)
+```bash
+# 1) 启动 Metro (开发服务)
+cd mobile
+npm run start
+
+# 2) 当需要重建并安装到手机时
+cd mobile
+npm install
+npx expo run:android
+
+# 3) 安装完成后连接 Dev Client
+cd mobile
+npx expo start --dev-client
 ```
 
 ---

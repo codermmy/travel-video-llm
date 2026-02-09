@@ -108,3 +108,44 @@ black --check .
 isort --check-only .
 mypy app
 ```
+
+## AI Story Generation Prerequisites
+
+To make event title/story/emotion generation work end-to-end, configure these in `backend/.env`:
+
+- `AI_PROVIDER` (`openai` or `tongyi`, default `openai`)
+- OpenAI-compatible provider:
+  - `OPENAI_BASE_URL` (default `http://api.yescode.cloud/v1`)
+  - `OPENAI_API_KEY`
+  - `OPENAI_VISION_MODEL` / `OPENAI_STORY_MODEL`
+- Tongyi provider (when `AI_PROVIDER=tongyi`):
+  - `DASHSCOPE_API_KEY` (or `TONGYI_API_KEY`)
+- `AMAP_API_KEY` (location reverse geocoding)
+- OSS config (`OSS_ENDPOINT`, `OSS_BUCKET`, `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`)
+
+Recommended for local debugging:
+
+- Set `BACKEND_PUBLIC_BASE_URL` to an externally reachable URL (or use OSS public URL directly).
+- If OSS is configured, uploaded thumbnails are written to OSS and AI uses public URLs.
+
+### Troubleshooting: event detail shows missing title/story/emotion
+
+1. Check task status from `/api/v1/tasks/status/{taskId}`
+   - `stage=ai` + `status=failure` means AI generation failed.
+   - `result/error` now includes `provider`, `visionModel`, `storyModel` for debugging.
+2. Check event fields from `/api/v1/events/{eventId}`
+   - `status=ai_failed` and `aiError` explains root cause.
+3. Common causes:
+   - `openai_api_key_not_configured`
+   - `tongyi_api_key_not_configured`
+   - `openai_http_error` / `tongyi_http_error`
+   - `openai_response_parse_failed` / `tongyi_response_parse_failed`
+   - `photos_are_not_publicly_accessible_for_ai`
+4. You can retry by calling `POST /api/v1/events/{eventId}/regenerate-story`.
+
+
+## Slideshow Music Fallback
+
+- Default local fallback music file: `mobile/assets/audio/default-bgm.wav`
+- Replace this file with your own licensed BGM if needed.
+- Playback priority: `event.musicUrl` (remote) -> local fallback file -> show "no music" status.

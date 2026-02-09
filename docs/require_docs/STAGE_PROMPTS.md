@@ -2,18 +2,22 @@
 
 > 使用方法：复制对应阶段的提示词块，直接发送给AI即可
 
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
 ---
 
 ## Stage-02: 认证与权限 (Task 02-04)
 
 ```
-@ @/docs/require_docs/require_step_by_step/02-后端JWT认证中间件.md
-@ @/docs/require_docs/require_step_by_step/03-后端设备注册接口完善.md
-@ @/docs/require_docs/require_step_by_step/04-前端认证流程与相册权限.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+ @/docs/require_docs/require_step_by_step/02-后端JWT认证中间件.md
+@/docs/require_docs/require_step_by_step/03-后端设备注册接口完善.md
+@/docs/require_docs/require_step_by_step/04-前端认证流程与相册权限.md
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-02 认证与权限阶段（Task 02-04）。
 
@@ -36,16 +40,20 @@
 ## Stage-03: 照片管理 (Task 05-10)
 
 ```
-@ @/docs/require_docs/require_step_by_step/05-照片哈希计算.md
-@ @/docs/require_docs/require_step_by_step/06-EXIF信息提取.md
-@ @/docs/require_docs/require_step_by_step/07-缩略图生成.md
-@ @/docs/require_docs/require_step_by_step/08-照片去重检查接口.md
-@ @/docs/require_docs/require_step_by_step/09-照片上传接口.md
-@ @/docs/require_docs/require_step_by_step/10-照片CRUD接口.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/05-照片哈希计算.md
+@/docs/require_docs/require_step_by_step/06-EXIF信息提取.md
+@/docs/require_docs/require_step_by_step/07-缩略图生成.md
+@/docs/require_docs/require_step_by_step/08-照片去重检查接口.md
+@/docs/require_docs/require_step_by_step/09-照片上传接口.md
+@/docs/require_docs/require_step_by_step/10-照片CRUD接口.md
+
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-03 照片管理阶段（Task 05-10）。
 
@@ -68,14 +76,18 @@
 ## Stage-04: 聚类算法 (Task 11-14)
 
 ```
-@ @/docs/require_docs/require_step_by_step/11-时空聚类算法核心.md
-@ @/docs/require_docs/require_step_by_step/12-事件生成逻辑.md
-@ @/docs/require_docs/require_step_by_step/13-逆向地理编码.md
-@ @/docs/require_docs/require_step_by_step/14-聚类Celery任务.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/11-时空聚类算法核心.md
+@/docs/require_docs/require_step_by_step/12-事件生成逻辑.md
+@/docs/require_docs/require_step_by_step/13-逆向地理编码.md
+@/docs/require_docs/require_step_by_step/14-聚类Celery任务.md
+
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-04 聚类算法阶段（Task 11-14）。
 
@@ -98,13 +110,16 @@
 ## Stage-05: AI服务 (Task 15-17)
 
 ```
-@ @/docs/require_docs/require_step_by_step/15-AI服务集成框架.md
-@ @/docs/require_docs/require_step_by_step/16-图像内容识别.md
-@ @/docs/require_docs/require_step_by_step/17-故事生成服务.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/15-AI服务集成框架.md
+@/docs/require_docs/require_step_by_step/16-图像内容识别.md
+@/docs/require_docs/require_step_by_step/17-故事生成服务.md
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-05 AI服务阶段（Task 15-17）。
 
@@ -126,13 +141,16 @@
 ## Stage-06: 导航与地图 (Task 18-20)
 
 ```
-@ @/docs/require_docs/require_step_by_step/18-expo-router导航配置.md
-@ @/docs/require_docs/require_step_by_step/19-高德地图集成.md
-@ @/docs/require_docs/require_step_by_step/20-事件标记展示.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/18-expo-router导航配置.md
+@/docs/require_docs/require_step_by_step/19-高德地图集成.md
+@/docs/require_docs/require_step_by_step/20-事件标记展示.md
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-06 导航与地图阶段（Task 18-20）。
 
@@ -153,15 +171,19 @@
 
 ## Stage-07: UI页面 (Task 21-24)
 
+
 ```
-@ @/docs/require_docs/require_step_by_step/21-事件详情页.md
-@ @/docs/require_docs/require_step_by_step/22-欢迎页与认证页完善.md
-@ @/docs/require_docs/require_step_by_step/23-照片网格与查看器.md
-@ @/docs/require_docs/require_step_by_step/24-上传进度提示.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/21-事件详情页.md
+@/docs/require_docs/require_step_by_step/22-欢迎页与认证页完善.md
+@/docs/require_docs/require_step_by_step/23-照片网格与查看器.md
+@/docs/require_docs/require_step_by_step/24-上传进度提示.md
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-07 UI页面阶段（Task 21-24）。
 
@@ -183,12 +205,15 @@
 ## Stage-08: 高级功能 (Task 25-26)
 
 ```
-@ @/docs/require_docs/require_step_by_step/25-幻灯片播放器.md
-@ @/docs/require_docs/require_step_by_step/26-系统测试与优化.md
-@ @/docs/require_docs/01-项目需求文档.md
-@ @/docs/require_docs/02-系统技术架构.md
-@ @/docs/require_docs/04-开发规范.md
-@ @/openspec/AGENTS.md
+
+下面是你要参考的需求文档，他们是按照文件名编号顺序写的，有比较多个，
+@/docs/require_docs/require_step_by_step/25-幻灯片播放器.md
+@/docs/require_docs/require_step_by_step/26-系统测试与优化.md
+下面是整个系统的完整的需求文档、技术架构文档、规范，你可以进行参考
+@/docs/require_docs/01-项目需求文档.md
+@/docs/require_docs/02-系统技术架构.md
+@/docs/require_docs/04-开发规范.md
+@/openspec/AGENTS.md
 
 请按照 OpenSpec 流程实现 Stage-08 高级功能阶段（Task 25-26）。
 

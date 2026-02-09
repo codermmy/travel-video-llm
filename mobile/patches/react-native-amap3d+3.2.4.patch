@@ -1,0 +1,13 @@
+diff --git a/node_modules/react-native-amap3d/lib/src/component.ts b/node_modules/react-native-amap3d/lib/src/component.ts
+index 95e6081..8d411d0 100644
+--- a/node_modules/react-native-amap3d/lib/src/component.ts
++++ b/node_modules/react-native-amap3d/lib/src/component.ts
+@@ -19,7 +19,7 @@ export default class Component<P, S = {}> extends PureComponent<P, S> {
+   /**
+    * 调用原生方法
+    */
+-  invoke(name: string, params?: any[]) {
++  invoke(name: string, params: any[] = []) {
+     if (!this.mounted) return;
+ 
+     const handle = findNodeHandle(this);

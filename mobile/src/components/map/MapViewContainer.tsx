@@ -1,11 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
-import { MapView, AMapSdk } from 'react-native-amap3d';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import type { EventRecord } from '@/types/event';
 import { EventMarker } from './EventMarker';
 import { EventBubble } from './EventBubble';
+import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
+
+declare function require(moduleName: string): unknown;
 
 const DEFAULT_AMAP_ANDROID_KEY = '__AMAP_ANDROID_KEY__';
 const DEFAULT_AMAP_IOS_KEY = '__AMAP_IOS_KEY__';
@@ -15,11 +17,17 @@ interface MapViewContainerProps {
   onEventPress: (eventId: string) => void;
 }
 
+type AMapLoadStatus = 'idle' | 'ready' | 'missing_keys' | 'module_error';
+
 export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEventPress }) => {
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<MapViewRef | null>(null);
+  const [amap, setAmap] = useState<AMapModule | null>(null);
+  const [amapStatus, setAmapStatus] = useState<AMapLoadStatus>('idle');
+  const [amapError, setAmapError] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
 
+  const isWeb = Platform.OS === 'web';
   const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
   const amapAndroidKey =
     (Constants.expoConfig?.extra as { amap?: { androidKey?: string } } | undefined)?.amap
@@ -28,24 +36,92 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     (Constants.expoConfig?.extra as { amap?: { iosKey?: string } } | undefined)?.amap?.iosKey ??
     DEFAULT_AMAP_IOS_KEY;
 
-  useEffect(() => {
-    if (!isExpoGo) {
-      try {
-        AMapSdk.init({
-          android: Platform.OS === 'android' ? amapAndroidKey : undefined,
-          ios: Platform.OS === 'ios' ? amapIosKey : undefined,
-        });
-      } catch (error) {
-        console.warn('Failed to initialize AMap SDK:', error);
-      }
+  const isConfiguredKey = (key: string, placeholder: string) => Boolean(key && key !== placeholder);
+  const isPlatformKeyConfigured =
+    Platform.OS === 'android'
+      ? isConfiguredKey(amapAndroidKey, DEFAULT_AMAP_ANDROID_KEY)
+      : isConfiguredKey(amapIosKey, DEFAULT_AMAP_IOS_KEY);
+
+  const isAmapModule = (value: unknown): value is AMapModule => {
+    if (!value || typeof value !== 'object') {
+      return false;
     }
-  }, [amapAndroidKey, amapIosKey, isExpoGo]);
+    const maybe = value as { MapView?: unknown; Marker?: unknown; AMapSdk?: unknown };
+    return Boolean(maybe.MapView && maybe.Marker && maybe.AMapSdk);
+  };
+
+  useEffect(() => {
+    if (isWeb) {
+      // Web doesn't support react-native-amap3d (native module).
+      setAmap(null);
+      setAmapError(null);
+      setAmapStatus('module_error');
+      return;
+    }
+
+    if (isExpoGo) {
+      return;
+    }
+
+    if (!isPlatformKeyConfigured) {
+      setAmap(null);
+      setAmapError(null);
+      setAmapStatus('missing_keys');
+      return;
+    }
+
+    try {
+      const mod = require('react-native-amap3d');
+      if (!isAmapModule(mod)) {
+        console.warn('AMap module loaded but shape is unexpected');
+        setAmap(null);
+        setAmapError('amap_module_shape_unexpected');
+        setAmapStatus('module_error');
+        return;
+      }
+      setAmap(mod);
+
+      if (Platform.OS === 'android') {
+        mod.AMapSdk.init(amapAndroidKey);
+      } else if (Platform.OS === 'ios') {
+        mod.AMapSdk.init(amapIosKey);
+      }
+
+      setAmapError(null);
+      setAmapStatus('ready');
+    } catch (error) {
+      console.warn('Failed to load or initialize AMap module:', error);
+      setAmap(null);
+      setAmapError(String(error));
+      setAmapStatus('module_error');
+    }
+  }, [amapAndroidKey, amapIosKey, isExpoGo, isPlatformKeyConfigured, isWeb]);
+
+  const hasValidGps = (e: EventRecord): e is EventRecord & { gpsLat: number; gpsLon: number } => {
+    if (typeof e.gpsLat !== 'number' || typeof e.gpsLon !== 'number') {
+      return false;
+    }
+    if (!Number.isFinite(e.gpsLat) || !Number.isFinite(e.gpsLon)) {
+      return false;
+    }
+    if (Math.abs(e.gpsLat) > 90 || Math.abs(e.gpsLon) > 180) {
+      return false;
+    }
+    return true;
+  };
 
   // Filter events with valid coordinates
-  const validEvents = events.filter(
-    (e) => typeof e.gpsLat === 'number' && typeof e.gpsLon === 'number',
-  );
-  const selectedEvent = validEvents.find(e => e.id === selectedEventId);
+  const validEvents = useMemo(() => events.filter(hasValidGps), [events]);
+  const selectedEvent = validEvents.find((e) => e.id === selectedEventId);
+
+  useEffect(() => {
+    if (!selectedEventId) {
+      return;
+    }
+    if (!selectedEvent) {
+      setSelectedEventId(null);
+    }
+  }, [selectedEvent, selectedEventId]);
 
   useEffect(() => {
     if (isMapReady && validEvents.length > 0 && mapRef.current) {
@@ -55,8 +131,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
       let minLon = 180;
       let maxLon = -180;
       validEvents.forEach((e) => {
-        const lat = e.gpsLat ?? 0;
-        const lon = e.gpsLon ?? 0;
+        const lat = e.gpsLat;
+        const lon = e.gpsLon;
         if (lat < minLat) minLat = lat;
         if (lat > maxLat) maxLat = lat;
         if (lon < minLon) minLon = lon;
@@ -66,7 +142,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
       // Add padding
       const latDelta = maxLat - minLat;
       const lonDelta = maxLon - minLon;
-      
+
       // If only one point, or very close points
       if (latDelta < 0.01 && lonDelta < 0.01) {
         mapRef.current.moveCamera(
@@ -80,26 +156,26 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
           1000,
         );
       } else {
-          // AMap3D doesn't have a direct "fitToCoordinates" in the typed ref sometimes, 
-          // but moveCamera supports bounds? 
-          // Checking types... MapView methods: moveCamera(CameraUpdate, duration)
-          // CameraUpdate can be CameraPosition.
-          // Actually, react-native-amap3d v3 doesn't have fitToCoordinates easily exposed in the same way as google maps.
-          // But we can set zoom level manually or use the center.
-          // For now, let's just center on the first event or average.
-          
-          // Better: Average center
-          const centerLat = (minLat + maxLat) / 2;
-          const centerLon = (minLon + maxLon) / 2;
-          
-          // Rough zoom estimation
-          // 0.1 delta ~ zoom 10
-          // 0.01 delta ~ zoom 14
-          const maxDelta = Math.max(latDelta, lonDelta);
-          let zoom = 10;
-          if (maxDelta < 0.05) zoom = 13;
-          if (maxDelta < 0.01) zoom = 15;
-          if (maxDelta > 1) zoom = 5;
+        // AMap3D doesn't have a direct "fitToCoordinates" in the typed ref sometimes,
+        // but moveCamera supports bounds?
+        // Checking types... MapView methods: moveCamera(CameraUpdate, duration)
+        // CameraUpdate can be CameraPosition.
+        // Actually, react-native-amap3d v3 doesn't have fitToCoordinates easily exposed in the same way as google maps.
+        // But we can set zoom level manually or use the center.
+        // For now, let's just center on the first event or average.
+
+        // Better: Average center
+        const centerLat = (minLat + maxLat) / 2;
+        const centerLon = (minLon + maxLon) / 2;
+
+        // Rough zoom estimation
+        // 0.1 delta ~ zoom 10
+        // 0.01 delta ~ zoom 14
+        const maxDelta = Math.max(latDelta, lonDelta);
+        let zoom = 10;
+        if (maxDelta < 0.05) zoom = 13;
+        if (maxDelta < 0.01) zoom = 15;
+        if (maxDelta > 1) zoom = 5;
 
         mapRef.current.moveCamera(
           {
@@ -110,18 +186,15 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         );
       }
     }
-  }, [isMapReady, validEvents.length]); // Don't depend on validEvents content to avoid loops, just length
+  }, [isMapReady, validEvents]);
 
-  if (isExpoGo) {
+  if (isWeb) {
     return (
       <View style={styles.fallbackContainer}>
         <Ionicons name="map-outline" size={64} color="#ccc" />
-        <Text style={styles.fallbackTitle}>Map Unavailable in Expo Go</Text>
+        <Text style={styles.fallbackTitle}>Web 不支持高德地图</Text>
         <Text style={styles.fallbackText}>
-          AMap (Gaode Map) requires native modules which are not available in Expo Go.
-        </Text>
-        <Text style={styles.fallbackText}>
-          Please use a Development Build to view the map.
+          高德地图依赖原生模块，仅 iOS/Android Development Build 可用。
         </Text>
         <View style={styles.eventListPreview}>
           <Text style={styles.previewTitle}>Events ({validEvents.length})</Text>
@@ -135,10 +208,75 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     );
   }
 
+  if (isExpoGo) {
+    return (
+      <View style={styles.fallbackContainer}>
+        <Ionicons name="map-outline" size={64} color="#ccc" />
+        <Text style={styles.fallbackTitle}>Expo Go 无法显示地图</Text>
+        <Text style={styles.fallbackText}>高德地图需要原生模块，Expo Go 不支持该类原生模块。</Text>
+        <Text style={styles.fallbackText}>请使用 Development Build（自定义客户端）运行。</Text>
+        <View style={styles.eventListPreview}>
+          <Text style={styles.previewTitle}>Events ({validEvents.length})</Text>
+          {validEvents.slice(0, 3).map((e) => (
+            <View key={e.id} style={styles.previewItem}>
+              <Text>{e.title}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  if (!amap) {
+    if (amapStatus === 'missing_keys') {
+      const keyPath =
+        Platform.OS === 'android' ? 'expo.extra.amap.androidKey' : 'expo.extra.amap.iosKey';
+      return (
+        <View style={styles.fallbackContainer}>
+          <Ionicons name="key-outline" size={64} color="#ccc" />
+          <Text style={styles.fallbackTitle}>未配置高德地图 Key</Text>
+          <Text style={styles.fallbackText}>请在 `mobile/app.json` 中配置：</Text>
+          <Text style={styles.fallbackText}>{keyPath}</Text>
+          <Text style={styles.fallbackText}>配置后需要重新构建 Development Build。</Text>
+        </View>
+      );
+    }
+
+    if (amapStatus === 'module_error') {
+      return (
+        <View style={styles.fallbackContainer}>
+          <Ionicons name="warning-outline" size={64} color="#ccc" />
+          <Text style={styles.fallbackTitle}>地图模块不可用</Text>
+          <Text style={styles.fallbackText}>
+            请确认你运行的是 Development Build（不是 Expo Go）。
+          </Text>
+          <Text style={styles.fallbackText}>如果问题持续，可能需要重新安装依赖并重新构建。</Text>
+          {amapError && <Text style={styles.fallbackText}>错误: {amapError}</Text>}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.fallbackContainer}>
+        <Ionicons name="map-outline" size={64} color="#ccc" />
+        <Text style={styles.fallbackTitle}>地图模块加载中</Text>
+        <Text style={styles.fallbackText}>如果你在 Expo Go，这里将无法显示地图。</Text>
+        <Text style={styles.fallbackText}>请使用 Development Build 运行以启用高德地图。</Text>
+      </View>
+    );
+  }
+
+  const MapViewComponent = amap.MapView as unknown as React.ComponentType<
+    MapViewProps & { ref?: unknown }
+  >;
+  const MarkerComponent = amap.Marker as unknown as React.ComponentType<MarkerProps>;
+
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
+      <MapViewComponent
+        ref={(ref: unknown) => {
+          mapRef.current = ref ? (ref as unknown as MapViewRef) : null;
+        }}
         style={styles.map}
         onLoad={() => setIsMapReady(true)}
         onPress={() => setSelectedEventId(null)}
@@ -148,14 +286,15 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         }}
       >
         {validEvents.map((event) => (
-           <EventMarker
-             key={event.id}
-             event={event}
-             isSelected={selectedEventId === event.id}
-             onPress={() => setSelectedEventId(event.id)}
-           />
-         ))}
-      </MapView>
+          <EventMarker
+            key={event.id}
+            event={event}
+            isSelected={selectedEventId === event.id}
+            onPress={() => setSelectedEventId(event.id)}
+            MarkerComponent={MarkerComponent}
+          />
+        ))}
+      </MapViewComponent>
 
       {validEvents.length === 0 && (
         <View pointerEvents="none" style={styles.emptyState}>

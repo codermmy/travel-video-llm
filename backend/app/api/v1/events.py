@@ -16,35 +16,47 @@ from app.schemas.event import (
     EventPhotoItem,
     EventResponse,
     EventUpdateRequest,
+    RegenerateStoryResponse,
 )
+from app.services.event_enrichment import ensure_event_title, get_event_location_text
 from app.services.event_service import event_service
+from app.services.storage_service import storage_service
+from app.tasks.clustering_tasks import trigger_event_story_task
 
 router = APIRouter()
 
 
 def _event_to_response(event: Event) -> EventResponse:
+    location_text = get_event_location_text(event)
+    title_text = ensure_event_title(event)
+
     return EventResponse(
         id=event.id,
-        title=event.title,
-        locationName=event.location_name,
+        title=title_text,
+        locationName=location_text,
         gpsLat=float(event.gps_lat) if event.gps_lat is not None else None,
         gpsLon=float(event.gps_lon) if event.gps_lon is not None else None,
         startTime=event.start_time,
         endTime=event.end_time,
         photoCount=event.photo_count,
-        coverPhotoUrl=event.cover_photo_url,
+        coverPhotoUrl=storage_service.resolve_client_url(event.cover_photo_url),
         storyText=event.story_text,
         emotionTag=event.emotion_tag,
         musicUrl=event.music_url,
         status=event.status,
+        aiError=event.ai_error,
     )
 
 
 def _photo_to_event_item(photo: Photo) -> EventPhotoItem:
+    photo_url = storage_service.resolve_client_url(photo.thumbnail_url)
     return EventPhotoItem(
         id=photo.id,
-        thumbnailUrl=photo.thumbnail_url,
+        photoUrl=photo_url,
+        thumbnailUrl=photo_url,
         shootTime=photo.shoot_time,
+        gpsLat=float(photo.gps_lat) if photo.gps_lat is not None else None,
+        gpsLon=float(photo.gps_lon) if photo.gps_lon is not None else None,
     )
 
 
@@ -94,6 +106,29 @@ def get_event_detail(
         **base.model_dump(), photos=[_photo_to_event_item(p) for p in photos]
     )
     return ApiResponse.ok(detail)
+
+
+@router.post("/{event_id}/regenerate-story", response_model=ApiResponse[RegenerateStoryResponse])
+def regenerate_story(
+    event_id: str,
+    current_user_id: CurrentUserIdDep,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RegenerateStoryResponse]:
+    event = event_service.get_event_detail(event_id=event_id, user_id=current_user_id, db=db)
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="事件不存在")
+
+    event.status = "ai_pending"
+    event.ai_error = None
+    db.commit()
+
+    task_id = trigger_event_story_task(user_id=current_user_id, event_id=event_id, db=db)
+    return ApiResponse.ok(
+        RegenerateStoryResponse(
+            taskId=task_id,
+            status="queued" if task_id else "processed_inline",
+        )
+    )
 
 
 @router.patch("/{event_id}", response_model=ApiResponse[EventResponse])

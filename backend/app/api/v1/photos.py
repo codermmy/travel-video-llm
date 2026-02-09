@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +9,6 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUserIdDep
-from app.core.config import settings
 from app.db.session import get_db
 from app.models.photo import Photo
 from app.schemas.common import ApiResponse
@@ -24,19 +22,19 @@ from app.schemas.photo import (
     PhotoUploadData,
     PhotoUploadRequest,
 )
+from app.services.storage_service import storage_service
 from app.tasks.clustering_tasks import trigger_clustering_task
 
 router = APIRouter()
-
-UPLOAD_DIR = Path(settings.upload_dir) / "photos"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _photo_to_out(photo: Photo) -> PhotoOut:
     return PhotoOut(
         id=photo.id,
         fileHash=photo.file_hash,
-        thumbnailUrl=photo.thumbnail_url,
+        thumbnailUrl=storage_service.resolve_client_url(photo.thumbnail_url),
+        storageProvider=photo.storage_provider,
+        objectKey=photo.object_key,
         gpsLat=float(photo.gps_lat) if photo.gps_lat else None,
         gpsLon=float(photo.gps_lon) if photo.gps_lon else None,
         shootTime=photo.shoot_time,
@@ -92,11 +90,16 @@ def upload_metadata(
                 failed += 1
                 continue
 
+            thumbnail_url, storage_provider, object_key = storage_service.build_public_photo_url(
+                item.hash
+            )
             photo = Photo(
                 user_id=current_user_id,
                 file_hash=item.hash,
                 thumbnail_path=item.thumbnailPath,
-                thumbnail_url=f"/uploads/photos/{item.hash}.jpg",
+                thumbnail_url=thumbnail_url,
+                storage_provider=storage_provider,
+                object_key=object_key,
                 gps_lat=item.gpsLat,
                 gps_lon=item.gpsLon,
                 shoot_time=item.shootTime,
@@ -111,12 +114,12 @@ def upload_metadata(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"上传失败: {e}")
+
     task_id = None
-    if uploaded > 0:
+    if uploaded > 0 and request.triggerClustering:
         try:
             task_id = trigger_clustering_task(user_id=current_user_id, db=db)
         except Exception:
-            # Clustering is best-effort during upload; client can still proceed.
             task_id = None
 
     return ApiResponse.ok(PhotoUploadData(uploaded=uploaded, failed=failed, taskId=task_id))
@@ -128,11 +131,20 @@ def upload_file(
     file_hash: str = Query(..., min_length=64, max_length=64),
     file: UploadFile = File(...),
 ) -> ApiResponse[dict]:
-    target_path = UPLOAD_DIR / f"{file_hash}.jpg"
-    with open(target_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    file_size = target_path.stat().st_size
-    return ApiResponse.ok({"path": str(target_path), "size": file_size})
+    try:
+        upload = storage_service.upload_photo_file(file_hash=file_hash, file_obj=file.file)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"文件上传失败: {e}")
+
+    return ApiResponse.ok(
+        {
+            "path": upload.local_path,
+            "size": Path(upload.local_path).stat().st_size,
+            "url": upload.public_url,
+            "storageProvider": upload.storage_provider,
+            "objectKey": upload.object_key,
+        }
+    )
 
 
 @router.get("/", response_model=ApiResponse[PhotoListData])
@@ -285,11 +297,6 @@ def delete_photo(
     )
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
-
-    if photo.file_hash:
-        file_path = UPLOAD_DIR / f"{photo.file_hash}.jpg"
-        if file_path.exists():
-            file_path.unlink()
 
     db.delete(photo)
     db.commit()

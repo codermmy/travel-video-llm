@@ -122,3 +122,53 @@ def test_photo_list_and_stats() -> None:
     assert s["total"] == 2
     assert s["withGps"] == 1
     assert s["withoutGps"] == 1
+
+
+def test_upload_metadata_without_triggering_clustering_task() -> None:
+    token = _register_and_get_token("photo-test-device-003")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    upload = client.post(
+        "/api/v1/photos/upload/metadata",
+        headers=headers,
+        json={
+            "triggerClustering": False,
+            "photos": [
+                {
+                    "hash": "d" * 64,
+                    "thumbnailPath": "/tmp/no-trigger.jpg",
+                }
+            ],
+        },
+    )
+    assert upload.status_code == 200
+    data = upload.json()["data"]
+    assert data["uploaded"] == 1
+    assert data["taskId"] is None
+
+
+def test_upload_metadata_accepts_more_than_fifty_items() -> None:
+    token = _register_and_get_token("photo-test-device-004")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    photos = []
+    for i in range(51):
+        photos.append(
+            {
+                "hash": f"{i:064x}",
+                "thumbnailPath": f"/tmp/bulk-{i}.jpg",
+            }
+        )
+
+    upload = client.post(
+        "/api/v1/photos/upload/metadata",
+        headers=headers,
+        json={
+            "triggerClustering": False,
+            "photos": photos,
+        },
+    )
+    assert upload.status_code == 200
+    data = upload.json()["data"]
+    assert data["uploaded"] == 51
+    assert data["failed"] == 0

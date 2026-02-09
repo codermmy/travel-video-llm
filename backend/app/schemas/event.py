@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+EventStatus = Literal['clustered', 'ai_pending', 'ai_processing', 'generated', 'ai_failed']
 
 
 class EventResponse(BaseModel):
     id: str
-    title: str = ""
+    title: str = ''
     locationName: Optional[str] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
@@ -19,7 +21,8 @@ class EventResponse(BaseModel):
     storyText: Optional[str] = None
     emotionTag: Optional[str] = None
     musicUrl: Optional[str] = None
-    status: str = "clustered"
+    status: EventStatus = 'clustered'
+    aiError: Optional[str] = None
 
 
 class EventListResponse(BaseModel):
@@ -32,8 +35,11 @@ class EventListResponse(BaseModel):
 
 class EventPhotoItem(BaseModel):
     id: str
+    photoUrl: Optional[str] = None
     thumbnailUrl: Optional[str] = None
     shootTime: Optional[datetime] = None
+    gpsLat: Optional[float] = None
+    gpsLon: Optional[float] = None
 
 
 class EventDetailResponse(EventResponse):
@@ -51,4 +57,9 @@ class EventUpdateRequest(BaseModel):
     storyText: Optional[str] = None
     emotionTag: Optional[str] = None
     musicUrl: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[EventStatus] = None
+
+
+class RegenerateStoryResponse(BaseModel):
+    taskId: Optional[str] = None
+    status: str

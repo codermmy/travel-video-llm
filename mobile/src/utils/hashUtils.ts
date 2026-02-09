@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import * as FileSystem from 'expo-file-system/build/legacy/FileSystem';
+import * as FileSystem from 'expo-file-system/legacy';
 
 import { compareHashes, isValidHash } from '@/utils/hashPrimitives';
 

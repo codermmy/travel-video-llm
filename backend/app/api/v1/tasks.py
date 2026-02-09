@@ -32,6 +32,7 @@ def get_task_status(
             taskId=task.task_id or "",
             taskType=task.task_type,
             status=task.status,
+            stage=task.stage,
             progress=task.progress,
             total=task.total,
             result=task.result,

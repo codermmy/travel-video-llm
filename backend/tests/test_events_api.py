@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import get_db
+from app.models.event import Event
 from app.models.photo import Photo
 from app.models.user import User
 from app.services.clustering_service import cluster_user_photos
@@ -126,3 +127,87 @@ def test_event_stats() -> None:
     s = stats.json()["data"]
     assert s["total"] == 1
     assert s["clustered"] == 1
+
+
+def test_event_detail_fallback_title_and_location() -> None:
+    token = _register_and_get_token("events-test-device-003")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-003"))
+        assert user is not None
+
+        event = Event(
+            user_id=user.id,
+            title="",
+            location_name=None,
+            gps_lat=30.259,
+            gps_lon=120.215,
+            start_time=datetime(2024, 5, 1, 8, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 5, 1, 9, 0, 0, tzinfo=timezone.utc),
+            photo_count=0,
+            status="clustered",
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(event)
+    finally:
+        db.close()
+
+    detail = client.get(f"/api/v1/events/{event.id}", headers=headers)
+    assert detail.status_code == 200
+    payload = detail.json()["data"]
+    assert payload["title"]
+    assert payload["locationName"] == "30.2590, 120.2150"
+
+
+def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
+    token = _register_and_get_token("events-test-device-004")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-004"))
+        assert user is not None
+
+        event = Event(
+            user_id=user.id,
+            title="",
+            location_name="杭州",
+            gps_lat=30.259,
+            gps_lon=120.215,
+            start_time=datetime(2024, 5, 1, 8, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 5, 1, 9, 0, 0, tzinfo=timezone.utc),
+            photo_count=1,
+            status="clustered",
+        )
+        db.add(event)
+        db.flush()
+
+        db.add(
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                file_hash="f" * 64,
+                thumbnail_url="https://example.com/demo.jpg",
+                status="clustered",
+            )
+        )
+        db.commit()
+        db.refresh(event)
+    finally:
+        db.close()
+
+    resp = client.post(f"/api/v1/events/{event.id}/regenerate-story", headers=headers)
+    assert resp.status_code == 200
+    out = resp.json()["data"]
+    assert out["status"] in {"queued", "processed_inline"}
+
+    detail = client.get(f"/api/v1/events/{event.id}", headers=headers)
+    assert detail.status_code == 200
+    payload = detail.json()["data"]
+    assert payload["status"] in {"ai_failed", "ai_processing", "ai_pending", "generated"}
+    if out["status"] == "processed_inline":
+        assert payload["status"] == "ai_failed"
+        assert payload["aiError"] == "openai_api_key_not_configured"

@@ -4,7 +4,13 @@ import { Platform } from 'react-native';
 const LOCALHOST_API = 'http://localhost:8000';
 
 function getDevServerHost(): string | null {
-  const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest?.debuggerHost;
+  const manifest = Constants.manifest as unknown;
+  const debuggerHost =
+    typeof manifest === 'object' && manifest && 'debuggerHost' in manifest
+      ? (manifest as { debuggerHost?: unknown }).debuggerHost
+      : null;
+  const hostUri =
+    Constants.expoConfig?.hostUri ?? (typeof debuggerHost === 'string' ? debuggerHost : null);
   if (!hostUri) {
     return null;
   }
