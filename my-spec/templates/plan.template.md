@@ -14,7 +14,7 @@
 
 ## 3. 测试执行计划
 
-- 读取 profile：`my-spec/system/global/test-profile.yaml`
+- 读取 profile：`my-spec/system/execution/01-test-profile.yaml`
 - required profile：
 - conditional profile：
 - 预计运行顺序：

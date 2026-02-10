@@ -60,8 +60,8 @@ rules:
       - mobile/.maestro/
       - .github/workflows/
     must_update:
-      - my-spec/system/global/test-profile.yaml
-      - my-spec/system/global/testing-playbook.md
+      - my-spec/system/execution/01-test-profile.yaml
+      - my-spec/system/execution/02-testing-playbook.md
       - my-spec/system/frontend/modules/testing.md
       - my-spec/system/backend/modules/testing.md
 

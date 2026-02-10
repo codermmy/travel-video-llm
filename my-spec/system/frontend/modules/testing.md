@@ -542,9 +542,9 @@ it('should disable button when loading', () => {});
 | 模块 | 文档 | 关联说明 |
 |------|------|----------|
 | 后端测试 | `backend/modules/testing.md` | 前后端测试协调 |
-| 测试策略 | `global/test-strategy.md` | 全局测试策略 |
-| 测试手册 | `global/testing-playbook.md` | 执行手册 |
-| 测试配置 | `global/test-profile.yaml` | profile 定义 |
+| 测试策略 | `execution/03-test-strategy.md` | 全局测试策略 |
+| 测试手册 | `execution/02-testing-playbook.md` | 执行手册 |
+| 测试配置 | `execution/01-test-profile.yaml` | profile 定义 |
 
 ---
 
@@ -552,10 +552,10 @@ it('should disable button when loading', () => {});
 
 若本模块变更，需同步检查：
 
-- [ ] `my-spec/system/global/test-profile.yaml`
-- [ ] `my-spec/system/global/testing-playbook.md`
+- [ ] `my-spec/system/execution/01-test-profile.yaml`
+- [ ] `my-spec/system/execution/02-testing-playbook.md`
 - [ ] `my-spec/system/backend/modules/testing.md`
-- [ ] `my-spec/system/global/test-strategy.md`
+- [ ] `my-spec/system/execution/03-test-strategy.md`
 - [ ] `mobile/package.json`（若测试命令变化）
 
 ---

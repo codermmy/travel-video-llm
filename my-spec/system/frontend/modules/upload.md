@@ -468,7 +468,7 @@ if (canQueryAssetInfo) {
 - [ ] `my-spec/system/backend/modules/photo.md`
 - [ ] `my-spec/system/backend/modules/sync.md`
 - [ ] `my-spec/system/backend/database/schema-dictionary.md`（若涉及字段）
-- [ ] `my-spec/system/global/test-profile.yaml`（若新增测试场景）
+- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增测试场景）
 
 ---
 

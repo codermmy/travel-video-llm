@@ -3,7 +3,6 @@
 ## 基本信息
 
 - change-name:
-- mode: full | lite
 - owner:
 - 时间:
 

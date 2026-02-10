@@ -542,7 +542,7 @@ const currentGroup = useMemo(() =>
 
 - [ ] `my-spec/system/backend/modules/event.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
-- [ ] `my-spec/system/global/test-profile.yaml`（若新增 E2E 步骤）
+- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增 E2E 步骤）
 - [ ] `my-spec/system/frontend/modules/map.md`（若影响跳转逻辑）
 
 ---

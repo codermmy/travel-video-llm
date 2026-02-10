@@ -223,7 +223,7 @@ uploaded → clustered
 4. **证据归档**：测试报告、日志、截图必须留存
 5. **文档联动**：代码变更后必须更新对应的 system 文档
 
-详细流程见：`global/system-background-and-operating-model.md`
+详细流程见：`core/01-what-is-my-spec.md`
 
 ---
 

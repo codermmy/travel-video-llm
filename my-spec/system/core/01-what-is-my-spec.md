@@ -71,7 +71,10 @@ my-spec/
 
 ### 6.1 system 层（长期知识）
 
-- `global/`：全局规则（状态机、测试策略、文档联动、命令契约）
+- `core/`：核心概念（状态机、命令契约、术语表）
+- `execution/`：执行指南（测试配置、执行手册、文档联动）
+- `project/`：本项目知识（概览、架构、规范）
+- `prompts/`：AI 提示词模板
 - `frontend/`：前端模块文档（认证、地图、上传、故事、测试）
 - `backend/`：后端模块文档（认证、地图、照片、事件、同步、测试、API、DB）
 
@@ -172,21 +175,37 @@ my-spec/
 2. 不允许跳 required 测试。
 3. 不允许跳文档联动检查。
 
-## 9. full / lite 双模式
+## 9. Bug 修复快速通道（hotfix）
 
-### full
+对于 bug 修复场景，由于其灵活性高、场景多变，不强制走完整的五命令流程。
 
-用于功能迭代、跨模块需求、架构调整。
+### 使用场景
 
-### lite
+- 验收后发现的小 bug
+- 线上紧急修复
+- 文案/样式微调
 
-用于验收后小修、轻量 bugfix、文案/交互微调。
+### 工作方式
 
-要求：
+1. 直接修复代码并验证
+2. 修复完成后执行 `/spec:hotfix`
+3. 命令自动完成：
+   - 检查代码变更范围
+   - 匹配 doc-sync 规则
+   - 生成/更新相关文档
+   - 记录 changelog
 
-1. 文档可以简化，但不能缺失。
-2. 测试可以缩小范围，但 required 仍需定义。
-3. 仍必须走 verify 和归档。
+### 与完整流程的区别
+
+| 项目 | 完整流程 | hotfix |
+|------|----------|--------|
+| PRD 澄清 | 必需 | 跳过 |
+| 测试计划 | 必需 | 跳过 |
+| 技术方案 | 必需 | 跳过 |
+| 代码实现 | 流程内 | 流程外（已完成）|
+| 文档同步 | 必需 | 必需 |
+| changelog | 必需 | 必需 |
+| 归档 | 必需 | 可选 |
 
 ## 10. 测试适配模型
 
@@ -234,7 +253,9 @@ my-spec/
 
 ## 14. 落地执行清单（每次变更）
 
-1. 创建 change 并确认模式（full/lite）。
+### 功能开发（完整流程）
+
+1. 创建 change 目录。
 2. 完成 PRD 澄清，关闭关键歧义。
 3. 生成测试计划并确认 required 用例。
 4. 生成方案、任务和文档影响清单。
@@ -242,12 +263,18 @@ my-spec/
 6. 产出证据并完成人工验收。
 7. 同步 system 文档并归档。
 
+### Bug 修复（hotfix 流程）
+
+1. 直接修复代码并本地验证。
+2. 执行 `/spec:hotfix` 同步文档。
+3. 确认 changelog 记录完整。
+
 ## 15. 对其他项目复用时的最小改造点
 
 只需替换：
 
-1. `my-spec/system/global/test-profile.yaml`
-2. `my-spec/system/global/doc-sync-rules.yaml`
+1. `my-spec/system/execution/01-test-profile.yaml`
+2. `my-spec/system/execution/04-doc-sync-rules.yaml`
 3. `my-spec/system/frontend|backend/modules/*` 的模块目录定义
 
 其余命令、状态机、工单结构可保持不变。

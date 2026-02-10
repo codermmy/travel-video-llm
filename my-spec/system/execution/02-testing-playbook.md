@@ -52,12 +52,16 @@ done 文件标准路径：
 - `logs/` 关键失败日志（如失败）
 - `screenshots/`（如涉及 UI 问题）
 
+> **详细规范**：完整的 artifacts 目录结构、命名规范和生命周期管理，请参阅 `06-artifacts-standard.md`。
+
 ## 6. 失败处理策略
 
 1. 命令失败先记录原始输出到 artifacts
 2. 在 `tasks.md` 记录失败原因与修复动作
 3. 重跑同一 profile 直到通过
 4. 多次失败且外部依赖阻塞时，状态可标记 `BLOCKED` 并等待人工处理
+
+> **BLOCKED 状态详情**：进入条件、记录格式和解除流程，请参阅 `core/02-status-machine.md` 的"BLOCKED 状态处理"章节。
 
 ## 7. 迁移到其他项目
 

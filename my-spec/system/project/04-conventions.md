@@ -449,10 +449,10 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
 | 文档 | 说明 |
 |------|------|
-| `global/project-overview.md` | 项目概述 |
-| `global/architecture-map.md` | 架构图 |
-| `global/test-profile.yaml` | 测试配置 |
-| `global/doc-sync-rules.yaml` | 文档同步规则 |
+| `project/01-overview.md` | 项目概述 |
+| `project/02-architecture.md` | 架构图 |
+| `execution/01-test-profile.yaml` | 测试配置 |
+| `execution/04-doc-sync-rules.yaml` | 文档同步规则 |
 
 ---
 

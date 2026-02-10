@@ -12,7 +12,7 @@
 - 前置：`CLARIFIED`
 - 输出：`testplan.md`
 - 状态：`CLARIFIED -> TEST_DEFINED`
-- 要求：必须读取 `my-spec/system/global/test-profile.yaml`，按 profile 产出可执行命令
+- 要求：必须读取 `my-spec/system/execution/01-test-profile.yaml`，按 profile 产出可执行命令
 
 ## spec:plan <change-name>
 

@@ -34,6 +34,6 @@
 
 ## 全局规则
 
-- 流程状态机：`my-spec/system/global/status-machine.md`
-- 文档联动：`my-spec/system/global/doc-sync-rules.yaml`
-- 测试适配：`my-spec/system/global/test-profile.yaml`
+- 流程状态机：`my-spec/system/core/02-status-machine.md`
+- 文档联动：`my-spec/system/execution/04-doc-sync-rules.yaml`
+- 测试适配：`my-spec/system/execution/01-test-profile.yaml`

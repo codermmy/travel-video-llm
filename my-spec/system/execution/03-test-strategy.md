@@ -9,7 +9,7 @@
 ## 项目类型适配
 
 本项目是 `react-native-fullstack`，测试执行以
-`my-spec/system/global/test-profile.yaml` 为唯一事实来源。
+`my-spec/system/execution/01-test-profile.yaml` 为唯一事实来源。
 
 - profile 定义安装命令
 - profile 定义执行命令
@@ -47,4 +47,4 @@
 
 ## 详细执行手册
 
-- `my-spec/system/global/testing-playbook.md`
+- `my-spec/system/execution/02-testing-playbook.md`
