@@ -40,6 +40,7 @@ def _photo_to_out(photo: Photo) -> PhotoOut:
         shootTime=photo.shoot_time,
         eventId=photo.event_id,
         status=photo.status,
+        caption=photo.caption,
     )
 
 

@@ -1,0 +1,70 @@
+version: 1
+updated_at: 2026-02-10
+rules:
+  - id: auth-backend-doc-sync
+    when_changed:
+      - backend/app/api/v1/auth.py
+      - backend/app/services/auth_service.py
+      - backend/app/schemas/auth.py
+    must_update:
+      - my-spec/system/backend/modules/auth.md
+      - my-spec/system/backend/api/INDEX.md
+      - my-spec/system/frontend/modules/auth.md
+
+  - id: map-doc-sync
+    when_changed:
+      - mobile/src/screens/Map*
+      - mobile/src/components/map
+      - mobile/src/services/map*
+      - backend/app/integrations/amap.py
+      - backend/app/services/event_enrichment.py
+    must_update:
+      - my-spec/system/frontend/modules/map.md
+      - my-spec/system/backend/modules/map.md
+      - my-spec/system/backend/modules/event.md
+
+  - id: photo-backend-doc-sync
+    when_changed:
+      - backend/app/api/v1/photos.py
+      - backend/app/services/photo_service.py
+      - backend/app/models/photo.py
+    must_update:
+      - my-spec/system/backend/modules/photo.md
+      - my-spec/system/backend/database/schema-dictionary.md
+      - my-spec/system/frontend/modules/upload.md
+
+  - id: event-story-doc-sync
+    when_changed:
+      - backend/app/services/event_service.py
+      - backend/app/services/ai_service.py
+      - mobile/src/screens/EventDetailScreen
+      - mobile/src/screens/Story*
+    must_update:
+      - my-spec/system/backend/modules/event.md
+      - my-spec/system/frontend/modules/story.md
+
+  - id: sync-flow-doc-sync
+    when_changed:
+      - backend/app/api/v1/sync.py
+      - backend/app/services/sync_service.py
+      - mobile/src/services/api/sync*
+    must_update:
+      - my-spec/system/backend/modules/sync.md
+      - my-spec/system/frontend/modules/upload.md
+
+  - id: test-infra-doc-sync
+    when_changed:
+      - mobile/package.json
+      - backend/requirements.txt
+      - backend/tests/
+      - mobile/.maestro/
+      - .github/workflows/
+    must_update:
+      - my-spec/system/global/test-profile.yaml
+      - my-spec/system/global/testing-playbook.md
+      - my-spec/system/frontend/modules/testing.md
+      - my-spec/system/backend/modules/testing.md
+
+notes:
+  - spec:plan 必须先生成 doc_scope_manifest，并列出命中的规则。
+  - spec:verify 必须校验 must_update 中的文档是否已更新，否则阻塞归档。

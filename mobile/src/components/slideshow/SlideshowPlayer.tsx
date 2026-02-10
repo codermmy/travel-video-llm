@@ -3,7 +3,9 @@ import {
   Alert,
   Animated,
   AppState,
+  Easing,
   Image,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   StatusBar,
@@ -13,8 +15,10 @@ import {
   View,
 } from 'react-native';
 import { Audio, type AVPlaybackSource } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PlaybackState, type SlideshowProps } from '@/types/slideshow';
 import { formatDateTime } from '@/utils/dateUtils';
@@ -22,13 +26,52 @@ import { formatDateTime } from '@/utils/dateUtils';
 const SPEED_OPTIONS_MS = [2000, 3000, 5000] as const;
 const DEFAULT_SLIDE_DURATION_MS = 3000;
 const CONTROL_AUTO_HIDE_MS = 3000;
-const STORY_VISIBLE_MS = 3000;
+const STORY_VISIBLE_MS = 3500;
 const DEFAULT_LOCAL_BGM = require('../../../assets/audio/default-bgm.wav');
+const GENERIC_CAPTION_SET = new Set([
+  '旅途瞬间 · 光影流动 · 当下心情',
+  '旅途瞬间·光影流动·当下心情',
+]);
 
 type MusicSourceStatus = 'loading' | 'remote' | 'fallback' | 'none' | 'error';
 
+function splitStory(story: string, maxChars = 50): string[] {
+  if (!story.trim()) {
+    return [];
+  }
+
+  const chunks: string[] = [];
+  let currentChunk = '';
+  const sentences = story.split('。').map((s) => s.trim()).filter(Boolean);
+
+  for (const sentence of sentences) {
+    if ((currentChunk + sentence).length <= maxChars) {
+      currentChunk += `${sentence}。`;
+    } else {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+      }
+      currentChunk = `${sentence}。`;
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
 function getPhotoUri(photo: SlideshowProps['photos'][number]): string | null {
   return photo.photoUrl ?? photo.thumbnailUrl ?? null;
+}
+
+function isGenericCaption(input?: string | null): boolean {
+  if (!input) {
+    return false;
+  }
+  const normalized = input.replace(/\s+/g, '').trim();
+  return GENERIC_CAPTION_SET.has(normalized);
 }
 
 function notifyMusicError(message: string) {
@@ -55,7 +98,22 @@ function getMusicStatusText(status: MusicSourceStatus): string {
   }
 }
 
+function getStoryTypeMeta(type: 'chapter-intro' | 'chapter-summary' | 'micro-story' | undefined): {
+  label: string;
+  tint: string;
+  tintSoft: string;
+} {
+  if (type === 'chapter-intro') {
+    return { label: '章节引言', tint: '#73B6FF', tintSoft: 'rgba(115,182,255,0.18)' };
+  }
+  if (type === 'chapter-summary') {
+    return { label: '章节总结', tint: '#9DC5FF', tintSoft: 'rgba(157,197,255,0.18)' };
+  }
+  return { label: '微故事', tint: '#84A7FF', tintSoft: 'rgba(132,167,255,0.18)' };
+}
+
 export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
+  const insets = useSafeAreaInsets();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.Playing);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -64,15 +122,120 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [slideDurationMs, setSlideDurationMs] = useState(DEFAULT_SLIDE_DURATION_MS);
   const [musicStatus, setMusicStatus] = useState<MusicSourceStatus>('loading');
+  const [footerHeight, setFooterHeight] = useState(168);
 
   const opacity = useRef(new Animated.Value(1)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const playbackStateRef = useRef(playbackState);
+  const storyOpacity = useRef(new Animated.Value(0)).current;
+  const storyTranslateY = useRef(new Animated.Value(10)).current;
 
   const currentPhoto = photos[currentIndex];
-  const storyText = currentPhoto?.storyText || event.storyText || '';
+  const photoGroups = event.photoGroups || [];
+  const currentChapter = useMemo(() => {
+    const chapters = event.chapters || [];
+    return chapters.find(
+      (chapter) => currentIndex >= chapter.photoStartIndex && currentIndex <= chapter.photoEndIndex,
+    );
+  }, [currentIndex, event.chapters]);
+
+  const currentGroup = useMemo(
+    () =>
+      photoGroups.find(
+        (group) => currentIndex >= group.photoStartIndex && currentIndex <= group.photoEndIndex,
+      ),
+    [currentIndex, photoGroups],
+  );
+
+  const storyChunks = useMemo(() => {
+    const sourceStory = event.fullStory || event.storyText || '';
+    return splitStory(sourceStory, 50);
+  }, [event.fullStory, event.storyText]);
+
+  const currentStoryChunk = useMemo(() => {
+    if (storyChunks.length === 0) {
+      return '';
+    }
+    const chunkIndex = Math.floor(currentIndex / 10) % storyChunks.length;
+    return storyChunks[chunkIndex] || '';
+  }, [currentIndex, storyChunks]);
+
+  const displayContent = useMemo(() => {
+    const isFirstPhotoInChapter = currentIndex === currentChapter?.photoStartIndex;
+    const isLastPhotoInChapter = currentIndex === currentChapter?.photoEndIndex;
+    const isFirstPhotoInGroup = currentIndex === currentGroup?.photoStartIndex;
+
+    if (isFirstPhotoInChapter && currentChapter?.chapterIntro) {
+      return {
+        type: 'chapter-intro' as const,
+        title: '章节引言',
+        text: currentChapter.chapterIntro,
+        durationMs: 3000,
+      };
+    }
+
+    if (isLastPhotoInChapter && currentChapter?.chapterSummary) {
+      return {
+        type: 'chapter-summary' as const,
+        title: '章节总结',
+        text: currentChapter.chapterSummary,
+        durationMs: 2000,
+      };
+    }
+
+    const microStory = currentPhoto?.microStory?.trim() || '';
+    const caption =
+      currentPhoto?.caption && !isGenericCaption(currentPhoto.caption)
+        ? currentPhoto.caption.trim()
+        : '';
+    const chapterCaption = currentChapter?.slideshowCaption?.trim() || '';
+    const chapterStory = currentChapter?.chapterStory?.trim() || '';
+
+    const microStoryText =
+      microStory ||
+      caption ||
+      chapterCaption ||
+      chapterStory ||
+      currentStoryChunk ||
+      currentPhoto?.storyText ||
+      event.fullStory ||
+      event.storyText ||
+      '';
+    const groupTheme = isFirstPhotoInGroup ? currentGroup?.groupTheme || '' : '';
+
+    if (groupTheme || microStoryText) {
+      return {
+        type: 'micro-story' as const,
+        title: groupTheme || undefined,
+        text: microStoryText,
+        durationMs: 1500,
+      };
+    }
+
+    return null;
+  }, [
+    currentChapter?.chapterIntro,
+    currentChapter?.chapterSummary,
+    currentChapter?.photoEndIndex,
+    currentChapter?.photoStartIndex,
+    currentGroup?.groupTheme,
+    currentGroup?.photoStartIndex,
+    currentIndex,
+    currentPhoto?.caption,
+    currentPhoto?.microStory,
+    currentPhoto?.storyText,
+    currentStoryChunk,
+    event.fullStory,
+    event.storyText,
+  ]);
+
+  const storyText = displayContent?.text || '';
+  const storyTitle = displayContent?.title || '';
+  const storyTypeMeta = getStoryTypeMeta(displayContent?.type);
+  const activeSlideDurationMs = displayContent?.durationMs ?? slideDurationMs;
+  const storyVisibleMs = displayContent?.durationMs ?? STORY_VISIBLE_MS;
 
   useEffect(() => {
     playbackStateRef.current = playbackState;
@@ -117,8 +280,8 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     setStoryVisible(true);
     storyTimerRef.current = setTimeout(() => {
       setStoryVisible(false);
-    }, STORY_VISIBLE_MS);
-  }, [storyText]);
+    }, storyVisibleMs);
+  }, [storyText, storyVisibleMs]);
 
   const animateSlideTransition = useCallback(
     (nextIndex: number) => {
@@ -140,23 +303,29 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   );
 
   const jumpToIndex = useCallback(
-    (index: number) => {
+    (index: number, options?: { showControls?: boolean }) => {
       if (photos.length === 0) {
         return;
       }
       const normalized = (index + photos.length) % photos.length;
       animateSlideTransition(normalized);
-      resetControlAutoHide();
+      if (options?.showControls) {
+        resetControlAutoHide();
+      }
     },
     [animateSlideTransition, photos.length, resetControlAutoHide],
   );
 
-  const onNext = useCallback(() => {
+  const onNextAuto = useCallback(() => {
     jumpToIndex(currentIndex + 1);
   }, [currentIndex, jumpToIndex]);
 
-  const onPrevious = useCallback(() => {
-    jumpToIndex(currentIndex - 1);
+  const onNextByUser = useCallback(() => {
+    jumpToIndex(currentIndex + 1, { showControls: true });
+  }, [currentIndex, jumpToIndex]);
+
+  const onPreviousByUser = useCallback(() => {
+    jumpToIndex(currentIndex - 1, { showControls: true });
   }, [currentIndex, jumpToIndex]);
 
   const togglePlayPause = useCallback(() => {
@@ -187,6 +356,51 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [currentIndex, restartStoryTimer]);
 
   useEffect(() => {
+    if (!storyVisible || !storyText) {
+      Animated.parallel([
+        Animated.timing(storyOpacity, {
+          toValue: 0,
+          duration: 170,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(storyTranslateY, {
+          toValue: 6,
+          duration: 170,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start();
+      return;
+    }
+
+    storyOpacity.setValue(0);
+    storyTranslateY.setValue(12);
+    Animated.parallel([
+      Animated.timing(storyOpacity, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(storyTranslateY, {
+        toValue: 0,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [
+    currentIndex,
+    storyOpacity,
+    storyText,
+    storyTitle,
+    storyTranslateY,
+    storyVisible,
+    displayContent?.type,
+  ]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active' && playbackState === PlaybackState.Playing) {
         setPlaybackState(PlaybackState.Paused);
@@ -200,27 +414,23 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [playbackState]);
 
   useEffect(() => {
-    if (playbackState !== PlaybackState.Playing || photos.length <= 1) {
+    if (playbackState !== PlaybackState.Playing || photos.length === 0) {
       return;
     }
 
-    const startedAt = Date.now();
-    setElapsedMs(0);
-
-    const ticker = setInterval(() => {
-      const nextElapsed = Date.now() - startedAt;
-      setElapsedMs(Math.min(nextElapsed, slideDurationMs));
+    const interval = setInterval(() => {
+      setElapsedMs((prev) => {
+        const next = prev + 100;
+        if (next >= activeSlideDurationMs) {
+          onNextAuto();
+          return 0;
+        }
+        return next;
+      });
     }, 100);
 
-    const timer = setTimeout(() => {
-      jumpToIndex(currentIndex + 1);
-    }, slideDurationMs);
-
-    return () => {
-      clearInterval(ticker);
-      clearTimeout(timer);
-    };
-  }, [currentIndex, jumpToIndex, photos.length, playbackState, slideDurationMs]);
+    return () => clearInterval(interval);
+  }, [activeSlideDurationMs, onNextAuto, photos.length, playbackState]);
 
   useEffect(() => {
     const loadMusic = async () => {
@@ -301,9 +511,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return 0;
     }
     const base = currentIndex / photos.length;
-    const perPhoto = (elapsedMs / slideDurationMs) * (1 / photos.length);
+    const perPhoto = (elapsedMs / activeSlideDurationMs) * (1 / photos.length);
     return Math.max(0, Math.min(1, base + perPhoto));
-  }, [currentIndex, elapsedMs, photos.length, slideDurationMs]);
+  }, [activeSlideDurationMs, currentIndex, elapsedMs, photos.length]);
 
   const formattedShotTime = useMemo(() => {
     if (!currentPhoto?.shootTime) {
@@ -315,6 +525,25 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return currentPhoto.shootTime;
     }
   }, [currentPhoto?.shootTime]);
+
+  const displayCaption = useMemo(() => {
+    const caption = currentPhoto?.caption?.trim();
+    if (!caption || isGenericCaption(caption)) {
+      return null;
+    }
+    return caption;
+  }, [currentPhoto?.caption]);
+
+  const storyBottom = controlsVisible ? insets.bottom + 20 + footerHeight + 12 : insets.bottom + 24;
+  const headerTop = insets.top + 12;
+  const footerBottom = insets.bottom + 20;
+
+  const onFooterLayout = useCallback((event: LayoutChangeEvent) => {
+    const height = event.nativeEvent.layout.height;
+    if (height > 0 && Math.abs(height - footerHeight) > 2) {
+      setFooterHeight(height);
+    }
+  }, [footerHeight]);
 
   if (photos.length === 0) {
     return (
@@ -339,7 +568,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         resetControlAutoHide();
       }}
     >
-      <Animated.View style={[styles.imageWrap, { opacity }]}>
+      <Animated.View style={[styles.imageWrap, { opacity }]}> 
         <Image
           source={{ uri: getPhotoUri(currentPhoto) ?? undefined }}
           style={styles.photo}
@@ -349,16 +578,47 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       </Animated.View>
 
       {storyVisible && storyText ? (
-        <View style={styles.storyOverlay}>
-          <Text numberOfLines={4} style={styles.storyText}>
-            {storyText}
-          </Text>
-        </View>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.storyOverlay,
+            {
+              bottom: storyBottom,
+              opacity: storyOpacity,
+              transform: [{ translateY: storyTranslateY }],
+            },
+          ]}
+        >
+          <LinearGradient
+            colors={['rgba(5,17,43,0.90)', 'rgba(10,27,63,0.82)', 'rgba(4,11,24,0.78)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.storyOverlayGradient}
+          >
+            <View style={styles.storyHeaderRow}>
+              <View style={[styles.storyTypeBadge, { backgroundColor: storyTypeMeta.tintSoft }]}> 
+                <View style={[styles.storyTypeDot, { backgroundColor: storyTypeMeta.tint }]} />
+                <Text style={[styles.storyTypeBadgeText, { color: storyTypeMeta.tint }]}> 
+                  {storyTypeMeta.label}
+                </Text>
+              </View>
+              {storyTitle ? (
+                <Text numberOfLines={1} style={styles.storyTitleText}>
+                  {storyTitle}
+                </Text>
+              ) : null}
+            </View>
+            <Text numberOfLines={4} style={styles.storyText}>
+              {storyText}
+            </Text>
+          </LinearGradient>
+        </Animated.View>
       ) : null}
 
       {controlsVisible ? (
         <>
           <View style={styles.header}>
+            <View style={[styles.headerInner, { top: headerTop }]}> 
             <Pressable
               onPress={onClose}
               style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
@@ -368,10 +628,12 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             <Text style={styles.counterText}>
               {currentIndex + 1} / {photos.length}
             </Text>
+            </View>
           </View>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { bottom: footerBottom }]} onLayout={onFooterLayout}>
             {formattedShotTime ? <Text style={styles.metaText}>{formattedShotTime}</Text> : null}
+            {displayCaption ? <Text style={styles.captionText}>{displayCaption}</Text> : null}
             <Text style={styles.metaText}>{getMusicStatusText(musicStatus)}</Text>
             <ProgressBar progress={progress} style={styles.progressBar} />
 
@@ -404,7 +666,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
             <View style={styles.controlsRow}>
               <Pressable
-                onPress={onPrevious}
+                onPress={onPreviousByUser}
                 style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
               >
                 <MaterialCommunityIcons name="skip-previous" size={24} color="#FFFFFF" />
@@ -420,7 +682,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
                 />
               </Pressable>
               <Pressable
-                onPress={onNext}
+                onPress={onNextByUser}
                 style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
               >
                 <MaterialCommunityIcons name="skip-next" size={24} color="#FFFFFF" />
@@ -467,9 +729,13 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    top: 56,
     left: 18,
     right: 18,
+  },
+  headerInner: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -495,27 +761,73 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 18,
     right: 18,
-    bottom: 190,
-    borderRadius: 14,
-    backgroundColor: 'rgba(7,16,34,0.54)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(180,206,255,0.34)',
+    overflow: 'hidden',
+    shadowColor: '#081833',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  storyOverlayGradient: {
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  storyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  storyTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  storyTypeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    marginRight: 5,
+  },
+  storyTypeBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
   storyText: {
-    color: '#F2F5FF',
-    fontSize: 14,
-    lineHeight: 22,
+    color: '#ECF4FF',
+    fontSize: 15,
+    lineHeight: 23,
+    letterSpacing: 0.25,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowRadius: 4,
+  },
+  storyTitleText: {
+    flex: 1,
+    color: '#A8BCF0',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   footer: {
     position: 'absolute',
     left: 18,
     right: 18,
-    bottom: 36,
     gap: 8,
   },
   metaText: {
     color: '#D6E1FF',
     fontSize: 12,
+  },
+  captionText: {
+    color: '#B8C5FF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   progressBar: {
     height: 6,

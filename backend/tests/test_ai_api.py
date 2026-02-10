@@ -44,15 +44,22 @@ def test_ai_endpoints(monkeypatch) -> None:
         "app.api.v1.ai.ai_service.analyze_event_photos",
         lambda event_id, photo_urls, location: {
             "descriptions": ["desc-1"],
-            "emotion": "Calm",
+            "emotion": "Peaceful",
         },
     )
     monkeypatch.setattr(
         "app.api.v1.ai.ai_service.generate_event_story",
-        lambda event_id, location, start_time, end_time, photo_descriptions: {
+        lambda event_id,
+        location,
+        start_time,
+        end_time,
+        photo_descriptions,
+        detailed_location="",
+        location_tags="": {
             "title": "title",
             "story": "story",
-            "emotion": "Happy",
+            "full_story": "story",
+            "emotion": "Joyful",
         },
     )
 
@@ -61,7 +68,7 @@ def test_ai_endpoints(monkeypatch) -> None:
         json={"photo_urls": ["https://example.com/1.jpg"], "location": ""},
     )
     assert r1.status_code == 200
-    assert r1.json()["emotion"] == "Calm"
+    assert r1.json()["data"]["emotion"] == "Peaceful"
 
     r2 = client.post(
         "/api/v1/ai/generate-story",
@@ -74,8 +81,8 @@ def test_ai_endpoints(monkeypatch) -> None:
         },
     )
     assert r2.status_code == 200
-    assert r2.json()["title"] == "title"
-    assert r2.json()["emotion"] == "Happy"
+    assert r2.json()["data"]["title"] == "title"
+    assert r2.json()["data"]["emotion"] == "Joyful"
 
 
 def test_generate_ai_story_writes_back(monkeypatch) -> None:
@@ -133,16 +140,31 @@ def test_generate_ai_story_writes_back(monkeypatch) -> None:
             "app.tasks.clustering_tasks.ai_service.analyze_event_photos",
             lambda event_id, photo_urls, location: {
                 "descriptions": ["d1", "d2"],
-                "emotion": "Calm",
+                "emotion": "Peaceful",
             },
         )
         monkeypatch.setattr(
             "app.tasks.clustering_tasks.ai_service.generate_event_story",
-            lambda event_id, location, start_time, end_time, photo_descriptions: {
+            lambda event_id,
+            location,
+            start_time,
+            end_time,
+            photo_descriptions,
+            detailed_location="",
+            location_tags="": {
                 "title": "T",
                 "story": "S",
+                "full_story": "S",
                 "emotion": "Epic",
             },
+        )
+        monkeypatch.setattr(
+            "app.services.event_ai_service.generate_photo_caption",
+            lambda _: "旅途片段 · 阳光 · 微风",
+        )
+        monkeypatch.setattr(
+            "app.services.event_ai_service.generate_chapter_story",
+            lambda **_: None,
         )
 
         _generate_ai_story(db=db, user_id=user.id, event_id=event.id)
@@ -152,6 +174,7 @@ def test_generate_ai_story_writes_back(monkeypatch) -> None:
         assert updated.status == "generated"
         assert updated.title == "T"
         assert updated.story_text == "S"
+        assert updated.full_story == "S"
         assert updated.emotion_tag == "Epic"
     finally:
         db.close()

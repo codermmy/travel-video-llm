@@ -5,12 +5,17 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-EventStatus = Literal['clustered', 'ai_pending', 'ai_processing', 'generated', 'ai_failed']
+from app.schemas.chapter import EventChapterResponse
+from app.schemas.photo_group import PhotoGroupResponse
+
+EventStatus = Literal[
+    "clustered", "ai_pending", "ai_processing", "generated", "ai_failed"
+]
 
 
 class EventResponse(BaseModel):
     id: str
-    title: str = ''
+    title: str = ""
     locationName: Optional[str] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
@@ -19,10 +24,14 @@ class EventResponse(BaseModel):
     photoCount: int = 0
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
+    fullStory: Optional[str] = None
+    detailedLocation: Optional[str] = None
+    locationTags: Optional[str] = None
     emotionTag: Optional[str] = None
     musicUrl: Optional[str] = None
-    status: EventStatus = 'clustered'
+    status: EventStatus = "clustered"
     aiError: Optional[str] = None
+    updatedAt: Optional[datetime] = None
 
 
 class EventListResponse(BaseModel):
@@ -40,10 +49,17 @@ class EventPhotoItem(BaseModel):
     shootTime: Optional[datetime] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
+    caption: Optional[str] = None
+    photoIndex: Optional[int] = None
+    visualDesc: Optional[str] = None
+    microStory: Optional[str] = None
+    emotionTag: Optional[str] = None
 
 
 class EventDetailResponse(EventResponse):
     photos: list[EventPhotoItem] = Field(default_factory=list)
+    chapters: list[EventChapterResponse] = Field(default_factory=list)
+    photoGroups: list[PhotoGroupResponse] = Field(default_factory=list)
 
 
 class EventCreateRequest(BaseModel):
@@ -55,6 +71,9 @@ class EventUpdateRequest(BaseModel):
     locationName: Optional[str] = None
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
+    fullStory: Optional[str] = None
+    detailedLocation: Optional[str] = None
+    locationTags: Optional[str] = None
     emotionTag: Optional[str] = None
     musicUrl: Optional[str] = None
     status: Optional[EventStatus] = None

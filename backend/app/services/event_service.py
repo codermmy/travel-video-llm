@@ -6,8 +6,10 @@ from typing import Optional
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from app.models.chapter import EventChapter
 from app.models.event import Event
 from app.models.photo import Photo
+from app.models.photo_group import PhotoGroup
 
 
 class EventService:
@@ -28,8 +30,12 @@ class EventService:
         ).all()
         return list(events), int(total)
 
-    def get_event_detail(self, event_id: str, user_id: str, db: Session) -> Optional[Event]:
-        return db.scalar(select(Event).where(and_(Event.id == event_id, Event.user_id == user_id)))
+    def get_event_detail(
+        self, event_id: str, user_id: str, db: Session
+    ) -> Optional[Event]:
+        return db.scalar(
+            select(Event).where(and_(Event.id == event_id, Event.user_id == user_id))
+        )
 
     def get_event_photos(self, event_id: str, user_id: str, db: Session) -> list[Photo]:
         return list(
@@ -37,6 +43,35 @@ class EventService:
                 select(Photo)
                 .where(and_(Photo.user_id == user_id, Photo.event_id == event_id))
                 .order_by(Photo.shoot_time.asc().nullslast(), Photo.created_at.asc())
+            ).all()
+        )
+
+    def get_event_chapters(
+        self, event_id: str, user_id: str, db: Session
+    ) -> list[EventChapter]:
+        return list(
+            db.scalars(
+                select(EventChapter)
+                .where(
+                    and_(
+                        EventChapter.user_id == user_id,
+                        EventChapter.event_id == event_id,
+                    )
+                )
+                .order_by(EventChapter.chapter_index.asc())
+            ).all()
+        )
+
+    def get_event_photo_groups(
+        self, event_id: str, user_id: str, db: Session
+    ) -> list[PhotoGroup]:
+        return list(
+            db.scalars(
+                select(PhotoGroup)
+                .where(
+                    and_(PhotoGroup.user_id == user_id, PhotoGroup.event_id == event_id)
+                )
+                .order_by(PhotoGroup.chapter_id.asc(), PhotoGroup.group_index.asc())
             ).all()
         )
 
@@ -65,7 +100,9 @@ class EventService:
             return False
 
         photos = db.scalars(
-            select(Photo).where(and_(Photo.user_id == user_id, Photo.event_id == event_id))
+            select(Photo).where(
+                and_(Photo.user_id == user_id, Photo.event_id == event_id)
+            )
         ).all()
         for p in photos:
             p.event_id = None
@@ -80,7 +117,18 @@ class EventService:
         base = select(Event).where(Event.user_id == user_id)
         total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
 
-        by_emotion: dict[str, int] = {"Happy": 0, "Calm": 0, "Epic": 0, "Romantic": 0}
+        by_emotion: dict[str, int] = {
+            "Joyful": 0,
+            "Exciting": 0,
+            "Adventurous": 0,
+            "Epic": 0,
+            "Romantic": 0,
+            "Peaceful": 0,
+            "Nostalgic": 0,
+            "Thoughtful": 0,
+            "Melancholic": 0,
+            "Solitary": 0,
+        }
         for emotion, count in db.execute(
             select(Event.emotion_tag, func.count())
             .where(Event.user_id == user_id, Event.emotion_tag.isnot(None))

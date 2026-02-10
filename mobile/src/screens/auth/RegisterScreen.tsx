@@ -100,7 +100,7 @@ export const RegisterScreen: React.FC = () => {
       return;
     }
 
-    const success = await registerWithEmail(email, password, nickname || undefined);
+    const success = await registerWithEmail(email, password, '000000', nickname || undefined);
 
     if (success) {
       // 注册成功后自动登录，导航由 app.tsx 处理

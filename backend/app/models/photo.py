@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -14,7 +14,9 @@ from app.db.base import Base
 class Photo(Base):
     __tablename__ = "photos"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid4())
+    )
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), index=True)
     event_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("events.id"), nullable=True
@@ -30,10 +32,17 @@ class Photo(Base):
 
     gps_lat: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
     gps_lon: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
-    shoot_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    shoot_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     status: Mapped[str] = mapped_column(String(20), default="uploaded")
     uri: Mapped[str] = mapped_column(String(2048), default="")
+    caption: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    photo_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    visual_desc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    micro_story: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    emotion_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

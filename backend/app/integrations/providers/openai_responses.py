@@ -199,35 +199,44 @@ class OpenAIResponsesProvider:
         location: str,
         date_range: str,
         photo_descriptions: list[str],
+        detailed_location: str = "",
+        location_tags: str = "",
     ) -> dict[str, Any] | None:
         desc_text = "\n".join([f"- {d}" for d in photo_descriptions])
-        prompt = f"""请根据以下信息生成一个简短的旅行故事：
+        prompt = f"""你是一位专业旅行写作者，请根据素材创作真实、细腻、有画面感的旅行故事。
 
-地点：{location}
+【旅行信息】
+地点：{detailed_location or location}
 时间：{date_range}
-照片描述：
+地点特色：{location_tags or '根据画面自行判断'}
+
+【照片场景】
 {desc_text}
 
-要求：
-1. 100-200字
-2. 情感基调：宁静、放松
-3. 包含地点信息
-4. 语言优美，有故事感
+【要求】
+1. 200-300 字中文
+2. 情感自然流露，不要固定基调
+3. 包含 2-3 个具体场景细节
+4. 语言优美但不空泛，贴近真实旅行
 
-请以 JSON 格式返回：
+请严格返回 JSON：
 {{
-  \"title\": \"事件标题\",
-  \"story\": \"故事内容\",
-  \"emotion\": \"情感标签（Happy/Calm/Epic/Romantic）\"
+  "title": "事件标题",
+  "full_story": "完整故事",
+  "emotion": "情感标签（Joyful/Exciting/Adventurous/Epic/Romantic/Peaceful/Nostalgic/Thoughtful/Melancholic/Solitary）"
 }}
 """
 
-        response_text = self.generate_story(prompt, max_tokens=800)
+        response_text = self.generate_story(prompt, max_tokens=1000)
         if not response_text:
             if self.get_last_error_code() is None:
                 self._set_error("openai_story_generation_failed")
             return None
 
         story = parse_story_json_payload(response_text=response_text, location=location)
+        if "full_story" not in story and "story" in story:
+            story["full_story"] = story["story"]
+        if "story" not in story and "full_story" in story:
+            story["story"] = story["full_story"]
         self._set_error(None)
         return story

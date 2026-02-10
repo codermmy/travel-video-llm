@@ -1,0 +1,7 @@
+change_name: <change-name>
+mode: full
+status: DRAFT
+created_at: <YYYY-MM-DD>
+updated_at: <YYYY-MM-DD>
+owner: <agent-or-user>
+parent_change: null

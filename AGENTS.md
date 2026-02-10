@@ -4,6 +4,71 @@
 
 ---
 
+## 🧭 my-spec v1 工作流（优先执行）
+
+> 说明：当任务是“需求到交付”的完整链路时，优先使用 my-spec 工作流。本文后续的传统模板可作为补充参考。
+
+### 目录约定
+
+```text
+my-spec/
+  system/       # 项目知识系统（全局/前端/后端）
+  templates/    # PRD/TestPlan/Plan 等模板
+  changes/      # 进行中的变更
+  archived/     # 已归档变更
+  artifacts/    # 测试和日志证据
+```
+
+### 五个命令（唯一主流程）
+
+1. `/spec:prd [需求描述或文档]`
+   - 作用：创建 change、澄清需求、产出 `prd.md`
+   - 要求：若需求模糊必须先澄清，不能跳过
+2. `/spec:testplan <change-name>`
+   - 作用：产出 `testplan.md`，定义 RQ→TC 映射和 required 用例
+3. `/spec:plan <change-name>`
+   - 作用：产出 `plan.md`、`tasks.md`、`doc_change_preview.md`
+4. `/spec:apply <change-name>`
+   - 作用：实现+测试+失败自修复+证据沉淀
+5. `/spec:verify <change-name>`
+   - 作用：验收后同步 system 文档并归档到 `my-spec/archived/`
+
+### 状态机门禁
+
+`DRAFT -> CLARIFIED -> TEST_DEFINED -> PLANNED -> IMPLEMENTING -> READY_FOR_VERIFY -> ARCHIVED`
+
+- `spec:testplan` 仅允许 `CLARIFIED`
+- `spec:plan` 仅允许 `TEST_DEFINED`
+- `spec:apply` 仅允许 `PLANNED`
+- `spec:verify` 仅允许 `READY_FOR_VERIFY`
+
+### full / lite 双模式
+
+- `full`: 功能迭代、需求扩展（完整文档链路）
+- `lite`: 小 bug 或验收后小修（轻量文档，但仍需测试+归档）
+
+### 文档联动规则（强制）
+
+1. 变更规划阶段必须读取 `my-spec/system/global/doc-sync-rules.yaml`
+2. 必须生成 `doc_scope_manifest.yaml` 标记命中的文档同步规则
+3. verify 阶段必须校验文档是否同步更新，否则禁止归档
+
+
+### 测试适配规则（强制）
+
+1. `spec:testplan` 必须读取 `my-spec/system/global/test-profile.yaml`
+2. 测试方案必须按 profile 生成执行命令和证据路径
+3. `spec:apply` 至少执行 required profile（当前项目为 `backend` + `mobile_static`）
+4. 命中 UI 主链路变更时，追加 `mobile_e2e_manual_assisted` 并使用握手机制
+
+### 人机协作握手机制（RN/Web手工步骤）
+
+- 当自动化测试需要人工操作时，AI 输出 `ACTION_REQUIRED + step_id`
+- 人工完成后写入：`my-spec/artifacts/<change>/handshake/<step_id>.done`
+- AI 检测到 done 文件后继续执行
+
+---
+
 ## 🔄 标准开发工作流
 
 ### 完整流程图
@@ -445,5 +510,5 @@ test(scope): 测试相关
 
 > **使用说明**:
 > 1. 本文档与 `CLAUDE.md` 配合使用
-> 2. 所有开发任务都应遵循本文档定义的流程
+> 2. 需求到交付链路优先使用 my-spec 命令流（`/spec:*`）
 > 3. 发现流程问题时,及时反馈给用户优化

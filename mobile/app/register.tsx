@@ -1,34 +1,52 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { sendEmailCode } from '@/services/api/authApi';
 import { useAuthStore } from '@/stores/authStore';
 
-/**
- * 注册页面 - 邮箱密码注册
- */
+const SEND_CODE_SECONDS = 60;
+
+function isValidEmail(email: string): boolean {
+  return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
   const { registerWithEmail, isLoading, error, clearError, isAuthenticated } = useAuthStore();
 
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [nickname, setNickname] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
-  // 注册成功后自动跳转
+  useEffect(() => {
+    if (countdown <= 0) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setCountdown((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [countdown]);
+
   useEffect(() => {
     if (isAuthenticated) {
       router.replace('/(tabs)');
@@ -36,19 +54,52 @@ export default function RegisterScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  const handleSendCode = useCallback(async () => {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      setLocalError('请输入有效邮箱后再发送验证码');
+      return;
+    }
+
+    try {
+      setSendingCode(true);
+      setLocalError(null);
+      clearError();
+      await sendEmailCode(normalizedEmail, 'register');
+      setCountdown(SEND_CODE_SECONDS);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : '验证码发送失败，请稍后重试');
+    } finally {
+      setSendingCode(false);
+    }
+  }, [clearError, email]);
+
   const handleRegister = useCallback(async () => {
-    // 基础验证
+    const normalizedEmail = email.trim().toLowerCase();
+
     setLocalError(null);
-    if (!email || !password || !confirmPassword) {
+    if (!normalizedEmail || !password || !confirmPassword || !code) {
       setLocalError('请填写所有必填项');
       return;
     }
-    if (!email.includes('@')) {
+    if (!isValidEmail(normalizedEmail)) {
       setLocalError('请输入有效的邮箱地址');
       return;
     }
-    if (password.length < 6) {
-      setLocalError('密码至少需要6位');
+    if (!/^\d{6}$/.test(code)) {
+      setLocalError('请输入 6 位数字验证码');
+      return;
+    }
+    if (password.length < 8) {
+      setLocalError('密码至少需要8位');
+      return;
+    }
+    if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
+      setLocalError('密码必须包含字母和数字');
+      return;
+    }
+    if (/\s/.test(password)) {
+      setLocalError('密码不能包含空格');
       return;
     }
     if (password !== confirmPassword) {
@@ -57,13 +108,17 @@ export default function RegisterScreen() {
     }
 
     clearError();
-    const success = await registerWithEmail(email, password, nickname || undefined);
+    const success = await registerWithEmail(normalizedEmail, password, code, nickname || undefined);
     if (success) {
       router.replace('/(tabs)');
     }
-  }, [email, password, confirmPassword, nickname, clearError, registerWithEmail, router]);
+  }, [email, password, confirmPassword, code, clearError, registerWithEmail, nickname, router]);
 
   const displayError = localError || error;
+  const disableSendCode = useMemo(
+    () => sendingCode || countdown > 0 || !isValidEmail(email.trim().toLowerCase()),
+    [countdown, email, sendingCode],
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -71,16 +126,13 @@ export default function RegisterScreen() {
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <Pressable onPress={() => router.back()} style={styles.backButton}>
             <Text style={styles.backButtonText}>← 返回</Text>
           </Pressable>
 
           <Text style={styles.title}>创建账号</Text>
-          <Text style={styles.subtitle}>开始你的旅行记录之旅</Text>
+          <Text style={styles.subtitle}>邮箱验证后即可开启旅行故事</Text>
 
           <View style={styles.form}>
             <Text style={styles.label}>邮箱 *</Text>
@@ -91,15 +143,42 @@ export default function RegisterScreen() {
               placeholder="请输入邮箱"
               autoCapitalize="none"
               keyboardType="email-address"
+              placeholderTextColor="#8D9DBD"
             />
+
+            <Text style={styles.label}>验证码 *</Text>
+            <View style={styles.codeRow}>
+              <TextInput
+                style={[styles.input, styles.codeInput]}
+                value={code}
+                onChangeText={setCode}
+                placeholder="6位数字"
+                keyboardType="number-pad"
+                maxLength={6}
+                placeholderTextColor="#8D9DBD"
+              />
+              <Pressable
+                onPress={handleSendCode}
+                disabled={disableSendCode}
+                style={({ pressed }) => [
+                  styles.sendCodeButton,
+                  (pressed || disableSendCode) && styles.sendCodeButtonDisabled,
+                ]}
+              >
+                <Text style={styles.sendCodeText}>
+                  {countdown > 0 ? `${countdown}s` : sendingCode ? '发送中' : '发送验证码'}
+                </Text>
+              </Pressable>
+            </View>
 
             <Text style={styles.label}>密码 *</Text>
             <TextInput
               style={styles.input}
               value={password}
               onChangeText={setPassword}
-              placeholder="至少6位密码"
+              placeholder="至少8位，包含字母和数字"
               secureTextEntry
+              placeholderTextColor="#8D9DBD"
             />
 
             <Text style={styles.label}>确认密码 *</Text>
@@ -109,6 +188,7 @@ export default function RegisterScreen() {
               onChangeText={setConfirmPassword}
               placeholder="再次输入密码"
               secureTextEntry
+              placeholderTextColor="#8D9DBD"
             />
 
             <Text style={styles.label}>昵称（可选）</Text>
@@ -117,22 +197,29 @@ export default function RegisterScreen() {
               value={nickname}
               onChangeText={setNickname}
               placeholder="给自己起个名字"
+              placeholderTextColor="#8D9DBD"
             />
 
-            {displayError && <Text style={styles.errorText}>{displayError}</Text>}
+            {displayError ? (
+              <View style={styles.errorRow}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#E74C3C" />
+                <Text style={styles.errorText}>{displayError}</Text>
+              </View>
+            ) : null}
 
-            <Button
-              mode="contained"
+            <Pressable
               onPress={handleRegister}
-              loading={isLoading}
-              disabled={!email || !password || !confirmPassword}
-              style={styles.button}
+              disabled={isLoading}
+              style={({ pressed }) => [
+                styles.submitButton,
+                (pressed || isLoading) && styles.submitButtonPressed,
+              ]}
             >
-              注册
-            </Button>
+              <Text style={styles.submitButtonText}>{isLoading ? '注册中...' : '注 册'}</Text>
+            </Pressable>
           </View>
 
-          <Pressable onPress={() => router.back()} style={styles.footer}>
+          <Pressable onPress={() => router.push('/login')} style={styles.footer}>
             <Text style={styles.footerText}>
               已有账号？<Text style={styles.link}>立即登录</Text>
             </Text>
@@ -154,65 +241,108 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingVertical: 24,
   },
   backButton: {
     alignSelf: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   backButtonText: {
-    fontSize: 16,
-    color: '#7F8C8D',
+    fontSize: 14,
+    color: '#6E7FA2',
+    fontWeight: '600',
   },
   title: {
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#2C3E50',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#7F8C8D',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   form: {
-    marginBottom: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F5',
+    padding: 16,
+    gap: 10,
   },
   label: {
-    fontSize: 14,
-    color: '#2C3E50',
-    marginBottom: 8,
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#364A75',
+    fontWeight: '700',
   },
   input: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    borderColor: '#D7E0F5',
+    borderRadius: 12,
+    backgroundColor: '#F8FAFF',
+    paddingHorizontal: 12,
     paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 16,
+    fontSize: 15,
+    color: '#22355A',
+  },
+  codeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  codeInput: {
+    flex: 1,
+  },
+  sendCodeButton: {
+    borderRadius: 12,
+    backgroundColor: '#2F6AF6',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  sendCodeButtonDisabled: {
+    opacity: 0.6,
+  },
+  sendCodeText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   errorText: {
     color: '#E74C3C',
-    fontSize: 14,
-    marginBottom: 16,
-    textAlign: 'center',
+    fontSize: 13,
+    flex: 1,
   },
-  button: {
-    marginTop: 8,
+  submitButton: {
+    marginTop: 6,
+    borderRadius: 12,
+    backgroundColor: '#2F6AF6',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  submitButtonPressed: {
+    transform: [{ scale: 0.98 }],
+    opacity: 0.86,
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
   },
   footer: {
-    marginTop: 24,
+    marginTop: 22,
     alignItems: 'center',
   },
   footerText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#7F8C8D',
   },
   link: {
     color: '#4A90D9',
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

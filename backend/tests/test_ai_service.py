@@ -5,18 +5,29 @@ from typing import Any
 from app.services.ai_service import AIService
 
 
-def test_select_photos_for_analysis_ge_10() -> None:
+def test_select_photos_for_analysis_uses_all_when_small() -> None:
     svc = AIService()
-    urls = [f"https://example.com/{i}.jpg" for i in range(12)]
+    urls = [f"https://example.com/{i}.jpg" for i in range(8)]
     selected = svc.select_photos_for_analysis(urls, photo_count=len(urls))
-    assert selected == [urls[0], urls[4], urls[9]]
+    assert selected == urls
 
 
-def test_select_photos_for_analysis_lt_10() -> None:
+def test_select_photos_for_analysis_uses_ratio_and_bounds() -> None:
     svc = AIService()
-    urls = [f"https://example.com/{i}.jpg" for i in range(6)]
+    urls = [f"https://example.com/{i}.jpg" for i in range(30)]
     selected = svc.select_photos_for_analysis(urls, photo_count=len(urls))
-    assert selected == [urls[0], urls[len(urls) // 2], urls[-1]]
+    assert len(selected) == 15
+    assert selected[0] == urls[0]
+    assert selected[-1] == urls[-1]
+
+
+def test_select_photos_for_analysis_caps_for_huge_sets() -> None:
+    svc = AIService()
+    urls = [f"https://example.com/{i}.jpg" for i in range(150)]
+    selected = svc.select_photos_for_analysis(urls, photo_count=len(urls))
+    assert len(selected) == 50
+    assert selected[0] == urls[0]
+    assert selected[-1] == urls[-1]
 
 
 def test_analyze_event_photos_sampling_and_cache() -> None:
@@ -40,12 +51,10 @@ def test_analyze_event_photos_sampling_and_cache() -> None:
         def analyze_image(self, image_url: str, prompt: str = "") -> dict[str, Any] | None:
             calls.append(image_url)
             if image_url.endswith("0.jpg"):
-                return {"description": "开心", "emotion": "Happy"}
-            return {"description": "宁静", "emotion": "Calm"}
+                return {"description": "开心", "emotion": "Joyful"}
+            return {"description": "宁静", "emotion": "Peaceful"}
 
-        def generate_event_story(
-            self, location: str, date_range: str, photo_descriptions: list[str]
-        ):
+        def generate_event_story(self, *args, **kwargs):  # noqa: ANN002, ANN003
             return None
 
         def get_last_error_code(self):
@@ -57,11 +66,10 @@ def test_analyze_event_photos_sampling_and_cache() -> None:
     event_id = "evt-test-001"
 
     out1 = svc.analyze_event_photos(event_id=event_id, photo_urls=urls, location="")
-    assert out1["emotion"] in ("Happy", "Calm")
-    assert len(out1["descriptions"]) == 3
-    assert calls == [urls[0], urls[4], urls[9]]
+    assert out1["emotion"] in ("Joyful", "Peaceful")
+    assert len(out1["descriptions"]) >= 3
+    assert calls[0] == urls[0]
 
-    # Cache hit: no additional analyze_image calls.
     out2 = svc.analyze_event_photos(event_id=event_id, photo_urls=urls, location="")
     assert out2 == out1
-    assert calls == [urls[0], urls[4], urls[9]]
+    assert len(calls) == len(set(calls))

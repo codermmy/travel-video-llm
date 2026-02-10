@@ -47,6 +47,9 @@ function getFallbackDateRange(event: EventDetail): string {
 }
 
 function resolveLocation(event: EventDetail): string {
+  if (event.detailedLocation?.trim()) {
+    return event.detailedLocation;
+  }
   if (event.locationName?.trim()) {
     return event.locationName;
   }
@@ -118,6 +121,9 @@ export default function EventDetailScreen() {
         title: event.title,
         musicUrl: event.musicUrl ?? null,
         storyText: event.storyText ?? null,
+        fullStory: event.fullStory ?? null,
+        chapters: event.chapters,
+        photoGroups: event.photoGroups,
       },
       event.photos,
     );
@@ -161,6 +167,8 @@ export default function EventDetailScreen() {
     return getFallbackDateRange(event);
   }, [event]);
 
+  const fullStory = event?.fullStory || event?.storyText || null;
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centerScreen}>
@@ -193,14 +201,14 @@ export default function EventDetailScreen() {
     );
   }
 
-  const statusMeta = STATUS_META[event.status] || STATUS_META.clustered;
+  const statusMeta = STATUS_META[event.status] ?? STATUS_META.clustered;
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heroCard}>
-          {!coverFailed && event.coverPhotoUrl ? (
+          {event.coverPhotoUrl && !coverFailed ? (
             <Image
               source={{ uri: event.coverPhotoUrl }}
               style={styles.heroImage}
@@ -208,19 +216,19 @@ export default function EventDetailScreen() {
               onError={() => setCoverFailed(true)}
             />
           ) : (
-            <LinearGradient colors={['#D5E1FF', '#DFF1E8']} style={styles.heroFallback}>
-              <MaterialCommunityIcons name="image-filter-hdr" size={52} color="#4A64A7" />
-              <Text style={styles.heroFallbackText}>{event.coverPhotoUrl ? '封面加载失败' : '暂无封面'}</Text>
+            <LinearGradient colors={['#DDE8FF', '#E9F8F2']} style={styles.heroFallback}>
+              <MaterialCommunityIcons name="image-filter-hdr" size={38} color="#4C66A8" />
+              <Text style={styles.heroFallbackText}>暂无封面图片</Text>
             </LinearGradient>
           )}
 
-          <LinearGradient colors={['rgba(8,18,42,0.08)', 'rgba(8,18,42,0.7)']} style={styles.heroShade} />
+          <LinearGradient
+            colors={['transparent', 'rgba(18,33,63,0.22)', 'rgba(18,33,63,0.7)']}
+            style={styles.heroShade}
+          />
 
-          <Pressable
-            style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
-            onPress={() => router.back()}
-          >
-            <MaterialCommunityIcons name="chevron-left" size={18} color="#10204A" />
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <MaterialCommunityIcons name="arrow-left" size={18} color="#10204A" />
             <Text style={styles.backBtnText}>返回</Text>
           </Pressable>
 
@@ -246,10 +254,10 @@ export default function EventDetailScreen() {
           </View>
         </View>
 
-        {event.storyText ? (
+        {fullStory ? (
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>旅行故事</Text>
-            <Text style={styles.sectionBody}>{event.storyText}</Text>
+            <Text style={styles.sectionBody}>{fullStory}</Text>
           </View>
         ) : (
           <View style={styles.warningCard}>
@@ -277,6 +285,24 @@ export default function EventDetailScreen() {
             </Pressable>
           </View>
         )}
+
+        {event.chapters.length > 0 ? (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>章节</Text>
+            <View style={styles.chapterList}>
+              {event.chapters.map((chapter) => (
+                <View key={chapter.id} style={styles.chapterItem}>
+                  <Text style={styles.chapterTitle}>
+                    {chapter.chapterTitle || `第${chapter.chapterIndex}章`}
+                  </Text>
+                  {chapter.chapterStory ? (
+                    <Text style={styles.chapterStory}>{chapter.chapterStory}</Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {event.musicUrl ? (
           <View style={styles.sectionCard}>
@@ -438,6 +464,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#4C5C80',
+  },
+  chapterList: {
+    marginTop: 10,
+    gap: 10,
+  },
+  chapterItem: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E4EBFC',
+    backgroundColor: '#F8FAFF',
+    padding: 10,
+  },
+  chapterTitle: {
+    fontSize: 13,
+    color: '#2F4A82',
+    fontWeight: '800',
+  },
+  chapterStory: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#4E628D',
   },
   warningCard: {
     borderRadius: 16,

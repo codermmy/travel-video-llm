@@ -3,7 +3,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 /**
  * Tab 导航布局
- * 包含地图(足迹)和事件两个标签页
+ * 包含地图(足迹)、事件、用户中心三个标签页
  */
 export default function TabLayout() {
   return (
@@ -32,6 +32,15 @@ export default function TabLayout() {
           title: '事件',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="calendar-multiselect" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: '我的',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="account-circle" size={size} color={color} />
           ),
         }}
       />

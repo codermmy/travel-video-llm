@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import List
 
 from pydantic import AliasChoices
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./travel_album.db")
     redis_url: str = Field(default="redis://localhost:6379/0")
 
-    jwt_secret_key: str = Field(default="change-me")
+    jwt_secret_key: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
     jwt_expires_minutes: int = Field(default=60 * 24 * 30)
     cors_origins: str = Field(default="")
     upload_dir: str = Field(default="./uploads")
@@ -30,6 +31,11 @@ class Settings(BaseSettings):
 
     # External integrations
     amap_api_key: str = Field(default="")
+    smtp_server: str = Field(default="smtp.qq.com")
+    smtp_port: int = Field(default=587)
+    smtp_username: str = Field(default="")
+    smtp_password: str = Field(default="")
+    smtp_use_tls: bool = Field(default=True)
 
     # AI provider config
     ai_provider: str = Field(default="openai")
@@ -74,6 +80,8 @@ class Settings(BaseSettings):
     # Celery
     celery_timezone: str = Field(default="Asia/Shanghai")
     celery_task_time_limit: int = Field(default=3600)
+    celery_worker_pool: str = Field(default="")
+    celery_worker_concurrency: int = Field(default=1)
 
     @property
     def cors_origins_list(self) -> List[str]:

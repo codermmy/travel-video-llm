@@ -1,3 +1,6 @@
+import type { EventChapter } from '@/types/chapter';
+import type { PhotoGroup } from '@/types/photoGroup';
+
 export type EventStatus =
   | 'clustered'
   | 'ai_pending'
@@ -16,10 +19,14 @@ export interface EventRecord {
   photoCount: number;
   coverPhotoUrl?: string | null;
   storyText?: string | null;
+  fullStory?: string | null;
+  detailedLocation?: string | null;
+  locationTags?: string | null;
   emotionTag?: string | null;
   musicUrl?: string | null;
   status: EventStatus;
   aiError?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface EventListResult {
@@ -38,10 +45,17 @@ export interface EventPhotoItem {
   gpsLat?: number | null;
   gpsLon?: number | null;
   storyText?: string | null;
+  caption?: string | null;
+  photoIndex?: number | null;
+  visualDesc?: string | null;
+  microStory?: string | null;
+  emotionTag?: string | null;
 }
 
 export interface EventDetail extends EventRecord {
   photos: EventPhotoItem[];
+  chapters: EventChapter[];
+  photoGroups: PhotoGroup[];
 }
 
 export interface RegenerateStoryResult {

@@ -27,6 +27,9 @@ class Event(Base):
     cover_photo_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     cover_photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     story_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    full_story: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    detailed_location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    location_tags: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     emotion_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     music_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     music_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -44,8 +47,14 @@ class Event(Base):
     )
 
     if TYPE_CHECKING:
+        from app.models.chapter import EventChapter
         from app.models.photo import Photo
         from app.models.user import User
 
     user: Mapped["User"] = relationship(back_populates="events")
     photos: Mapped[list["Photo"]] = relationship(back_populates="event")
+    chapters: Mapped[list["EventChapter"]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+        order_by="EventChapter.chapter_index",
+    )

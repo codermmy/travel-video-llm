@@ -9,6 +9,7 @@ import { MapViewContainer } from '@/components/map/MapViewContainer';
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { autoImportRecentMonths } from '@/services/album/photoImportService';
 import { taskApi } from '@/services/api/taskApi';
+import { syncService } from '@/services/sync/syncService';
 
 export default function MapScreen() {
   const router = useRouter();
@@ -65,6 +66,16 @@ export default function MapScreen() {
 
     const run = async () => {
       try {
+        let waitMs = 0;
+        while (syncService.isBootstrapActive() && waitMs < 20_000) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          waitMs += 500;
+        }
+
+        if (syncService.isBootstrapActive()) {
+          return;
+        }
+
         setImportVisible(true);
         setImportProgress({ stage: 'scanning', detail: '自动导入最近 6 个月照片...' });
         const result = await autoImportRecentMonths({

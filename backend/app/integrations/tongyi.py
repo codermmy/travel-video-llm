@@ -223,6 +223,8 @@ class TongyiClient:
         location: str,
         date_range: str,
         photo_descriptions: list[str],
+        detailed_location: str = "",
+        location_tags: str = "",
     ) -> dict[str, Any] | None:
         """生成事件故事
 
@@ -236,24 +238,25 @@ class TongyiClient:
         """
         desc_text = "\n".join([f"- {d}" for d in photo_descriptions])
 
-        prompt = f"""请根据以下信息生成一个简短的旅行故事：
+        prompt = f"""请根据以下信息创作旅行故事：
 
-地点：{location}
+地点：{detailed_location or location}
 时间：{date_range}
+地点特色：{location_tags or '根据画面判断'}
 照片描述：
 {desc_text}
 
 要求：
-1. 100-200字
-2. 情感基调：宁静、放松
-3. 包含地点信息
-4. 语言优美，有故事感
+1. 200-300字
+2. 贴近真实旅行，包含2-3个具体场景
+3. 情感自然流露，不要固定基调
+4. 文风细腻、流畅、有画面感
 
 请以 JSON 格式返回：
 {{
   "title": "事件标题",
-  "story": "故事内容",
-  "emotion": "情感标签（Happy/Calm/Epic/Romantic）"
+  "full_story": "故事内容",
+  "emotion": "情感标签（Joyful/Exciting/Adventurous/Epic/Romantic/Peaceful/Nostalgic/Thoughtful/Melancholic/Solitary）"
 }}
 """
 
@@ -265,6 +268,10 @@ class TongyiClient:
             return None
 
         story = parse_story_json_payload(response_text=response_text, location=location)
+        if "full_story" not in story and "story" in story:
+            story["full_story"] = story["story"]
+        if "story" not in story and "full_story" in story:
+            story["story"] = story["full_story"]
         self._set_error(None)
         return story
 

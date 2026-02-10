@@ -1,31 +1,28 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import { Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useAuthStore } from '@/stores/authStore';
 
-/**
- * 登录页面 - 邮箱密码登录
- */
 export default function LoginScreen() {
   const router = useRouter();
   const { loginWithEmail, isLoading, error, clearError, isAuthenticated } = useAuthStore();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  // 登录成功后自动跳转
   useEffect(() => {
     if (isAuthenticated) {
       router.replace('/(tabs)');
@@ -33,9 +30,11 @@ export default function LoginScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  const disabled = useMemo(() => !email || !password || isLoading, [email, isLoading, password]);
+
   const handleLogin = useCallback(async () => {
     clearError();
-    const success = await loginWithEmail(email, password);
+    const success = await loginWithEmail(email.trim(), password);
     if (success) {
       router.replace('/(tabs)');
     }
@@ -47,54 +46,72 @@ export default function LoginScreen() {
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backButtonText}>← 返回</Text>
+          </Pressable>
+
           <Text style={styles.title}>欢迎回来</Text>
           <Text style={styles.subtitle}>使用邮箱密码登录</Text>
 
           <View style={styles.form}>
             <Text style={styles.label}>邮箱</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="请输入邮箱"
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
+            <View style={styles.inputWrap}>
+              <MaterialCommunityIcons name="email-outline" size={18} color="#5E739F" />
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="请输入邮箱"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholderTextColor="#8D9DBD"
+              />
+            </View>
 
             <Text style={styles.label}>密码</Text>
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              placeholder="请输入密码"
-              secureTextEntry
-            />
+            <View style={styles.inputWrap}>
+              <MaterialCommunityIcons name="lock-outline" size={18} color="#5E739F" />
+              <TextInput
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="请输入密码"
+                secureTextEntry={!showPassword}
+                placeholderTextColor="#8D9DBD"
+              />
+              <Pressable onPress={() => setShowPassword((v) => !v)}>
+                <MaterialCommunityIcons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color="#5E739F"
+                />
+              </Pressable>
+            </View>
 
-            {error && <Text style={styles.errorText}>{error}</Text>}
+            <Pressable onPress={() => router.push('/forgot-password')} style={styles.forgotLinkWrap}>
+              <Text style={styles.forgotLink}>忘记密码？</Text>
+            </Pressable>
 
-            <Button
-              mode="contained"
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+            <Pressable
               onPress={handleLogin}
-              loading={isLoading}
-              disabled={!email || !password}
-              style={styles.button}
+              style={({ pressed }) => [
+                styles.submitButton,
+                (disabled || pressed) && styles.submitButtonPressed,
+                disabled && styles.submitButtonDisabled,
+              ]}
+              disabled={disabled}
             >
-              登录
-            </Button>
+              <Text style={styles.submitButtonText}>{isLoading ? '登录中...' : '登 录'}</Text>
+            </Pressable>
           </View>
 
           <Pressable onPress={() => router.push('/register')} style={styles.footer}>
             <Text style={styles.footerText}>
               还没有账号？<Text style={styles.link}>立即注册</Text>
             </Text>
-          </Pressable>
-
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← 返回</Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -113,65 +130,98 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingVertical: 32,
+    paddingVertical: 24,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  backButtonText: {
+    fontSize: 14,
+    color: '#6E7FA2',
+    fontWeight: '600',
   },
   title: {
     fontSize: 32,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#2C3E50',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
     color: '#7F8C8D',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   form: {
-    marginBottom: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F5',
+    padding: 16,
+    gap: 10,
   },
   label: {
-    fontSize: 14,
-    color: '#2C3E50',
-    marginBottom: 8,
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#364A75',
+    fontWeight: '700',
+  },
+  inputWrap: {
+    backgroundColor: '#F8FAFF',
+    borderWidth: 1,
+    borderColor: '#D7E0F5',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    flex: 1,
     paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 16,
+    color: '#22355A',
+    fontSize: 15,
+  },
+  forgotLinkWrap: {
+    alignSelf: 'flex-end',
+  },
+  forgotLink: {
+    color: '#2F6AF6',
+    fontSize: 12,
+    fontWeight: '700',
   },
   errorText: {
     color: '#E74C3C',
-    fontSize: 14,
-    marginBottom: 16,
+    fontSize: 13,
     textAlign: 'center',
   },
-  button: {
-    marginTop: 8,
+  submitButton: {
+    marginTop: 6,
+    borderRadius: 12,
+    backgroundColor: '#2F6AF6',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  submitButtonPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
   },
   footer: {
-    marginTop: 24,
+    marginTop: 22,
     alignItems: 'center',
   },
   footerText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#7F8C8D',
   },
   link: {
     color: '#4A90D9',
-    fontWeight: '600',
-  },
-  backButton: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: '#7F8C8D',
+    fontWeight: '700',
   },
 });

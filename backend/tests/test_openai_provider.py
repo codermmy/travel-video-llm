@@ -40,7 +40,7 @@ def test_analyze_image_parses_responses_output(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def post(self, url: str, json, headers):
+        def post(self, url: str, json, headers):  # noqa: ANN001
             assert url == "http://api.example.com/v1/responses"
             assert json["model"] == "gpt-5.1-codex"
             return FakeResponse()
@@ -50,7 +50,7 @@ def test_analyze_image_parses_responses_output(monkeypatch) -> None:
     result = provider.analyze_image("https://example.com/image.jpg")
     assert result is not None
     assert result["description"]
-    assert result["emotion"] == "Happy"
+    assert result["emotion"] == "Joyful"
     assert provider.get_last_error_code() is None
 
 
@@ -75,7 +75,7 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
                         "content": [
                             {
                                 "type": "output_text",
-                                "text": '```json\n{"title":"西湖之旅","story":"很美的一天","emotion":"Calm"}\n```',
+                                "text": '```json\n{"title":"西湖之旅","full_story":"很美的一天","emotion":"Peaceful"}\n```',
                             }
                         ],
                     }
@@ -92,7 +92,7 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def post(self, url: str, json, headers):
+        def post(self, url: str, json, headers):  # noqa: ANN001
             return FakeResponse()
 
     monkeypatch.setattr("app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient)
@@ -101,10 +101,13 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
         location="杭州",
         date_range="01月01日 - 01月01日",
         photo_descriptions=["湖边散步"],
+        detailed_location="浙江省杭州市西湖区",
+        location_tags="江南水乡",
     )
     assert story is not None
     assert story["title"] == "西湖之旅"
-    assert story["emotion"] == "Calm"
+    assert story["emotion"] == "Peaceful"
+    assert story["story"] == "很美的一天"
 
 
 def test_openai_provider_http_error_sets_reason(monkeypatch) -> None:
@@ -123,7 +126,7 @@ def test_openai_provider_http_error_sets_reason(monkeypatch) -> None:
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def post(self, url: str, json, headers):
+        def post(self, url: str, json, headers):  # noqa: ANN001
             raise httpx.ReadTimeout("timeout")
 
     monkeypatch.setattr("app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient)

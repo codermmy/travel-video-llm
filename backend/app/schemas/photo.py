@@ -49,6 +49,7 @@ class PhotoOut(BaseModel):
     shootTime: Optional[datetime] = None
     eventId: Optional[str] = None
     status: Optional[str] = None
+    caption: Optional[str] = None
 
 
 class PhotoListData(BaseModel):
@@ -62,6 +63,7 @@ class PhotoListData(BaseModel):
 class PhotoUpdateRequest(BaseModel):
     eventId: Optional[str] = None
     status: Optional[str] = None
+    caption: Optional[str] = None
 
 
 class PhotoStatsData(BaseModel):
@@ -78,3 +80,4 @@ class PhotoQueryParams(BaseModel):
     eventId: Optional[str] = None
     hasGps: Optional[bool] = None
     status: Optional[str] = None
+    caption: Optional[str] = None

@@ -37,7 +37,7 @@ export default function WelcomeScreen() {
     [nickname.length],
   );
 
-  const registerDevice = useCallback(async () => {
+  const handleQuickStart = useCallback(async () => {
     clearError();
     setPermissionDenied(false);
     setStatusText('正在请求相册权限...');
@@ -52,14 +52,14 @@ export default function WelcomeScreen() {
       return;
     }
 
-    setStatusText('正在注册设备...');
+    setStatusText('正在快速启动...');
     const success = await register(nickname || undefined);
     if (success) {
       router.replace('/(tabs)');
       return;
     }
 
-    setStatusText('注册失败，请稍后重试');
+    setStatusText('启动失败，请稍后重试');
   }, [clearError, nickname, register, router]);
 
   return (
@@ -85,21 +85,39 @@ export default function WelcomeScreen() {
               onChangeText={(v) => setNickname(normalizeNickname(v))}
               placeholder="例如：小圆的旅行日记"
               maxLength={NICKNAME_MAX_LENGTH}
+              placeholderTextColor="#8D9EBF"
             />
             <Text style={styles.inputHint}>{nicknameHint}</Text>
 
-            <Button
-              mode="contained"
-              onPress={registerDevice}
-              loading={isLoading}
+            <Pressable
+              style={({ pressed }) => [styles.quickStartButton, pressed && styles.buttonPressed]}
+              onPress={handleQuickStart}
               disabled={isLoading}
-              style={styles.primaryButton}
-              contentStyle={styles.primaryButtonContent}
             >
-              开始使用
-            </Button>
+              <MaterialCommunityIcons name="rocket-launch-outline" size={24} color="#FFFFFF" />
+              <View>
+                <Text style={styles.quickStartText}>一键开始</Text>
+                <Text style={styles.quickStartHint}>使用设备ID快速登录</Text>
+              </View>
+            </Pressable>
 
-            <Text style={styles.termsText}>点击“开始使用”即表示你同意《服务条款》与《隐私政策》。</Text>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+              onPress={() => router.push('/login')}
+            >
+              <MaterialCommunityIcons name="email-outline" size={22} color="#2F6AF6" />
+              <Text style={styles.secondaryButtonText}>邮箱登录</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+              onPress={() => router.push('/register')}
+            >
+              <MaterialCommunityIcons name="account-plus-outline" size={22} color="#2F6AF6" />
+              <Text style={styles.secondaryButtonText}>注册新账号</Text>
+            </Pressable>
+
+            <Text style={styles.termsText}>点击“一键开始”即表示你同意《服务条款》与《隐私政策》。</Text>
 
             {statusText ? <Text style={styles.statusText}>{statusText}</Text> : null}
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -114,19 +132,10 @@ export default function WelcomeScreen() {
                   打开系统设置
                 </Button>
                 {canAskAgain ? (
-                  <Text style={styles.permissionHint}>你也可以再次点击“开始使用”重新请求权限。</Text>
+                  <Text style={styles.permissionHint}>你也可以再次点击“一键开始”重新请求权限。</Text>
                 ) : null}
               </View>
             ) : null}
-          </View>
-
-          <View style={styles.footerActions}>
-            <Pressable onPress={() => router.push('/login')}>
-              <Text style={styles.footerText}>已有账号？前往邮箱登录</Text>
-            </Pressable>
-            <Pressable onPress={() => router.push('/register')}>
-              <Text style={styles.footerText}>没有账号？注册新账号</Text>
-            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -184,6 +193,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#E0E7F7',
+    gap: 10,
   },
   inputLabel: {
     color: '#2A3D68',
@@ -191,7 +201,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   input: {
-    marginTop: 8,
     borderWidth: 1,
     borderColor: '#D5DFF4',
     borderRadius: 12,
@@ -202,38 +211,68 @@ const styles = StyleSheet.create({
     color: '#22355A',
   },
   inputHint: {
-    marginTop: 6,
+    marginTop: -2,
     fontSize: 11,
     color: '#7687AB',
   },
-  primaryButton: {
-    marginTop: 14,
-    borderRadius: 12,
+  quickStartButton: {
+    marginTop: 2,
+    borderRadius: 14,
     backgroundColor: '#2F6AF6',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
   },
-  primaryButtonContent: {
-    paddingVertical: 4,
+  quickStartText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  quickStartHint: {
+    marginTop: 2,
+    color: '#D8E4FF',
+    fontSize: 11,
+  },
+  secondaryButton: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DCE6FB',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#2F6AF6',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  buttonPressed: {
+    transform: [{ scale: 0.98 }],
   },
   termsText: {
-    marginTop: 10,
+    marginTop: 6,
     fontSize: 11,
     color: '#7789AE',
     lineHeight: 16,
   },
   statusText: {
-    marginTop: 10,
+    marginTop: 4,
     textAlign: 'center',
     color: '#4E608A',
     fontSize: 12,
   },
   errorText: {
-    marginTop: 6,
     textAlign: 'center',
     color: '#D34B5A',
     fontSize: 12,
   },
   permissionCard: {
-    marginTop: 12,
+    marginTop: 4,
     borderRadius: 12,
     backgroundColor: '#FFF7F0',
     borderWidth: 1,
@@ -252,14 +291,5 @@ const styles = StyleSheet.create({
     color: '#9A6A4D',
     fontSize: 11,
     textAlign: 'center',
-  },
-  footerActions: {
-    gap: 10,
-    alignItems: 'center',
-  },
-  footerText: {
-    color: '#3D58A7',
-    fontWeight: '600',
-    fontSize: 13,
   },
 });

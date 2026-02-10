@@ -10,6 +10,7 @@ import {
   registerWithEmail,
 } from '@/services/api/authApi';
 import { tokenStorage } from '@/services/storage/tokenStorage';
+import { authDebug, authWarn } from '@/utils/authDebug';
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -24,7 +25,12 @@ type AuthState = {
   isLoading: boolean;
   error: string | null;
   register: (nickname?: string) => Promise<boolean>;
-  registerWithEmail: (email: string, password: string, nickname?: string) => Promise<boolean>;
+  registerWithEmail: (
+    email: string,
+    password: string,
+    verificationCode: string,
+    nickname?: string,
+  ) => Promise<boolean>;
   loginWithEmail: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -45,11 +51,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   register: async (nickname?: string) => {
     set({ isLoading: true, error: null });
     try {
+      authDebug('authStore.register start');
       const res = await register(nickname);
       if (!res.data) {
+        authWarn('authStore.register empty response');
         set({ isLoading: false, error: 'register_failed' });
         return false;
       }
+      authDebug('authStore.register success', {
+        userId: res.data.user_id,
+        hasToken: Boolean(res.data.token),
+      });
       set({
         token: res.data.token,
         userId: res.data.user_id,
@@ -61,21 +73,38 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
       });
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = getErrorMessage(error);
+      authWarn('authStore.register failed', { error: errorMessage });
       set({ isLoading: false, error: errorMessage });
       return false;
     }
   },
 
-  registerWithEmail: async (email: string, password: string, nickname?: string) => {
+  registerWithEmail: async (
+    email: string,
+    password: string,
+    verificationCode: string,
+    nickname?: string,
+  ) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await registerWithEmail({ email, password, nickname });
+      authDebug('authStore.registerWithEmail start', { email });
+      const res = await registerWithEmail({
+        email,
+        password,
+        verification_code: verificationCode,
+        nickname,
+      });
       if (!res.data) {
+        authWarn('authStore.registerWithEmail empty response');
         set({ isLoading: false, error: 'register_failed' });
         return false;
       }
+      authDebug('authStore.registerWithEmail success', {
+        userId: res.data.user_id,
+        hasToken: Boolean(res.data.token),
+      });
       set({
         token: res.data.token,
         userId: res.data.user_id,
@@ -87,8 +116,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
       });
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = getErrorMessage(error);
+      authWarn('authStore.registerWithEmail failed', { error: errorMessage });
       set({ isLoading: false, error: errorMessage });
       return false;
     }
@@ -97,11 +127,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   loginWithEmail: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
+      authDebug('authStore.loginWithEmail start', { email });
       const res = await loginWithEmail({ email, password });
       if (!res.data) {
+        authWarn('authStore.loginWithEmail empty response');
         set({ isLoading: false, error: 'login_failed' });
         return false;
       }
+      authDebug('authStore.loginWithEmail success', {
+        userId: res.data.user_id,
+        hasToken: Boolean(res.data.token),
+      });
       set({
         token: res.data.token,
         userId: res.data.user_id,
@@ -113,14 +149,16 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
       });
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage = getErrorMessage(error);
+      authWarn('authStore.loginWithEmail failed', { error: errorMessage });
       set({ isLoading: false, error: errorMessage });
       return false;
     }
   },
 
   logout: async () => {
+    authDebug('authStore.logout start');
     await logout();
     set({
       token: null,
@@ -130,36 +168,41 @@ export const useAuthStore = create<AuthState>((set) => ({
       isNewUser: false,
       authType: null,
       isAuthenticated: false,
+      isLoading: false,
     });
+    authDebug('authStore.logout done');
   },
 
   checkAuth: async () => {
     set({ isLoading: true });
-
-    // 超时保护：5秒后强制结束 loading 状态
-    const timeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Auth check timeout')), 5000);
-    });
+    authDebug('authStore.checkAuth start');
 
     try {
-      const authCheck = Promise.all([
+      const [info, token, tokenSavedAt] = await Promise.all([
         getLocalUserInfo(),
         tokenStorage.getToken(),
         tokenStorage.getTokenSavedAt(),
       ]);
 
-      const [info, token, tokenSavedAt] = (await Promise.race([authCheck, timeout])) as [
-        { userId: string | null; deviceId: string | null; email: string | null },
-        string | null,
-        number | null,
-      ];
+      authDebug('authStore.checkAuth snapshot', {
+        hasToken: Boolean(token),
+        hasUserId: Boolean(info.userId),
+        tokenSavedAt,
+      });
 
       if (token) {
         const now = Date.now();
+        const tokenAge = tokenSavedAt ? now - tokenSavedAt : 0;
+        const isExpired = tokenSavedAt !== null && tokenAge > TOKEN_TTL_MS;
 
-        if (tokenSavedAt === null) {
-          await tokenStorage.touchTokenSavedAt();
-        } else if (now - tokenSavedAt > TOKEN_TTL_MS) {
+        authDebug('authStore.checkAuth tokenMeta', {
+          tokenAge,
+          isExpired,
+          ttlMs: TOKEN_TTL_MS,
+        });
+
+        if (isExpired) {
+          authWarn('authStore.checkAuth token expired, clearing local auth');
           await tokenStorage.clearAll();
           set({
             token: null,
@@ -170,6 +213,11 @@ export const useAuthStore = create<AuthState>((set) => ({
             isLoading: false,
           });
           return;
+        }
+
+        if (tokenSavedAt === null) {
+          authDebug('authStore.checkAuth tokenSavedAt missing, touching value');
+          await tokenStorage.touchTokenSavedAt();
         }
       }
 
@@ -182,6 +230,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           isAuthenticated: true,
           isLoading: false,
         });
+        authDebug('authStore.checkAuth authenticated');
         return;
       }
 
@@ -193,9 +242,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         isAuthenticated: false,
         isLoading: false,
       });
+      authDebug('authStore.checkAuth unauthenticated (no token)');
     } catch (error) {
-      console.error('Failed to check auth:', error);
-      // 确保任何情况下都结束 loading 状态
+      authWarn('authStore.checkAuth failed', { error: String(error) });
       set({
         token: null,
         userId: null,
@@ -235,5 +284,11 @@ function getErrorMessage(error: unknown): string {
 }
 
 setUnauthorizedHandler(() => {
+  authWarn('authStore.unauthorizedHandler triggered');
   void useAuthStore.getState().logout();
+});
+
+tokenStorage.setErrorCallback((error) => {
+  authWarn('tokenStorage error callback', { error: error.message });
+  useAuthStore.setState({ error: error.message });
 });

@@ -7,7 +7,15 @@ from app.core.config import settings
 from app.db.base import Base
 
 # Ensure models are imported so Base.metadata is complete for autogenerate.
-from app.models import event, music, photo, task, user  # noqa: F401
+from app.models import (
+    chapter,
+    event,
+    music,
+    photo,
+    photo_group,
+    task,
+    user,
+)  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

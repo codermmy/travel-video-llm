@@ -1,0 +1,58 @@
+version: 1
+project_type: react-native-fullstack
+updated_at: 2026-02-10
+profiles:
+  backend:
+    required: true
+    purpose: 后端 API/服务回归
+    install:
+      - cd backend
+      - python3 -m venv .venv
+      - source .venv/bin/activate
+      - pip install -r requirements.txt
+    run:
+      - cd backend && source .venv/bin/activate && pytest -q
+    artifacts:
+      - my-spec/artifacts/<change>/reports/backend-pytest.txt
+      - my-spec/artifacts/<change>/logs/backend-test.log
+
+  mobile_static:
+    required: true
+    purpose: 移动端静态质量门禁
+    install:
+      - cd mobile
+      - npm install
+    run:
+      - cd mobile && npm run lint
+      - cd mobile && npm run typecheck
+    artifacts:
+      - my-spec/artifacts/<change>/reports/mobile-lint.txt
+      - my-spec/artifacts/<change>/reports/mobile-typecheck.txt
+
+  mobile_e2e_manual_assisted:
+    required: conditional
+    purpose: 涉及 RN UI 关键流程时进行端到端验证
+    tool: maestro
+    install:
+      - brew install maestro || true
+      - maestro --version
+    run:
+      - maestro test mobile/.maestro
+    handshake_required: true
+    artifacts:
+      - my-spec/artifacts/<change>/reports/mobile-maestro.txt
+      - my-spec/artifacts/<change>/screenshots/
+      - my-spec/artifacts/<change>/handshake/
+
+  mobile_unit:
+    required: optional
+    purpose: RN 组件/Hook 单测（当前项目未默认启用）
+    install:
+      - cd mobile && npm install -D jest jest-expo @testing-library/react-native @types/jest
+    run:
+      - cd mobile && npm run test
+    note: 启用前需补齐 jest 配置
+
+adapter_guideline:
+  - 新项目复制本文件，修改 project_type 与各 profile 的 install/run。
+  - spec:testplan 和 spec:apply 必须读取本文件，确保测试命令与项目技术栈匹配。

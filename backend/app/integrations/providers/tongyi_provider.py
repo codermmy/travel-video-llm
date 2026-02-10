@@ -58,6 +58,8 @@ class TongyiProvider:
         location: str,
         date_range: str,
         photo_descriptions: list[str],
+        detailed_location: str = "",
+        location_tags: str = "",
     ) -> dict[str, Any] | None:
         if not self.is_configured():
             self._set_error(self.configuration_error_code())
@@ -67,6 +69,8 @@ class TongyiProvider:
             location=location,
             date_range=date_range,
             photo_descriptions=photo_descriptions,
+            detailed_location=detailed_location,
+            location_tags=location_tags,
         )
         if result is None:
             self._set_error(self.client.get_last_error_code() or "tongyi_response_parse_failed")

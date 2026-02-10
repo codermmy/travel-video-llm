@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from app.integrations.providers.base import AIProvider
+from app.integrations.providers.base import AIProvider, EMOTION_KEYWORDS
 from app.integrations.providers.factory import provider_factory
 from app.utils.cache import simple_cache
 
@@ -64,6 +64,8 @@ class AIService:
         start_time: str,
         end_time: str,
         photo_descriptions: list[str],
+        detailed_location: str = "",
+        location_tags: str = "",
     ) -> dict[str, Any] | None:
         """为事件生成故事"""
         cache_key = self._get_cache_key("story", str(event_id))
@@ -84,6 +86,8 @@ class AIService:
             location=location,
             date_range=date_range,
             photo_descriptions=photo_descriptions,
+            detailed_location=detailed_location,
+            location_tags=location_tags,
         )
 
         self.last_error_code = self._get_provider_error_code()
@@ -120,21 +124,48 @@ class AIService:
         photo_urls: list[str],
         photo_count: int,
     ) -> list[str]:
-        """选择用于 AI 分析的代表性照片"""
+        """选择用于 AI 分析的代表性照片（时间均匀分布）"""
         if not photo_urls:
             return []
 
-        if photo_count >= 10:
-            indices = [0, 4, 9]
+        total = min(photo_count, len(photo_urls))
+        if total <= 10:
+            target_count = total
+        elif total <= 20:
+            target_count = max(3, int(total * 0.8))
+        elif total <= 50:
+            target_count = max(3, int(total * 0.5))
+        elif total <= 100:
+            target_count = max(3, int(total * 0.3))
         else:
-            indices = [0, photo_count // 2, photo_count - 1]
+            target_count = min(50, total)
 
-        selected = []
-        for idx in indices:
-            if idx < len(photo_urls):
-                selected.append(photo_urls[idx])
+        if total <= target_count:
+            return photo_urls[:total]
 
-        return list(dict.fromkeys(selected))
+        selected_indices = [0]
+        if total > 1:
+            selected_indices.append(total - 1)
+
+        remaining = target_count - len(selected_indices)
+        if remaining > 0 and total > 2:
+            step = (total - 1) / (target_count - 1)
+            for i in range(1, target_count - 1):
+                idx = int(round(i * step))
+                selected_indices.append(min(max(idx, 1), total - 2))
+
+        unique_sorted = sorted(set(selected_indices))
+        selected = [photo_urls[idx] for idx in unique_sorted if idx < len(photo_urls)]
+
+        if len(selected) < target_count:
+            for idx, url in enumerate(photo_urls[:total]):
+                if idx not in unique_sorted:
+                    selected.append(url)
+                    unique_sorted.append(idx)
+                if len(selected) >= target_count:
+                    break
+
+        return selected[:target_count]
 
     def analyze_event_photos(
         self,
@@ -153,17 +184,18 @@ class AIService:
         results = self.analyze_photo_batch(selected_urls)
 
         descriptions = []
-        emotion_scores = {"Happy": 0, "Calm": 0, "Epic": 0, "Romantic": 0}
+        emotion_scores = {emotion: 0 for emotion in EMOTION_KEYWORDS}
 
         for result in results:
-            if result:
-                desc = result.get("description", "")
-                if desc:
-                    descriptions.append(str(desc)[:100])
+            if not result:
+                continue
+            desc = result.get("description", "")
+            if desc:
+                descriptions.append(str(desc)[:120])
 
-                emotion = result.get("emotion", "Calm")
-                if emotion in emotion_scores:
-                    emotion_scores[emotion] += 1
+            emotion = result.get("emotion", "Peaceful")
+            if emotion in emotion_scores:
+                emotion_scores[emotion] += 1
 
         dominant_emotion = max(emotion_scores.keys(), key=lambda k: emotion_scores[k])
 

@@ -1,7 +1,8 @@
 import { apiClient } from '@/services/api/client';
 import { tokenStorage } from '@/services/storage/tokenStorage';
-import { getDeviceId } from '@/utils/deviceUtils';
 import type { ApiResponse } from '@/types';
+import { authDebug, authWarn } from '@/utils/authDebug';
+import { getDeviceId } from '@/utils/deviceUtils';
 
 export type AuthResponse = {
   token: string;
@@ -17,6 +18,7 @@ export type AuthResponse = {
 export type EmailPasswordRegisterParams = {
   email: string;
   password: string;
+  verification_code: string;
   nickname?: string;
 };
 
@@ -24,6 +26,8 @@ export type EmailPasswordLoginParams = {
   email: string;
   password: string;
 };
+
+export type SendCodePurpose = 'register' | 'reset_password';
 
 export type ApiError = {
   response?: {
@@ -45,12 +49,55 @@ export async function register(nickname?: string): Promise<ApiResponse<AuthRespo
     nickname,
   });
   if (res.data?.data) {
+    authDebug('authApi.register persist token', { hasToken: Boolean(res.data.data.token) });
     await tokenStorage.saveToken(res.data.data.token);
     await tokenStorage.saveUserId(res.data.data.user_id);
     if (res.data.data.device_id) {
       await tokenStorage.saveDeviceId(res.data.data.device_id);
     }
   }
+  return res.data;
+}
+
+export async function sendEmailCode(
+  email: string,
+  purpose: SendCodePurpose,
+): Promise<ApiResponse<{ message: string }>> {
+  const path =
+    purpose === 'reset_password'
+      ? '/api/v1/auth/send-reset-code'
+      : '/api/v1/auth/send-verification-code';
+  const res = await apiClient.post<ApiResponse<{ message: string }>>(path, {
+    email,
+    purpose,
+  });
+  return res.data;
+}
+
+export async function verifyEmailCode(
+  email: string,
+  code: string,
+): Promise<ApiResponse<{ message: string }>> {
+  const res = await apiClient.post<ApiResponse<{ message: string }>>('/api/v1/auth/verify-email', {
+    email,
+    code,
+  });
+  return res.data;
+}
+
+export async function resetPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<ApiResponse<{ message: string }>> {
+  const res = await apiClient.post<ApiResponse<{ message: string }>>(
+    '/api/v1/auth/reset-password',
+    {
+      email,
+      code,
+      new_password: newPassword,
+    },
+  );
   return res.data;
 }
 
@@ -62,6 +109,9 @@ export async function registerWithEmail(
     params,
   );
   if (res.data?.data) {
+    authDebug('authApi.registerWithEmail persist token', {
+      hasToken: Boolean(res.data.data.token),
+    });
     await tokenStorage.saveToken(res.data.data.token);
     await tokenStorage.saveUserId(res.data.data.user_id);
     if (res.data.data.email) {
@@ -74,15 +124,23 @@ export async function registerWithEmail(
 export async function loginWithEmail(
   params: EmailPasswordLoginParams,
 ): Promise<ApiResponse<AuthResponse>> {
-  const res = await apiClient.post<ApiResponse<AuthResponse>>('/api/v1/auth/login', params);
-  if (res.data?.data) {
-    await tokenStorage.saveToken(res.data.data.token);
-    await tokenStorage.saveUserId(res.data.data.user_id);
-    if (res.data.data.email) {
-      await tokenStorage.saveEmail(res.data.data.email);
+  try {
+    const res = await apiClient.post<ApiResponse<AuthResponse>>('/api/v1/auth/login', params);
+    if (res.data?.data) {
+      authDebug('authApi.loginWithEmail persist token', {
+        hasToken: Boolean(res.data.data.token),
+      });
+      await tokenStorage.saveToken(res.data.data.token);
+      await tokenStorage.saveUserId(res.data.data.user_id);
+      if (res.data.data.email) {
+        await tokenStorage.saveEmail(res.data.data.email);
+      }
     }
+    return res.data;
+  } catch (error) {
+    authWarn('authApi.loginWithEmail request failed', { error: String(error) });
+    throw error;
   }
-  return res.data;
 }
 
 export async function isAuthenticated(): Promise<boolean> {

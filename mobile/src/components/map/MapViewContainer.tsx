@@ -1,10 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
+
+import { BackButton } from '@/components/map/BackButton';
+import { ClusterMarker } from '@/components/map/ClusterMarker';
+import { EventCardList } from '@/components/map/EventCardList';
 import type { EventRecord } from '@/types/event';
-import { EventMarker } from './EventMarker';
-import { EventBubble } from './EventBubble';
+import type { MapViewStack } from '@/types/mapStack';
+import {
+  clusterEvents,
+  getAdaptiveClusterThreshold,
+  getLevelName,
+  hasValidGps,
+  initializeStack,
+  popStack,
+  returnToInitialState,
+  zoomIntoCluster,
+} from '@/utils/mapClusterUtils';
 import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
 
 declare function require(moduleName: string): unknown;
@@ -24,8 +37,11 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
   const [amap, setAmap] = useState<AMapModule | null>(null);
   const [amapStatus, setAmapStatus] = useState<AMapLoadStatus>('idle');
   const [amapError, setAmapError] = useState<string | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
+
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [stack, setStack] = useState<MapViewStack | null>(null);
 
   const isWeb = Platform.OS === 'web';
   const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -52,7 +68,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
 
   useEffect(() => {
     if (isWeb) {
-      // Web doesn't support react-native-amap3d (native module).
       setAmap(null);
       setAmapError(null);
       setAmapStatus('module_error');
@@ -73,7 +88,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     try {
       const mod = require('react-native-amap3d');
       if (!isAmapModule(mod)) {
-        console.warn('AMap module loaded but shape is unexpected');
         setAmap(null);
         setAmapError('amap_module_shape_unexpected');
         setAmapStatus('module_error');
@@ -97,96 +111,93 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     }
   }, [amapAndroidKey, amapIosKey, isExpoGo, isPlatformKeyConfigured, isWeb]);
 
-  const hasValidGps = (e: EventRecord): e is EventRecord & { gpsLat: number; gpsLon: number } => {
-    if (typeof e.gpsLat !== 'number' || typeof e.gpsLon !== 'number') {
-      return false;
-    }
-    if (!Number.isFinite(e.gpsLat) || !Number.isFinite(e.gpsLon)) {
-      return false;
-    }
-    if (Math.abs(e.gpsLat) > 90 || Math.abs(e.gpsLon) > 180) {
-      return false;
-    }
-    return true;
-  };
-
-  // Filter events with valid coordinates
   const validEvents = useMemo(() => events.filter(hasValidGps), [events]);
-  const selectedEvent = validEvents.find((e) => e.id === selectedEventId);
 
   useEffect(() => {
-    if (!selectedEventId) {
+    if (!isMapReady || validEvents.length === 0) {
       return;
     }
-    if (!selectedEvent) {
-      setSelectedEventId(null);
-    }
-  }, [selectedEvent, selectedEventId]);
+    setStack(initializeStack(validEvents));
+    setSelectedClusterId(null);
+    setSelectedEventId(null);
+  }, [isMapReady, validEvents]);
 
   useEffect(() => {
-    if (isMapReady && validEvents.length > 0 && mapRef.current) {
-      // Calculate bounding box
-      let minLat = 90;
-      let maxLat = -90;
-      let minLon = 180;
-      let maxLon = -180;
-      validEvents.forEach((e) => {
-        const lat = e.gpsLat;
-        const lon = e.gpsLon;
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-        if (lon < minLon) minLon = lon;
-        if (lon > maxLon) maxLon = lon;
-      });
-
-      // Add padding
-      const latDelta = maxLat - minLat;
-      const lonDelta = maxLon - minLon;
-
-      // If only one point, or very close points
-      if (latDelta < 0.01 && lonDelta < 0.01) {
-        mapRef.current.moveCamera(
-          {
-            target: {
-              latitude: (minLat + maxLat) / 2,
-              longitude: (minLon + maxLon) / 2,
-            },
-            zoom: 15,
-          },
-          1000,
-        );
-      } else {
-        // AMap3D doesn't have a direct "fitToCoordinates" in the typed ref sometimes,
-        // but moveCamera supports bounds?
-        // Checking types... MapView methods: moveCamera(CameraUpdate, duration)
-        // CameraUpdate can be CameraPosition.
-        // Actually, react-native-amap3d v3 doesn't have fitToCoordinates easily exposed in the same way as google maps.
-        // But we can set zoom level manually or use the center.
-        // For now, let's just center on the first event or average.
-
-        // Better: Average center
-        const centerLat = (minLat + maxLat) / 2;
-        const centerLon = (minLon + maxLon) / 2;
-
-        // Rough zoom estimation
-        // 0.1 delta ~ zoom 10
-        // 0.01 delta ~ zoom 14
-        const maxDelta = Math.max(latDelta, lonDelta);
-        let zoom = 10;
-        if (maxDelta < 0.05) zoom = 13;
-        if (maxDelta < 0.01) zoom = 15;
-        if (maxDelta > 1) zoom = 5;
-
-        mapRef.current.moveCamera(
-          {
-            target: { latitude: centerLat, longitude: centerLon },
-            zoom,
-          },
-          1000,
-        );
-      }
+    if (!stack || !mapRef.current) {
+      return;
     }
-  }, [isMapReady, validEvents]);
+
+    const currentState = stack.states[stack.currentIndex];
+    mapRef.current.moveCamera(currentState, 500);
+  }, [stack]);
+
+  const clusters = useMemo(() => {
+    if (!stack || validEvents.length === 0) {
+      return [];
+    }
+    const currentState = stack.states[stack.currentIndex];
+    const thresholdKm = getAdaptiveClusterThreshold(currentState.zoom);
+    return clusterEvents(validEvents, thresholdKm);
+  }, [stack, validEvents]);
+
+  const selectedCluster = useMemo(() => {
+    if (!selectedClusterId) {
+      return null;
+    }
+    return clusters.find((cluster) => cluster.id === selectedClusterId) || null;
+  }, [clusters, selectedClusterId]);
+
+  const handleClusterPress = (clusterId: string) => {
+    setSelectedClusterId(clusterId);
+    setSelectedEventId(null);
+  };
+
+  const handleClusterDoubleClick = (clusterId: string) => {
+    if (!stack) {
+      return;
+    }
+
+    const cluster = clusters.find((item) => item.id === clusterId);
+    if (!cluster) {
+      return;
+    }
+
+    if (cluster.count <= 1) {
+      const event = cluster.events[0];
+      if (event) {
+        onEventPress(event.id);
+      }
+      return;
+    }
+
+    setStack((prev) => (prev ? zoomIntoCluster(cluster, prev) : prev));
+    setSelectedClusterId(null);
+    setSelectedEventId(null);
+  };
+
+  const handleMapPress = () => {
+    if (selectedClusterId) {
+      setSelectedClusterId(null);
+      setSelectedEventId(null);
+      return;
+    }
+
+    if (stack && stack.currentIndex > 0) {
+      setStack((prev) => (prev ? popStack(prev) : prev));
+    }
+  };
+
+  const handleBackToInitial = () => {
+    if (!stack) {
+      return;
+    }
+    setStack(returnToInitialState(stack));
+    setSelectedClusterId(null);
+    setSelectedEventId(null);
+  };
+
+  const showBackButton = Boolean(stack && stack.currentIndex > 0);
+  const backButtonLevelName = stack ? getLevelName(stack.initialState) : '初始视图';
 
   if (isWeb) {
     return (
@@ -196,14 +207,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         <Text style={styles.fallbackText}>
           高德地图依赖原生模块，仅 iOS/Android Development Build 可用。
         </Text>
-        <View style={styles.eventListPreview}>
-          <Text style={styles.previewTitle}>Events ({validEvents.length})</Text>
-          {validEvents.slice(0, 3).map((e) => (
-            <View key={e.id} style={styles.previewItem}>
-              <Text>{e.title}</Text>
-            </View>
-          ))}
-        </View>
       </View>
     );
   }
@@ -215,14 +218,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         <Text style={styles.fallbackTitle}>Expo Go 无法显示地图</Text>
         <Text style={styles.fallbackText}>高德地图需要原生模块，Expo Go 不支持该类原生模块。</Text>
         <Text style={styles.fallbackText}>请使用 Development Build（自定义客户端）运行。</Text>
-        <View style={styles.eventListPreview}>
-          <Text style={styles.previewTitle}>Events ({validEvents.length})</Text>
-          {validEvents.slice(0, 3).map((e) => (
-            <View key={e.id} style={styles.previewItem}>
-              <Text>{e.title}</Text>
-            </View>
-          ))}
-        </View>
       </View>
     );
   }
@@ -247,11 +242,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         <View style={styles.fallbackContainer}>
           <Ionicons name="warning-outline" size={64} color="#ccc" />
           <Text style={styles.fallbackTitle}>地图模块不可用</Text>
-          <Text style={styles.fallbackText}>
-            请确认你运行的是 Development Build（不是 Expo Go）。
-          </Text>
-          <Text style={styles.fallbackText}>如果问题持续，可能需要重新安装依赖并重新构建。</Text>
-          {amapError && <Text style={styles.fallbackText}>错误: {amapError}</Text>}
+          <Text style={styles.fallbackText}>请确认你运行的是 Development Build（不是 Expo Go）。</Text>
+          {amapError ? <Text style={styles.fallbackText}>错误: {amapError}</Text> : null}
         </View>
       );
     }
@@ -260,8 +252,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
       <View style={styles.fallbackContainer}>
         <Ionicons name="map-outline" size={64} color="#ccc" />
         <Text style={styles.fallbackTitle}>地图模块加载中</Text>
-        <Text style={styles.fallbackText}>如果你在 Expo Go，这里将无法显示地图。</Text>
-        <Text style={styles.fallbackText}>请使用 Development Build 运行以启用高德地图。</Text>
       </View>
     );
   }
@@ -279,37 +269,55 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         }}
         style={styles.map}
         onLoad={() => setIsMapReady(true)}
-        onPress={() => setSelectedEventId(null)}
-        initialCameraPosition={{
-          target: { latitude: 39.9042, longitude: 116.4074 }, // China default
-          zoom: 10,
-        }}
+        onPress={handleMapPress}
+        initialCameraPosition={stack?.initialState || { target: { latitude: 39.9042, longitude: 116.4074 }, zoom: 5 }}
       >
-        {validEvents.map((event) => (
-          <EventMarker
-            key={event.id}
-            event={event}
-            isSelected={selectedEventId === event.id}
-            onPress={() => setSelectedEventId(event.id)}
-            MarkerComponent={MarkerComponent}
-          />
+        {clusters.map((cluster) => (
+          <MarkerComponent
+            key={cluster.id}
+            position={cluster.center}
+            onPress={() => handleClusterPress(cluster.id)}
+            zIndex={selectedClusterId === cluster.id ? 100 : 1}
+          >
+            <ClusterMarker
+              coverUrl={cluster.events[0]?.coverPhotoUrl || null}
+              clusterCount={cluster.count}
+              isSelected={selectedClusterId === cluster.id}
+              onPress={() => handleClusterPress(cluster.id)}
+              onDoublePress={() => handleClusterDoubleClick(cluster.id)}
+            />
+          </MarkerComponent>
         ))}
       </MapViewComponent>
 
-      {validEvents.length === 0 && (
+      {validEvents.length === 0 ? (
         <View pointerEvents="none" style={styles.emptyState}>
           <Text style={styles.emptyTitle}>还没有带定位的事件</Text>
           <Text style={styles.emptyText}>上传包含 GPS 信息的照片后，这里会显示足迹标记。</Text>
         </View>
-      )}
+      ) : null}
 
-      {selectedEvent && (
-        <EventBubble
-          event={selectedEvent}
-          onPressDetails={() => onEventPress(selectedEvent.id)}
-          onClose={() => setSelectedEventId(null)}
+      {showBackButton ? (
+        <BackButton levelName={backButtonLevelName} onPress={handleBackToInitial} />
+      ) : null}
+
+      {selectedCluster ? (
+        <EventCardList
+          events={selectedCluster.events}
+          selectedEventId={selectedEventId}
+          onPressEvent={(eventId) => {
+            setSelectedEventId(eventId);
+          }}
+          onPressDetails={(eventId) => {
+            setSelectedEventId(eventId);
+            onEventPress(eventId);
+          }}
+          onClose={() => {
+            setSelectedClusterId(null);
+            setSelectedEventId(null);
+          }}
         />
-      )}
+      ) : null}
     </View>
   );
 };
@@ -340,22 +348,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginBottom: 4,
-  },
-  eventListPreview: {
-    marginTop: 24,
-    width: '100%',
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-  },
-  previewTitle: {
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  previewItem: {
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
   },
   emptyState: {
     position: 'absolute',

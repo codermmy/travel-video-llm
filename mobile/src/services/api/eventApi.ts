@@ -12,14 +12,24 @@ function normalizeEvent(e: EventRecord): EventRecord {
   return {
     ...e,
     coverPhotoUrl: resolveApiUrl(e.coverPhotoUrl),
+    fullStory: e.fullStory ?? e.storyText ?? null,
   };
 }
 
 function normalizeEventDetail(e: EventDetail): EventDetail {
   const rawPhotos = (e as unknown as { photos?: unknown }).photos;
+  const rawChapters = (e as unknown as { chapters?: unknown }).chapters;
+  const rawPhotoGroups = (e as unknown as { photoGroups?: unknown }).photoGroups;
   const photos = Array.isArray(rawPhotos) ? (rawPhotos as EventDetail['photos']) : [];
+  const chapters = Array.isArray(rawChapters) ? (rawChapters as EventDetail['chapters']) : [];
+  const photoGroups = Array.isArray(rawPhotoGroups)
+    ? (rawPhotoGroups as EventDetail['photoGroups'])
+    : [];
+
   return {
     ...normalizeEvent(e),
+    chapters,
+    photoGroups,
     photos: photos.map((p) => ({
       ...p,
       photoUrl: resolveApiUrl((p as { photoUrl?: string | null }).photoUrl),

@@ -67,6 +67,8 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
     }
   }, [currentPhoto?.shootTime]);
 
+  const captionText = useMemo(() => currentPhoto?.caption || null, [currentPhoto?.caption]);
+
   const gpsText = useMemo(() => {
     if (!currentPhoto) {
       return null;
@@ -125,9 +127,10 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
         }}
       />
 
-      {(footerText || gpsText) && (
+      {(footerText || captionText || gpsText) && (
         <View style={styles.metaContainer}>
           {footerText ? <Text style={styles.metaText}>{footerText}</Text> : null}
+          {captionText ? <Text style={styles.captionText}>{captionText}</Text> : null}
           {gpsText ? <Text style={styles.metaText}>GPS: {gpsText}</Text> : null}
         </View>
       )}
@@ -212,6 +215,11 @@ const styles = StyleSheet.create({
   metaText: {
     color: '#EAF0FF',
     fontSize: 12,
+  },
+  captionText: {
+    color: '#B8C5FF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   pressed: {
     transform: [{ scale: 0.98 }],

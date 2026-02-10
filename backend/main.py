@@ -16,10 +16,19 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Travel Album API")
 
     cors_origins = settings.cors_origins_list
+    allow_credentials = bool(cors_origins)
+    if not cors_origins:
+        cors_origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:19006",
+            "http://127.0.0.1:19006",
+        ]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins if cors_origins else ["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

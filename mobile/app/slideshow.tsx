@@ -10,7 +10,15 @@ export default function SlideshowScreen() {
   if (!event) {
     return (
       <SlideshowPlayer
-        event={{ id: 'empty', title: '未选择事件', musicUrl: null, storyText: null }}
+        event={{
+          id: 'empty',
+          title: '未选择事件',
+          musicUrl: null,
+          storyText: null,
+          fullStory: null,
+          chapters: [],
+          photoGroups: [],
+        }}
         photos={[]}
         onClose={() => {
           clearSession();
