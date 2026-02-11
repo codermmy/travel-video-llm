@@ -1,0 +1,35 @@
+# 地图视图测试
+# 验证地图能够正常加载和显示
+
+appId: com.maoyuan.travelalbum
+---
+
+# 启动应用（假设已登录状态）
+- launchApp
+
+# 等待首页加载
+- extendedWaitUntil:
+    visible:
+      id: "home-screen"
+    timeout: 10000
+
+# 如果有底部导航，点击地图 Tab
+- tapOn:
+    id: "tab-map"
+    optional: true
+
+# 等待地图加载
+- extendedWaitUntil:
+    visible:
+      id: "map-container"
+    timeout: 15000
+
+# 截图记录地图状态
+- takeScreenshot: map-loaded
+
+# 验证地图交互 - 尝试缩放
+- swipe:
+    direction: UP
+    duration: 500
+
+- takeScreenshot: map-after-interaction

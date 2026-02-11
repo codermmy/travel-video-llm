@@ -1,0 +1,25 @@
+# 基础测试：应用启动
+# 验证应用能够正常启动并显示欢迎页面
+#
+# 使用前请确保：
+# 1. 开发服务器已启动 (npx expo start)
+# 2. 更新 .maestro/config.yaml 中的 DEV_SERVER_URL
+
+appId: com.maoyuan.travelalbum
+env:
+  DEV_SERVER_URL: ${DEV_SERVER_URL}
+---
+
+# 启动应用（清除状态，模拟首次启动）
+- launchApp:
+    clearState: true
+
+# 连接到开发服务器（Expo Dev Client）
+- runFlow: shared/connect-dev-server.yaml
+
+# 验证关键元素存在
+- assertVisible: "Travel Album"
+- assertVisible: "一键开始"
+
+# 截图记录启动状态
+- takeScreenshot: app-launched-welcome

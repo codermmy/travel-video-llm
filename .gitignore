@@ -43,3 +43,8 @@ backend/uploads/
 # Local assistant config
 .claude/
 openspec/
+
+# ai
+.claude/
+.codex/
+.opencode/

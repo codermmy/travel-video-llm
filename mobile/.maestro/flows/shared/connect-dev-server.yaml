@@ -1,0 +1,40 @@
+# 共享流程：连接 Expo 开发服务器
+
+appId: com.maoyuan.travelalbum
+---
+
+# 等待页面加载
+- extendedWaitUntil:
+    visible: "Development Build"
+    timeout: 15000
+
+# 尝试关闭可能的弹窗
+- tapOn:
+    text: "Got it"
+    optional: true
+
+- tapOn:
+    text: "Dismiss"
+    optional: true
+
+# 点击输入框
+- tapOn: "http://localhost:8081"
+
+# 清除并输入地址
+- eraseText: 30
+- inputText: ${DEV_SERVER_URL}
+
+# 点击连接
+- tapOn: "Connect"
+
+# 关闭开发者菜单蒙层（首次启动会显示）
+# 注意：点击 Close（叉号）关闭蒙层，不要点 Continue（会进入开发者工具）
+- tapOn:
+    text: "Close"
+    optional: true
+
+# 等待应用加载（JS bundle 加载可能较慢）
+- extendedWaitUntil:
+    visible:
+      id: "welcome-screen"
+    timeout: 60000

@@ -24,6 +24,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="map-marker-multiple" size={size} color={color} />
           ),
+          tabBarAccessibilityLabel: 'tab-map',
         }}
       />
       <Tabs.Screen
@@ -33,6 +34,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="calendar-multiselect" size={size} color={color} />
           ),
+          tabBarAccessibilityLabel: 'tab-events',
         }}
       />
       <Tabs.Screen
@@ -42,6 +44,7 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-circle" size={size} color={color} />
           ),
+          tabBarAccessibilityLabel: 'tab-profile',
         }}
       />
     </Tabs>

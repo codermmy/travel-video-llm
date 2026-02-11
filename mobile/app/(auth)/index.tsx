@@ -63,59 +63,64 @@ export default function WelcomeScreen() {
   }, [clearError, nickname, register, router]);
 
   return (
-    <LinearGradient colors={['#EEF3FF', '#E6F3ED', '#F7FAFF']} style={styles.page}>
-      <KeyboardAvoidingView
-        style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.heroCard}>
-            <View style={styles.brandMark}>
-              <MaterialCommunityIcons name="map-marker-path" size={32} color="#FFFFFF" />
-            </View>
-            <Text style={styles.title}>Travel Album</Text>
-            <Text style={styles.subtitle}>把散落的旅途照片，整理成可回放的故事。</Text>
-          </View>
-
-          <View style={styles.formCard}>
-            <Text style={styles.inputLabel}>你的昵称（可选）</Text>
-            <TextInput
-              style={styles.input}
-              value={nickname}
-              onChangeText={(v) => setNickname(normalizeNickname(v))}
-              placeholder="例如：小圆的旅行日记"
-              maxLength={NICKNAME_MAX_LENGTH}
-              placeholderTextColor="#8D9EBF"
-            />
-            <Text style={styles.inputHint}>{nicknameHint}</Text>
-
-            <Pressable
-              style={({ pressed }) => [styles.quickStartButton, pressed && styles.buttonPressed]}
-              onPress={handleQuickStart}
-              disabled={isLoading}
-            >
-              <MaterialCommunityIcons name="rocket-launch-outline" size={24} color="#FFFFFF" />
-              <View>
-                <Text style={styles.quickStartText}>一键开始</Text>
-                <Text style={styles.quickStartHint}>使用设备ID快速登录</Text>
+    <View style={styles.page} testID="welcome-screen">
+      <LinearGradient colors={['#EEF3FF', '#E6F3ED', '#F7FAFF']} style={StyleSheet.absoluteFill}>
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <View style={styles.heroCard}>
+              <View style={styles.brandMark}>
+                <MaterialCommunityIcons name="map-marker-path" size={32} color="#FFFFFF" />
               </View>
-            </Pressable>
+              <Text style={styles.title}>Travel Album</Text>
+              <Text style={styles.subtitle}>把散落的旅途照片，整理成可回放的故事。</Text>
+            </View>
 
-            <Pressable
-              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-              onPress={() => router.push('/login')}
-            >
-              <MaterialCommunityIcons name="email-outline" size={22} color="#2F6AF6" />
-              <Text style={styles.secondaryButtonText}>邮箱登录</Text>
-            </Pressable>
+            <View style={styles.formCard}>
+              <Text style={styles.inputLabel}>你的昵称（可选）</Text>
+              <TextInput
+                style={styles.input}
+                value={nickname}
+                onChangeText={(v) => setNickname(normalizeNickname(v))}
+                placeholder="例如：小圆的旅行日记"
+                maxLength={NICKNAME_MAX_LENGTH}
+                placeholderTextColor="#8D9EBF"
+                testID="welcome-nickname-input"
+              />
+              <Text style={styles.inputHint}>{nicknameHint}</Text>
 
-            <Pressable
-              style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-              onPress={() => router.push('/register')}
-            >
-              <MaterialCommunityIcons name="account-plus-outline" size={22} color="#2F6AF6" />
-              <Text style={styles.secondaryButtonText}>注册新账号</Text>
-            </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.quickStartButton, pressed && styles.buttonPressed]}
+                onPress={handleQuickStart}
+                disabled={isLoading}
+                testID="quick-start-button"
+              >
+                <MaterialCommunityIcons name="rocket-launch-outline" size={24} color="#FFFFFF" />
+                <View>
+                  <Text style={styles.quickStartText}>一键开始</Text>
+                  <Text style={styles.quickStartHint}>使用设备ID快速登录</Text>
+                </View>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                onPress={() => router.push('/login')}
+                testID="email-login-button"
+              >
+                <MaterialCommunityIcons name="email-outline" size={22} color="#2F6AF6" />
+                <Text style={styles.secondaryButtonText}>邮箱登录</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
+                onPress={() => router.push('/register')}
+                testID="register-button"
+              >
+                <MaterialCommunityIcons name="account-plus-outline" size={22} color="#2F6AF6" />
+                <Text style={styles.secondaryButtonText}>注册新账号</Text>
+              </Pressable>
 
             <Text style={styles.termsText}>点击“一键开始”即表示你同意《服务条款》与《隐私政策》。</Text>
 
@@ -140,6 +145,7 @@ export default function WelcomeScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
+    </View>
   );
 }
 

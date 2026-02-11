@@ -121,13 +121,13 @@ export default function RegisterScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={['bottom']} testID="register-screen">
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} testID="register-back-button">
             <Text style={styles.backButtonText}>← 返回</Text>
           </Pressable>
 
@@ -144,6 +144,7 @@ export default function RegisterScreen() {
               autoCapitalize="none"
               keyboardType="email-address"
               placeholderTextColor="#8D9DBD"
+              testID="register-email-input"
             />
 
             <Text style={styles.label}>验证码 *</Text>
@@ -156,6 +157,7 @@ export default function RegisterScreen() {
                 keyboardType="number-pad"
                 maxLength={6}
                 placeholderTextColor="#8D9DBD"
+                testID="register-code-input"
               />
               <Pressable
                 onPress={handleSendCode}
@@ -164,6 +166,7 @@ export default function RegisterScreen() {
                   styles.sendCodeButton,
                   (pressed || disableSendCode) && styles.sendCodeButtonDisabled,
                 ]}
+                testID="send-code-button"
               >
                 <Text style={styles.sendCodeText}>
                   {countdown > 0 ? `${countdown}s` : sendingCode ? '发送中' : '发送验证码'}
@@ -179,6 +182,7 @@ export default function RegisterScreen() {
               placeholder="至少8位，包含字母和数字"
               secureTextEntry
               placeholderTextColor="#8D9DBD"
+              testID="register-password-input"
             />
 
             <Text style={styles.label}>确认密码 *</Text>
@@ -189,6 +193,7 @@ export default function RegisterScreen() {
               placeholder="再次输入密码"
               secureTextEntry
               placeholderTextColor="#8D9DBD"
+              testID="register-confirm-password-input"
             />
 
             <Text style={styles.label}>昵称（可选）</Text>
@@ -198,6 +203,7 @@ export default function RegisterScreen() {
               onChangeText={setNickname}
               placeholder="给自己起个名字"
               placeholderTextColor="#8D9DBD"
+              testID="register-nickname-input"
             />
 
             {displayError ? (
@@ -214,12 +220,13 @@ export default function RegisterScreen() {
                 styles.submitButton,
                 (pressed || isLoading) && styles.submitButtonPressed,
               ]}
+              testID="register-submit-button"
             >
               <Text style={styles.submitButtonText}>{isLoading ? '注册中...' : '注 册'}</Text>
             </Pressable>
           </View>
 
-          <Pressable onPress={() => router.push('/login')} style={styles.footer}>
+          <Pressable onPress={() => router.push('/login')} style={styles.footer} testID="login-link">
             <Text style={styles.footerText}>
               已有账号？<Text style={styles.link}>立即登录</Text>
             </Text>

@@ -41,13 +41,13 @@ export default function LoginScreen() {
   }, [email, password, clearError, loginWithEmail, router]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={['bottom']} testID="login-screen">
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <Pressable onPress={() => router.back()} style={styles.backButton}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} testID="login-back-button">
             <Text style={styles.backButtonText}>← 返回</Text>
           </Pressable>
 
@@ -66,6 +66,7 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 placeholderTextColor="#8D9DBD"
+                testID="email-input"
               />
             </View>
 
@@ -79,6 +80,7 @@ export default function LoginScreen() {
                 placeholder="请输入密码"
                 secureTextEntry={!showPassword}
                 placeholderTextColor="#8D9DBD"
+                testID="password-input"
               />
               <Pressable onPress={() => setShowPassword((v) => !v)}>
                 <MaterialCommunityIcons
@@ -103,12 +105,13 @@ export default function LoginScreen() {
                 disabled && styles.submitButtonDisabled,
               ]}
               disabled={disabled}
+              testID="login-submit-button"
             >
               <Text style={styles.submitButtonText}>{isLoading ? '登录中...' : '登 录'}</Text>
             </Pressable>
           </View>
 
-          <Pressable onPress={() => router.push('/register')} style={styles.footer}>
+          <Pressable onPress={() => router.push('/register')} style={styles.footer} testID="register-link">
             <Text style={styles.footerText}>
               还没有账号？<Text style={styles.link}>立即注册</Text>
             </Text>

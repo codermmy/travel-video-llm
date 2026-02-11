@@ -12,6 +12,7 @@ my-spec/system/
 ├── core/               ← 核心概念（按序号阅读）
 ├── execution/          ← 执行指南（按序号阅读）
 ├── project/            ← 本项目知识（按序号阅读）
+├── knowledge/          ← AI 经验知识库（遇到问题时查询）
 ├── prompts/            ← AI 提示词模板
 ├── frontend/           ← 前端模块文档
 └── backend/            ← 后端模块文档
@@ -58,6 +59,14 @@ my-spec/system/
 后端：backend/INDEX.md
 ```
 
+### 场景 5：遇到问题/报错时
+
+```
+1. knowledge/INDEX.md           # 查看知识库索引
+2. grep 搜索关键词               # 快速定位相关记录
+3. 应用解决方案或自主排错后沉淀
+```
+
 ---
 
 ## 完整文件清单
@@ -82,6 +91,7 @@ my-spec/system/
 | 05 | `05-dod-checklist.md` | 完成定义检查清单 |
 | 06 | `06-artifacts-standard.md` | 测试证据（留痕）标准化规范 |
 | 07 | `07-handshake-protocol.md` | 人机握手协议 |
+| 08 | `08-maestro-setup.md` | Maestro E2E 测试设置指南 |
 
 ### project/ - 本项目知识
 
@@ -98,6 +108,16 @@ my-spec/system/
 |------|------|
 | `doc-enrichment.md` | 文档补全提示词模板 |
 
+### knowledge/ - AI 经验知识库
+
+| 目录 | 说明 |
+|------|------|
+| `INDEX.md` | 知识库索引和使用说明 |
+| `maestro/` | Maestro E2E 测试相关问题 |
+| `expo/` | Expo 开发相关问题 |
+| `react-native/` | React Native 相关问题 |
+| `business/` | 业务逻辑相关问题 |
+
 ---
 
 ## 维护规则
@@ -106,7 +126,8 @@ my-spec/system/
 2. system 文档更新必须记录到对应 change 的 `changelog.md`
 3. 文档冲突时以最近一次 `ARCHIVED` 的变更说明为准
 4. 新增文档时按序号规则命名，保持阅读顺序清晰
+5. **遇到问题并解决后，及时沉淀到 `knowledge/` 知识库**
 
 ---
 
-> **最后更新**：2026-02-10
+> **最后更新**：2026-02-11

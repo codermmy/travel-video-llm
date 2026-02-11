@@ -1,0 +1,48 @@
+# 快速启动测试
+# 验证一键开始功能（设备ID登录）
+#
+# 使用前请确保：
+# 1. 开发服务器已启动 (npx expo start)
+# 2. 更新 .maestro/config.yaml 中的 DEV_SERVER_URL
+
+appId: com.maoyuan.travelalbum
+env:
+  DEV_SERVER_URL: ${DEV_SERVER_URL}
+---
+
+# 启动应用
+- launchApp:
+    clearState: true
+
+# 连接到开发服务器（Expo Dev Client）
+- runFlow: shared/connect-dev-server.yaml
+
+# 截图记录欢迎页面
+- takeScreenshot: welcome-page
+
+# 点击一键开始
+- tapOn:
+    id: "quick-start-button"
+
+# 处理可能的权限弹窗（iOS）
+- tapOn:
+    text: "允许"
+    optional: true
+
+- tapOn:
+    text: "Allow"
+    optional: true
+
+# 等待跳转到地图页面
+- extendedWaitUntil:
+    visible:
+      id: "map-screen"
+    timeout: 30000
+
+# 截图记录地图页面
+- takeScreenshot: quick-start-success-map
+
+# 验证底部导航存在
+- assertVisible: "足迹"
+- assertVisible: "事件"
+- assertVisible: "我的"

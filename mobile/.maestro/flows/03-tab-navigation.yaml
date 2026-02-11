@@ -1,0 +1,54 @@
+# 底部导航测试
+# 验证 Tab 切换功能
+#
+# 使用前请确保：
+# 1. 开发服务器已启动 (npx expo start)
+# 2. 更新 .maestro/config.yaml 中的 DEV_SERVER_URL
+# 3. 用户已登录（可先运行 02-quick-start.yaml）
+
+appId: com.maoyuan.travelalbum
+env:
+  DEV_SERVER_URL: ${DEV_SERVER_URL}
+---
+
+# 启动应用（假设已登录状态，不清除数据）
+- launchApp
+
+# 连接到开发服务器（Expo Dev Client）
+- runFlow: shared/connect-dev-server.yaml
+
+# 截图记录地图页面
+- takeScreenshot: tab-map-active
+
+# 切换到事件 Tab
+- tapOn: "事件"
+
+# 等待事件页面加载
+- extendedWaitUntil:
+    visible: "事件"
+    timeout: 10000
+
+# 截图记录事件页面
+- takeScreenshot: tab-events-active
+
+# 切换到我的 Tab
+- tapOn: "我的"
+
+# 等待个人中心页面加载
+- extendedWaitUntil:
+    visible: "我的"
+    timeout: 10000
+
+# 截图记录个人中心页面
+- takeScreenshot: tab-profile-active
+
+# 切换回地图 Tab
+- tapOn: "足迹"
+
+# 验证回到地图页面
+- extendedWaitUntil:
+    visible:
+      id: "map-screen"
+    timeout: 10000
+
+- takeScreenshot: tab-navigation-complete

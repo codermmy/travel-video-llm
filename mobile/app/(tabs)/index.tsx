@@ -126,15 +126,15 @@ export default function MapScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2F6AF6" />
+      <View style={styles.centerContainer} testID="map-loading">
+        <ActivityIndicator size="large" color="#2F6AF6" testID="loading-indicator" />
       </View>
     );
   }
 
   if (error && !hasLoadedOnce) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={styles.centerContainer} testID="map-error">
         <Text style={styles.errorText}>{error}</Text>
         <Text style={styles.retryText} onPress={() => void loadEvents('initial')}>
           Tap to retry
@@ -144,7 +144,7 @@ export default function MapScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="map-screen">
       <MapViewContainer events={events} onEventPress={handleEventPress} />
       <ImportProgressModal
         visible={importVisible && importProgress.stage !== 'idle'}

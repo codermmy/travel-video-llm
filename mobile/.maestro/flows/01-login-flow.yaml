@@ -1,0 +1,59 @@
+# 登录流程测试
+# 验证邮箱登录功能
+#
+# 使用前请确保：
+# 1. 开发服务器已启动 (npx expo start)
+# 2. 更新 .maestro/config.yaml 中的 DEV_SERVER_URL
+# 3. 设置环境变量 EMAIL 和 PASSWORD
+
+appId: com.maoyuan.travelalbum
+env:
+  DEV_SERVER_URL: ${DEV_SERVER_URL}
+---
+
+# 启动应用
+- launchApp:
+    clearState: true
+
+# 连接到开发服务器（Expo Dev Client）
+- runFlow: shared/connect-dev-server.yaml
+
+# 点击邮箱登录入口
+- tapOn:
+    id: "email-login-button"
+
+# 等待登录页面加载
+- extendedWaitUntil:
+    visible:
+      id: "login-screen"
+    timeout: 10000
+
+# 截图记录登录页面
+- takeScreenshot: login-page
+
+# 输入邮箱
+- tapOn:
+    id: "email-input"
+- inputText: ${EMAIL}
+
+# 输入密码
+- tapOn:
+    id: "password-input"
+- inputText: ${PASSWORD}
+
+# 截图记录填写后状态
+- takeScreenshot: login-form-filled
+
+# 点击登录按钮
+- tapOn:
+    id: "login-submit-button"
+
+# 等待登录结果
+# 成功则跳转到地图页面
+- extendedWaitUntil:
+    visible:
+      id: "map-screen"
+    timeout: 20000
+
+# 截图记录登录成功状态
+- takeScreenshot: login-success-map

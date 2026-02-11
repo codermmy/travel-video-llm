@@ -1,0 +1,5 @@
+# Maestro 测试配置
+# 在运行测试前，请更新 DEV_SERVER_URL 为你当前的开发服务器地址
+# 运行 `npx expo start` 后，复制显示的地址到这里
+
+DEV_SERVER_URL: "http://192.168.21.6:8081"
