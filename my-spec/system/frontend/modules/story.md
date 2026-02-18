@@ -28,6 +28,15 @@
 | 类型定义 | `mobile/src/types/slideshow.ts` |
 | 章节类型 | `mobile/src/types/chapter.ts` |
 
+### 1.3 事件时间线视图（Events Tab）
+
+- 事件列表页改为时间线分组视图，按月展示事件与照片统计。
+- 页面入口：`mobile/app/(tabs)/events.tsx`
+- 分组逻辑：`mobile/src/utils/eventGrouping.ts`
+- 月份头部：`mobile/src/components/timeline/MonthHeader.tsx`
+- 时间线卡片：`mobile/src/components/timeline/TimelineEventCard.tsx`
+- 保留行为：下拉刷新、分页加载、hero 区域与导入入口。
+
 ---
 
 ## 2. 事件详情页
@@ -542,9 +551,9 @@ const currentGroup = useMemo(() =>
 
 - [ ] `my-spec/system/backend/modules/event.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
-- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增 E2E 步骤）
+- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增前端人工验收要求）
 - [ ] `my-spec/system/frontend/modules/map.md`（若影响跳转逻辑）
 
 ---
 
-> **最后更新**：2026-02-10
+> **最后更新**：2026-02-11

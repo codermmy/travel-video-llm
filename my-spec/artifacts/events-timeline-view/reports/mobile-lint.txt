@@ -1,0 +1,129 @@
+
+> mobile@1.0.0 lint
+> eslint .
+
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/(auth)/index.tsx
+  125:13  error  Replace `<Text·style={styles.termsText}>点击“一键开始”即表示你同意《服务条款》与《隐私政策》。` with `··<Text·style={styles.termsText}>⏎················点击“一键开始”即表示你同意《服务条款》与《隐私政策》。⏎··············`                                              prettier/prettier
+  127:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  128:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  130:13  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  131:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  132:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  133:1   error  Replace `················` with `··················`                                                                                                                                                                    prettier/prettier
+  134:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  135:17  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  136:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  137:19  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  138:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  139:17  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  140:1   error  Replace `··················<Text·style={styles.permissionHint}>你也可以再次点击“一键开始”重新请求权限。` with `····················<Text·style={styles.permissionHint}>⏎······················你也可以再次点击“一键开始”重新请求权限。⏎····················`  prettier/prettier
+  141:17  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  142:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  143:13  error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  144:1   error  Replace `··········` with `············`                                                                                                                                                                                prettier/prettier
+  145:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+  146:1   error  Replace `······` with `········`                                                                                                                                                                                        prettier/prettier
+  147:1   error  Insert `··`                                                                                                                                                                                                             prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/(tabs)/events.tsx
+  2:9  error  Replace `⏎··SectionList,⏎··Pressable,⏎··StyleSheet,⏎··View,⏎` with `·SectionList,·Pressable,·StyleSheet,·View·`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/(tabs)/profile.tsx
+  188:47  error  Replace `·?·formatDate(syncStatus.device.lastPullAt)` with `⏎··················?·formatDate(syncStatus.device.lastPullAt)⏎·················`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/_layout.tsx
+   91:40  error  Replace `userId,·status.device.lastPullCursor·||·status.cloud.cursor·||·null` with `⏎············userId,⏎············status.device.lastPullCursor·||·status.cloud.cursor·||·null,⏎··········`                                                        prettier/prettier
+  173:29  error  Replace `·style={styles.syncLaterBtn}·onPress={closeSyncPrompt}·disabled={syncing}` with `⏎····················style={styles.syncLaterBtn}⏎····················onPress={closeSyncPrompt}⏎····················disabled={syncing}⏎··················`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/forgot-password.tsx
+  125:20  error  Replace `·contentContainerStyle={styles.scrollContent}·keyboardShouldPersistTaps="handled"` with `⏎··········contentContainerStyle={styles.scrollContent}⏎··········keyboardShouldPersistTaps="handled"⏎········`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/login.tsx
+   49:20  error  Replace `·contentContainerStyle={styles.scrollContent}·keyboardShouldPersistTaps="handled"` with `⏎··········contentContainerStyle={styles.scrollContent}⏎··········keyboardShouldPersistTaps="handled"⏎········`                              prettier/prettier
+   50:21  error  Replace `·onPress={()·=>·router.back()}·style={styles.backButton}·testID="login-back-button"` with `⏎············onPress={()·=>·router.back()}⏎············style={styles.backButton}⏎············testID="login-back-button"⏎··········`        prettier/prettier
+   94:23  error  Replace `·onPress={()·=>·router.push('/forgot-password')}·style={styles.forgotLinkWrap}` with `⏎··············onPress={()·=>·router.push('/forgot-password')}⏎··············style={styles.forgotLinkWrap}⏎············`                        prettier/prettier
+  114:21  error  Replace `·onPress={()·=>·router.push('/register')}·style={styles.footer}·testID="register-link"` with `⏎············onPress={()·=>·router.push('/register')}⏎············style={styles.footer}⏎············testID="register-link"⏎··········`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/profile/avatar.tsx
+    2:9   error  Replace `⏎··ActivityIndicator,⏎··Alert,⏎··Image,⏎··Pressable,⏎··StyleSheet,⏎··Text,⏎··View,⏎` with `·ActivityIndicator,·Alert,·Image,·Pressable,·StyleSheet,·Text,·View·`                                                                   prettier/prettier
+  112:24  error  Replace `<ActivityIndicator·color="#FFFFFF"·/>·:·<Text·style={styles.primaryText}>上传</Text>` with `(⏎············<ActivityIndicator·color="#FFFFFF"·/>⏎··········)·:·(⏎············<Text·style={styles.primaryText}>上传</Text>⏎··········)`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/profile/edit.tsx
+  120:21  error  Replace `<ActivityIndicator·color="#FFFFFF"·/>·:·<Text·style={styles.saveText}>保存</Text>` with `(⏎············<ActivityIndicator·color="#FFFFFF"·/>⏎··········)·:·(⏎············<Text·style={styles.saveText}>保存</Text>⏎··········)`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/app/register.tsx
+  129:20  error  Replace `·contentContainerStyle={styles.scrollContent}·keyboardShouldPersistTaps="handled"` with `⏎··········contentContainerStyle={styles.scrollContent}⏎··········keyboardShouldPersistTaps="handled"⏎········`                              prettier/prettier
+  130:21  error  Replace `·onPress={()·=>·router.back()}·style={styles.backButton}·testID="register-back-button"` with `⏎············onPress={()·=>·router.back()}⏎············style={styles.backButton}⏎············testID="register-back-button"⏎··········`  prettier/prettier
+  229:21  error  Replace `·onPress={()·=>·router.push('/login')}·style={styles.footer}·testID="login-link"` with `⏎············onPress={()·=>·router.push('/login')}⏎············style={styles.footer}⏎············testID="login-link"⏎··········`              prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/map/EventCardList.tsx
+    2:9  error    Replace `⏎··Image,⏎··Platform,⏎··Pressable,⏎··ScrollView,⏎··StyleSheet,⏎··Text,⏎··View,⏎` with `·Image,·Platform,·Pressable,·ScrollView,·StyleSheet,·Text,·View·`  prettier/prettier
+  103:5  warning  React Hook useMemo has a missing dependency: 'selectedEventId'. Either include it or remove the dependency array                                                   react-hooks/exhaustive-deps
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/map/MapViewContainer.tsx
+  245:45  error  Replace `请确认你运行的是·Development·Build（不是·Expo·Go）。` with `⏎············请确认你运行的是·Development·Build（不是·Expo·Go）。⏎··········`                                                                                            prettier/prettier
+  273:32  error  Replace `stack?.initialState·||·{·target:·{·latitude:·39.9042,·longitude:·116.4074·},·zoom:·5·}` with `⏎··········stack?.initialState·||·{·target:·{·latitude:·39.9042,·longitude:·116.4074·},·zoom:·5·}⏎········`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/photo/PhotoGrid.tsx
+  31:27  error  Replace `props.photo.thumbnailUrl·??·props.photo.photoUrl` with `(props.photo.thumbnailUrl·??·props.photo.photoUrl)`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/photo/PhotoViewer.tsx
+   36:52  error  Replace `Math.min(Math.max(initialIndex,·0),·photos.length·-·1)` with `⏎····Math.min(Math.max(initialIndex,·0),·photos.length·-·1),⏎··`                                                                                            prettier/prettier
+   87:19  error  Replace `·onPress={onBack}·style={({·pressed·})·=>·[styles.backButton,·pressed·&&·styles.pressed]}` with `⏎··········onPress={onBack}⏎··········style={({·pressed·})·=>·[styles.backButton,·pressed·&&·styles.pressed]}⏎········`  prettier/prettier
+  107:51  error  Replace `item.photoUrl·??·item.thumbnailUrl` with `(item.photoUrl·??·item.thumbnailUrl)`                                                                                                                                           prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/slideshow/SlideshowPlayer.tsx
+   45:26  error    Replace `.split('。').map((s)·=>·s.trim())` with `⏎····.split('。')⏎····.map((s)·=>·s.trim())⏎····`                                                                                                                                              prettier/prettier
+  136:9   warning  The 'photoGroups' logical expression could make the dependencies of useMemo Hook (at line 149) change on every render. Move it inside the useMemo callback. Alternatively, wrap the initialization of 'photoGroups' in its own useMemo() Hook  react-hooks/exhaustive-deps
+  218:6   warning  React Hook useMemo has missing dependencies: 'currentChapter?.chapterStory' and 'currentChapter?.slideshowCaption'. Either include them or remove the dependency array                                                                         react-hooks/exhaustive-deps
+  541:38  error    Insert `⏎····`                                                                                                                                                                                                                                 prettier/prettier
+  542:1   error    Replace `····` with `······`                                                                                                                                                                                                                   prettier/prettier
+  543:1   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  544:7   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  545:1   error    Replace `····` with `······`                                                                                                                                                                                                                   prettier/prettier
+  546:1   error    Replace `··},·[footerHeight]` with `····},⏎····[footerHeight],⏎··`                                                                                                                                                                             prettier/prettier
+  571:62  error    Delete `·`                                                                                                                                                                                                                                     prettier/prettier
+  599:98  error    Delete `·`                                                                                                                                                                                                                                     prettier/prettier
+  601:90  error    Delete `·`                                                                                                                                                                                                                                     prettier/prettier
+  621:68  error    Replace `·⏎` with `⏎··`                                                                                                                                                                                                                        prettier/prettier
+  623:15  error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  624:1   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  625:1   error    Replace `············` with `··············`                                                                                                                                                                                                   prettier/prettier
+  626:1   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  627:13  error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  628:1   error    Replace `············` with `··············`                                                                                                                                                                                                   prettier/prettier
+  629:1   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+  630:1   error    Insert `··`                                                                                                                                                                                                                                    prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/timeline/TimelineEventCard.tsx
+  32:50  warning  Array type using 'Array<T>' is forbidden. Use 'T[]' instead                                                                                                                                                                                      @typescript-eslint/array-type
+  45:15  error    Replace `·style={({·pressed·})·=>·[styles.row,·pressed·&&·styles.rowPressed]}·onPress={()·=>·onPress(event.id)}` with `⏎······style={({·pressed·})·=>·[styles.row,·pressed·&&·styles.rowPressed]}⏎······onPress={()·=>·onPress(event.id)}⏎····`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/components/upload/UploadProgress.tsx
+  152:21  error  Replace `·progress={Math.max(0,·Math.min(1,·percent·/·100))}·style={styles.progressBar}` with `⏎··········progress={Math.max(0,·Math.min(1,·percent·/·100))}⏎··········style={styles.progressBar}⏎·······`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/navigation/MainNavigator.tsx
+  19:20  error  Replace `·name="EventDetail"·component={EventDetailScreen}·options={{·title:·'事件详情'·}}` with `⏎········name="EventDetail"⏎········component={EventDetailScreen}⏎········options={{·title:·'事件详情'·}}⏎·····`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/services/api/userApi.ts
+  43:19  error  Replace `⏎····'file',⏎···` with `'file',`                                                                              prettier/prettier
+  46:1   error  Delete `··`                                                                                                            prettier/prettier
+  47:5   error  Delete `··`                                                                                                            prettier/prettier
+  48:5   error  Delete `··`                                                                                                            prettier/prettier
+  49:1   error  Replace `····}·as·unknown·as·Blob,⏎··` with `··}·as·unknown·as·Blob`                                                   prettier/prettier
+  52:70  error  Replace `'/api/v1/photos/upload/file',·formData,` with `⏎····'/api/v1/photos/upload/file',⏎····formData,⏎···`          prettier/prettier
+  53:1   error  Insert `··`                                                                                                            prettier/prettier
+  54:1   error  Insert `··`                                                                                                            prettier/prettier
+  55:3   error  Replace `}` with `··},⏎··`                                                                                             prettier/prettier
+  99:31  error  Replace `⏎····nickname:·string,⏎····page·=·1,⏎····pageSize·=·20,⏎··` with `nickname:·string,·page·=·1,·pageSize·=·20`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/types/event.ts
+  4:26  error  Replace `⏎··|·'clustered'⏎··|·'ai_pending'⏎··|·'ai_processing'⏎··|·'generated'⏎·` with `·'clustered'·|·'ai_pending'·|·'ai_processing'·|·'generated'`  prettier/prettier
+
+/Users/maoyuan/code/travel-video-llm/mobile/src/utils/mapClusterUtils.ts
+  23:35  error  Replace `⏎··lat1:·number,⏎··lon1:·number,⏎··lat2:·number,⏎··lon2:·number,⏎` with `lat1:·number,·lon1:·number,·lat2:·number,·lon2:·number`  prettier/prettier
+
+✖ 81 problems (77 errors, 4 warnings)
+  77 errors and 1 warning potentially fixable with the `--fix` option.
+

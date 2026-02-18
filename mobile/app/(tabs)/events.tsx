@@ -1,13 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import {
-  FlatList,
-  Image,
-  Platform,
-  Pressable,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { SectionList, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -16,32 +8,15 @@ import { useFocusEffect } from '@react-navigation/native';
 
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { UploadProgress } from '@/components/upload/UploadProgress';
+import { MonthHeader } from '@/components/timeline/MonthHeader';
+import { TimelineEventCard } from '@/components/timeline/TimelineEventCard';
 import { openAppSettings } from '@/utils/permissionUtils';
 import { manualImportFromPicker } from '@/services/album/photoImportService';
 import { eventApi } from '@/services/api/eventApi';
 import type { EventRecord } from '@/types/event';
+import { groupEventsByMonth, type MonthSection } from '@/utils/eventGrouping';
 
 const PAGE_SIZE = 50;
-
-function formatRange(event: EventRecord): string {
-  const start = event.startTime ? new Date(event.startTime) : null;
-  const end = event.endTime ? new Date(event.endTime) : null;
-  const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-
-  if (start && end) {
-    return `${fmt(start)} - ${fmt(end)}`;
-  }
-  if (start) {
-    return fmt(start);
-  }
-  return '时间未知';
-}
-
-function buildSubtitle(event: EventRecord): string {
-  const location = event.locationName || '地点待补充';
-  return `${location} · ${event.photoCount} 张照片`;
-}
 
 export default function EventsScreen() {
   const router = useRouter();
@@ -65,6 +40,7 @@ export default function EventsScreen() {
     () => importVisible && importProgress.stage !== 'idle',
     [importProgress.stage, importVisible],
   );
+  const monthSections = useMemo(() => groupEventsByMonth(events), [events]);
 
   const loadPage = useCallback(async (nextPage: number, mode: 'replace' | 'append') => {
     try {
@@ -192,43 +168,18 @@ export default function EventsScreen() {
     [router],
   );
 
-  const renderEventCard = useCallback(
-    ({ item }: { item: EventRecord }) => (
-      <TouchableOpacity
-        style={styles.card}
-        activeOpacity={0.88}
-        onPress={() => goToEventDetail(item.id)}
-      >
-        <View style={styles.coverWrap}>
-          {item.coverPhotoUrl ? (
-            <Image source={{ uri: item.coverPhotoUrl }} style={styles.cover} />
-          ) : (
-            <LinearGradient colors={['#DDE7FF', '#E9F8F2']} style={styles.coverPlaceholder}>
-              <MaterialCommunityIcons name="image-filter-hdr" size={26} color="#4562B3" />
-            </LinearGradient>
-          )}
-        </View>
+  const renderMonthHeader = useCallback(
+    ({ section }: { section: MonthSection }) => <MonthHeader section={section} />,
+    [],
+  );
 
-        <View style={styles.cardBody}>
-          <View style={styles.cardTopRow}>
-            <Text numberOfLines={1} style={styles.cardTitle}>
-              {item.title?.trim() ? item.title : '未命名事件'}
-            </Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{item.photoCount} 张</Text>
-            </View>
-          </View>
-
-          <Text numberOfLines={1} style={styles.cardDate}>
-            {formatRange(item)}
-          </Text>
-          <Text numberOfLines={1} style={styles.cardSubtitle}>
-            {buildSubtitle(item)}
-          </Text>
-        </View>
-
-        <MaterialCommunityIcons name="chevron-right" size={20} color="#9AA4BC" />
-      </TouchableOpacity>
+  const renderTimelineCard = useCallback(
+    ({ item, index, section }: { item: EventRecord; index: number; section: MonthSection }) => (
+      <TimelineEventCard
+        event={item}
+        isLastInSection={index === section.data.length - 1}
+        onPress={goToEventDetail}
+      />
     ),
     [goToEventDetail],
   );
@@ -292,17 +243,18 @@ export default function EventsScreen() {
           ) : null}
         </View>
       ) : (
-        <FlatList
+        <SectionList
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          data={events}
+          sections={monthSections}
           keyExtractor={(item) => item.id}
-          renderItem={renderEventCard}
+          renderSectionHeader={renderMonthHeader}
+          renderItem={renderTimelineCard}
           refreshing={refreshing}
           onRefresh={refresh}
           onEndReached={loadMore}
           onEndReachedThreshold={0.55}
-          removeClippedSubviews={Platform.OS === 'android'}
+          stickySectionHeadersEnabled={false}
           initialNumToRender={8}
           maxToRenderPerBatch={10}
           windowSize={7}
@@ -446,72 +398,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: 14,
     paddingBottom: 14,
-  },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E8EEFA',
-  },
-  coverWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#DFE6F5',
-  },
-  cover: {
-    width: '100%',
-    height: '100%',
-  },
-  coverPlaceholder: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardBody: {
-    flex: 1,
-    marginHorizontal: 12,
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  cardTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1D2846',
-  },
-  badge: {
-    marginLeft: 8,
-    backgroundColor: '#EDF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  badgeText: {
-    color: '#365CC3',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  cardDate: {
-    marginTop: 6,
-    color: '#334466',
-    fontWeight: '600',
-    fontSize: 12,
-  },
-  cardSubtitle: {
-    marginTop: 4,
-    color: '#6A7592',
-    fontSize: 12,
   },
   footer: {
     paddingVertical: 14,

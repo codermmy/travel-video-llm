@@ -10,7 +10,8 @@
 | 地图 | `my-spec/system/frontend/modules/map.md` | `mobile/app/(tabs)/index.tsx`, `mobile/src/components/map/` |
 | 上传/同步 | `my-spec/system/frontend/modules/upload.md` | `mobile/src/services/api/`, `mobile/src/services/sync/` |
 | 故事播放 | `my-spec/system/frontend/modules/story.md` | `mobile/app/events/[eventId].tsx`, `mobile/app/slideshow.tsx` |
-| 前端测试 | `my-spec/system/frontend/modules/testing.md` | `mobile/package.json`, `mobile/.maestro/` |
+| 时间线 | `my-spec/system/frontend/modules/story.md` | `mobile/app/(tabs)/events.tsx`, `mobile/src/components/timeline/` |
+| 前端测试 | `my-spec/system/frontend/modules/testing.md` | `mobile/package.json`, `my-spec/artifacts/*/reports/manual-acceptance.md` |
 
 ## 后端模块
 

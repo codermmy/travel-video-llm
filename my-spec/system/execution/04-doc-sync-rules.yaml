@@ -1,21 +1,27 @@
-version: 1
-updated_at: 2026-02-10
+version: 2
+updated_at: 2026-02-11
+
+matching:
+  glob_engine: standard-glob
+  rule_priority: first-match-all-collect
+
 rules:
-  - id: auth-backend-doc-sync
+  - id: auth-doc-sync
     when_changed:
       - backend/app/api/v1/auth.py
       - backend/app/services/auth_service.py
       - backend/app/schemas/auth.py
+      - mobile/src/stores/authStore.ts
+      - mobile/app/login.tsx
     must_update:
       - my-spec/system/backend/modules/auth.md
-      - my-spec/system/backend/api/INDEX.md
       - my-spec/system/frontend/modules/auth.md
+      - my-spec/system/backend/api/INDEX.md
 
   - id: map-doc-sync
     when_changed:
-      - mobile/src/screens/Map*
-      - mobile/src/components/map
-      - mobile/src/services/map*
+      - mobile/app/(tabs)/index.tsx
+      - mobile/src/components/map/**
       - backend/app/integrations/amap.py
       - backend/app/services/event_enrichment.py
     must_update:
@@ -23,42 +29,39 @@ rules:
       - my-spec/system/backend/modules/map.md
       - my-spec/system/backend/modules/event.md
 
-  - id: photo-backend-doc-sync
+  - id: event-story-doc-sync
+    when_changed:
+      - mobile/app/(tabs)/events.tsx
+      - mobile/app/events/**
+      - mobile/src/components/timeline/**
+      - backend/app/api/v1/events.py
+      - backend/app/services/event_service.py
+      - backend/app/services/ai_service.py
+    must_update:
+      - my-spec/system/frontend/modules/story.md
+      - my-spec/system/backend/modules/event.md
+
+  - id: upload-sync-doc-sync
     when_changed:
       - backend/app/api/v1/photos.py
       - backend/app/services/photo_service.py
-      - backend/app/models/photo.py
-    must_update:
-      - my-spec/system/backend/modules/photo.md
-      - my-spec/system/backend/database/schema-dictionary.md
-      - my-spec/system/frontend/modules/upload.md
-
-  - id: event-story-doc-sync
-    when_changed:
-      - backend/app/services/event_service.py
-      - backend/app/services/ai_service.py
-      - mobile/src/screens/EventDetailScreen
-      - mobile/src/screens/Story*
-    must_update:
-      - my-spec/system/backend/modules/event.md
-      - my-spec/system/frontend/modules/story.md
-
-  - id: sync-flow-doc-sync
-    when_changed:
       - backend/app/api/v1/sync.py
       - backend/app/services/sync_service.py
       - mobile/src/services/api/sync*
+      - mobile/src/services/album/**
     must_update:
+      - my-spec/system/backend/modules/photo.md
       - my-spec/system/backend/modules/sync.md
       - my-spec/system/frontend/modules/upload.md
+      - my-spec/system/backend/database/schema-dictionary.md
 
   - id: test-infra-doc-sync
     when_changed:
       - mobile/package.json
       - backend/requirements.txt
-      - backend/tests/
-      - mobile/.maestro/
-      - .github/workflows/
+      - backend/tests/**
+      - .github/workflows/**
+      - my-spec/system/execution/**
     must_update:
       - my-spec/system/execution/01-test-profile.yaml
       - my-spec/system/execution/02-testing-playbook.md
@@ -66,5 +69,5 @@ rules:
       - my-spec/system/backend/modules/testing.md
 
 notes:
-  - spec:plan 必须先生成 doc_scope_manifest，并列出命中的规则。
-  - spec:verify 必须校验 must_update 中的文档是否已更新，否则阻塞归档。
+  - spec:plan must generate doc_scope_manifest.yaml from matched rules.
+  - spec:verify must block archive if any must_update doc is missing.

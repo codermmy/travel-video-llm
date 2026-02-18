@@ -1,135 +1,76 @@
-# 状态机定义
+# 状态机（v2）
 
-## 状态
+## 正常状态
 
-### 正常状态
+| 状态 | 含义 |
+|---|---|
+| `DRAFT` | 已创建 change，需求未澄清 |
+| `CLARIFIED` | PRD 完成，核心歧义关闭 |
+| `TEST_DEFINED` | 测试计划完成并标注 required |
+| `PLANNED` | 技术方案、任务、文档影响已确认 |
+| `IMPLEMENTING` | 正在开发并执行测试 |
+| `READY_FOR_VERIFY` | required 全绿，等待验收 |
+| `ARCHIVED` | 验收通过并归档 |
 
-| 状态 | 说明 |
-|------|------|
-| `DRAFT` | 变更目录已创建，尚未澄清 |
-| `CLARIFIED` | PRD 已完成，关键歧义已关闭 |
-| `TEST_DEFINED` | 测试计划已完成并通过 review |
-| `PLANNED` | 薄技术方案 + 任务清单已完成 |
-| `IMPLEMENTING` | 代码实现与测试执行中 |
-| `READY_FOR_VERIFY` | 实现完成，测试通过，等待人工验收 |
-| `ARCHIVED` | 验收通过并已同步 system 文档，变更已归档 |
+## 异常状态
 
-### 异常状态
+| 状态 | 含义 |
+|---|---|
+| `BLOCKED` | 受外部条件阻塞，无法继续 |
 
-| 状态 | 说明 |
-|------|------|
-| `BLOCKED` | 因外部依赖、环境问题或多次失败无法继续，需人工介入 |
+## 唯一允许流转
 
----
+`DRAFT -> CLARIFIED -> TEST_DEFINED -> PLANNED -> IMPLEMENTING -> READY_FOR_VERIFY -> ARCHIVED`
 
-## 状态流转图
+额外流转：
 
-```
-                    正常流程
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│  DRAFT → CLARIFIED → TEST_DEFINED → PLANNED → IMPLEMENTING     │
-│                                                       │        │
-│                                                       ▼        │
-│                                          READY_FOR_VERIFY      │
-│                                                       │        │
-│                                                       ▼        │
-│                                                   ARCHIVED     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+- `IMPLEMENTING -> BLOCKED`
+- `BLOCKED -> IMPLEMENTING`
+- `READY_FOR_VERIFY -> IMPLEMENTING`（验收打回）
 
-                    异常流程
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                 │
-│  IMPLEMENTING ──(多次失败/外部阻塞)──→ BLOCKED                   │
-│       ▲                                    │                    │
-│       │                                    │                    │
-│       └────────(问题解决后)────────────────┘                    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+## 硬门禁
 
----
+1. 禁止跳状态。
+2. required 测试未通过，禁止进入 `READY_FOR_VERIFY`。
+3. doc-sync 未完成，禁止进入 `ARCHIVED`。
 
-## 状态门禁
+## 命令到状态映射
 
 | 命令 | 前置状态 | 目标状态 |
-|------|----------|----------|
-| `spec:prd` | - | `CLARIFIED` |
+|---|---|---|
+| `spec:prd` | `DRAFT` 或未建工单 | `CLARIFIED` |
 | `spec:testplan` | `CLARIFIED` | `TEST_DEFINED` |
 | `spec:plan` | `TEST_DEFINED` | `PLANNED` |
-| `spec:apply` | `PLANNED` | `IMPLEMENTING` → `READY_FOR_VERIFY` |
+| `spec:apply` | `PLANNED` | `IMPLEMENTING -> READY_FOR_VERIFY` |
 | `spec:verify` | `READY_FOR_VERIFY` | `ARCHIVED` |
 
-**门禁原则**：
-- 不允许跳状态
-- 不允许跳 required 测试
-- 不允许跳文档联动检查
+## 常见问题与处理
 
----
+1. 状态不匹配：命令必须停止并提示当前状态与期望状态。
+2. 测试失败：保留失败证据，状态保持 `IMPLEMENTING`。
+3. 环境阻塞：进入 `BLOCKED` 并记录阻塞原因。
+4. 验收打回：从 `READY_FOR_VERIFY` 回到 `IMPLEMENTING`。
 
-## BLOCKED 状态处理
-
-### 进入条件
-
-以下情况应进入 `BLOCKED` 状态：
-
-1. **测试多次失败**：同一测试连续失败 3 次且无法自动修复
-2. **外部依赖不可用**：第三方 API、服务、环境问题
-3. **人工握手超时**：等待人工操作超过合理时间（如 24 小时）
-4. **需求歧义重现**：实现过程中发现 PRD 有重大遗漏
-
-### 进入 BLOCKED 时必须记录
-
-在 `meta.yaml` 中添加：
+## BLOCKED 记录要求（meta.yaml）
 
 ```yaml
 status: BLOCKED
-blocked_at: 2026-02-10T12:00:00
-blocked_reason: "后端测试连续失败 3 次，pytest 报错 ConnectionRefused"
-blocked_by: "Redis 服务未启动"
+blocked_at: <ISO-8601>
+blocked_reason: <why>
+blocked_by: <dependency_or_env>
 ```
 
-### 解除条件
-
-1. 问题已解决（环境修复、依赖恢复）
-2. 人工确认可以继续
-3. 解除后状态回到 `IMPLEMENTING`，继续执行
-
-### 解除时必须记录
+解除时：
 
 ```yaml
 status: IMPLEMENTING
-unblocked_at: 2026-02-10T14:00:00
-unblock_action: "启动 Redis 服务，重新运行测试"
+unblocked_at: <ISO-8601>
+unblock_action: <what_changed>
 ```
 
----
+## 归档后规则
 
-## 状态回退
+- `ARCHIVED` 不允许回退。
+- 如需修改已归档需求，必须新建 change。
 
-### 允许的回退场景
-
-| 当前状态 | 可回退到 | 触发条件 |
-|----------|----------|----------|
-| `READY_FOR_VERIFY` | `IMPLEMENTING` | 验收发现新问题需要修复 |
-| `BLOCKED` | `IMPLEMENTING` | 阻塞问题已解决 |
-
-### 不允许的回退
-
-- 已 `ARCHIVED` 的变更不可回退（如需修改，创建新 change）
-- 不允许跨多个状态回退（如从 `PLANNED` 直接回到 `DRAFT`）
-
----
-
-## 超时提醒
-
-| 状态 | 建议最长停留时间 | 超时处理 |
-|------|------------------|----------|
-| `IMPLEMENTING` | 8 小时 | 检查是否应进入 BLOCKED |
-| `READY_FOR_VERIFY` | 24 小时 | 提醒人工验收 |
-| `BLOCKED` | 48 小时 | 升级处理或考虑放弃变更 |
-
----
-
-> **最后更新**：2026-02-10
+> 最后更新：2026-02-11

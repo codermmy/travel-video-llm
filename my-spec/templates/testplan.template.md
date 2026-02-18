@@ -5,20 +5,20 @@
 - 覆盖需求：
 - 不覆盖项：
 
-## 2. 测试 profile 选择（来自 test-profile.yaml）
+## 2. profile 选择（来自 execution/01-test-profile.yaml）
 
 | Profile | 是否 required | 本次是否执行 | 理由 |
 |---|---|---|---|
-| backend | yes | yes |  |
-| mobile_static | yes | yes |  |
-| mobile_e2e_manual_assisted | conditional | no |  |
+| backend | conditional | no |  |
+| mobile_static | conditional | no |  |
+| mobile_manual_acceptance | conditional | no |  |
 | mobile_unit | optional | no |  |
 
 ## 3. RQ -> TC 映射
 
 | RQ-ID | TC-ID | 层级 | 说明 |
 |---|---|---|---|
-| RQ-001 | TC-001 | UT/IT/E2E |  |
+| RQ-001 | TC-001 | UT/IT/Manual |  |
 
 ## 4. 测试用例
 

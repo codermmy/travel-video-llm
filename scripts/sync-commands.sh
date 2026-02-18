@@ -1,141 +1,228 @@
 #!/bin/bash
-# sync-commands.sh
-# 同步 Claude Code 命令到 OpenCode 和 Codex
-#
-# 用法: ./scripts/sync-commands.sh [--dry-run]
 
-set -e
+set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE_DIR="$PROJECT_ROOT/.claude/commands"
-OPENCODE_DIR="$PROJECT_ROOT/.opencode/commands"
-CODEX_SKILLS_DIR="$PROJECT_ROOT/.codex/skills"
 
+CLAUDE_COMMANDS="$PROJECT_ROOT/.claude/commands"
+OPENCODE_COMMANDS="$PROJECT_ROOT/.opencode/commands"
+
+CLAUDE_SKILLS="$PROJECT_ROOT/.claude/skills"
+OPENCODE_SKILLS="$PROJECT_ROOT/.opencode/skills"
+CODEX_SKILLS="$PROJECT_ROOT/.codex/skills"
+
+SOURCE="opencode"
 DRY_RUN=false
-if [[ "$1" == "--dry-run" ]]; then
-    DRY_RUN=true
-    echo "🔍 Dry run mode - no changes will be made"
+CHECK_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      SOURCE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --check)
+      CHECK_ONLY=true
+      shift
+      ;;
+    *)
+      echo "Unknown arg: $1"
+      exit 1
+      ;;
+  esac
+done
+
+if [[ "$SOURCE" != "claude" && "$SOURCE" != "opencode" ]]; then
+  echo "--source must be claude or opencode"
+  exit 1
 fi
 
-# 检查源目录
-if [[ ! -d "$SOURCE_DIR" ]]; then
-    echo "❌ Source directory not found: $SOURCE_DIR"
-    exit 1
+if [[ "$SOURCE" == "claude" ]]; then
+  SRC_COMMANDS="$CLAUDE_COMMANDS"
+  SRC_SKILLS="$CLAUDE_SKILLS"
+  PEER_COMMANDS="$OPENCODE_COMMANDS"
+  PEER_SKILLS="$OPENCODE_SKILLS"
+  SOURCE_LABEL="Claude Code"
+else
+  SRC_COMMANDS="$OPENCODE_COMMANDS"
+  SRC_SKILLS="$OPENCODE_SKILLS"
+  PEER_COMMANDS="$CLAUDE_COMMANDS"
+  PEER_SKILLS="$CLAUDE_SKILLS"
+  SOURCE_LABEL="OpenCode"
 fi
 
-echo "📁 Source: $SOURCE_DIR"
-echo ""
+if [[ ! -d "$SRC_COMMANDS" ]]; then
+  echo "Source commands dir not found: $SRC_COMMANDS"
+  exit 1
+fi
 
-# 同步到 OpenCode（保持目录结构，格式兼容）
-sync_to_opencode() {
-    echo "📦 Syncing to OpenCode (compatible format)..."
+if [[ ! -d "$SRC_SKILLS" ]]; then
+  echo "Source skills dir not found: $SRC_SKILLS"
+  exit 1
+fi
 
-    if [[ "$DRY_RUN" == "true" ]]; then
-        echo "   Would create: $OPENCODE_DIR"
-        find "$SOURCE_DIR" -name "*.md" | while read -r file; do
-            rel_path="${file#$SOURCE_DIR/}"
-            echo "   Would copy: $rel_path"
-        done
-    else
-        mkdir -p "$OPENCODE_DIR"
-        # 复制所有内容，保持目录结构
-        cp -r "$SOURCE_DIR"/* "$OPENCODE_DIR/" 2>/dev/null || true
-        echo "   ✅ Synced to $OPENCODE_DIR"
-    fi
-    echo ""
+run_or_print() {
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "DRY: $*"
+  else
+    eval "$*"
+  fi
 }
 
-# 转换为 Codex Skills（文件夹结构 + SKILL.md）
-convert_to_codex_skills() {
-    echo "📦 Converting to Codex Skills format..."
+sync_commands_to_peer() {
+  echo "Syncing commands: $SRC_COMMANDS -> $PEER_COMMANDS"
+  run_or_print "mkdir -p \"$PEER_COMMANDS\""
 
-    find "$SOURCE_DIR" -name "*.md" | while read -r file; do
-        # 获取相对路径并转换为技能名
-        rel_path="${file#$SOURCE_DIR/}"
-        skill_name=$(echo "${rel_path%.md}" | tr "/" "-")
-        skill_dir="$CODEX_SKILLS_DIR/$skill_name"
+  while IFS= read -r -d '' file; do
+    rel="${file#$SRC_COMMANDS/}"
+    target="$PEER_COMMANDS/$rel"
+    target_dir="$(dirname "$target")"
+    run_or_print "mkdir -p \"$target_dir\""
+    run_or_print "cp \"$file\" \"$target\""
+  done < <(find "$SRC_COMMANDS" -type f -name '*.md' -print0)
+}
 
-        if [[ "$DRY_RUN" == "true" ]]; then
-            echo "   Would create: $skill_dir/SKILL.md"
-        else
-            # 创建技能目录
-            mkdir -p "$skill_dir"
+extract_frontmatter_description() {
+  local file="$1"
+  awk '
+    BEGIN {inFM=0; count=0}
+    /^---$/ {count++; if (count==1) {inFM=1; next} if (count==2) {inFM=0; exit}}
+    inFM && /^description:[[:space:]]*/ {
+      sub(/^description:[[:space:]]*/, "")
+      print
+    }
+  ' "$file" | head -1
+}
 
-            # 读取原文件内容
-            content=$(cat "$file")
+extract_body_without_frontmatter() {
+  local file="$1"
+  awk '
+    BEGIN {count=0}
+    /^---$/ {count++; next}
+    count>=2 {print}
+  ' "$file"
+}
 
-            # 提取 description（从 frontmatter）
-            desc=$(echo "$content" | sed -n '/^---$/,/^---$/p' | grep "^description:" | sed 's/description: *//' | head -1)
+commands_to_codex_skills() {
+  echo "Converting commands -> Codex skills"
+  run_or_print "mkdir -p \"$CODEX_SKILLS\""
 
-            # 提取正文（跳过 frontmatter）
-            # 找到第二个 --- 之后的内容
-            body=$(echo "$content" | awk '/^---$/{n++; next} n>=2{print}')
+  while IFS= read -r -d '' file; do
+    rel="${file#$SRC_COMMANDS/}"
+    skill_name="${rel%.md}"
+    skill_name="${skill_name//\//-}"
+    skill_dir="$CODEX_SKILLS/$skill_name"
+    skill_file="$skill_dir/SKILL.md"
 
-            # 如果 description 为空，使用默认值
-            if [[ -z "$desc" ]]; then
-                desc="Execute the $skill_name workflow"
-            fi
+    desc="$(extract_frontmatter_description "$file")"
+    if [[ -z "$desc" ]]; then
+      desc="Execute $skill_name workflow"
+    fi
+    body="$(extract_body_without_frontmatter "$file")"
 
-            # 生成 SKILL.md
-            cat > "$skill_dir/SKILL.md" << EOF
+    if [[ "$DRY_RUN" == "true" ]]; then
+      echo "DRY: write $skill_file"
+    else
+      mkdir -p "$skill_dir"
+      cat > "$skill_file" <<EOF
 ---
 name: $skill_name
-description: $desc Use \$${skill_name} to invoke this skill.
+description: $desc Use \$$skill_name to invoke this skill.
 ---
 $body
 
 ## How to invoke
 
-- Type \`\$${skill_name}\` in Codex
+- Type \`\$$skill_name\` in Codex
 - Or describe your intent naturally (Codex will match based on description)
 
 ## Original command
 
-This skill was converted from Claude Code command: \`$rel_path\`
+This skill was converted from ${SOURCE_LABEL} command: \`$rel\`
 EOF
-
-            echo "   ✅ Created: $skill_dir/SKILL.md"
-        fi
-    done
-    echo ""
+    fi
+  done < <(find "$SRC_COMMANDS" -type f -name '*.md' -print0)
 }
 
-# 显示统计
-show_stats() {
-    echo "📊 Statistics:"
-    local count=$(find "$SOURCE_DIR" -name "*.md" | wc -l | tr -d ' ')
-    echo "   Total commands: $count"
+skills_to_peer_and_codex() {
+  echo "Syncing skills: $SRC_SKILLS -> $PEER_SKILLS and $CODEX_SKILLS"
+  run_or_print "mkdir -p \"$PEER_SKILLS\" \"$CODEX_SKILLS\""
 
-    echo ""
-    echo "📋 Command list:"
-    find "$SOURCE_DIR" -name "*.md" | sort | while read -r file; do
-        rel_path="${file#$SOURCE_DIR/}"
-        skill_name=$(echo "${rel_path%.md}" | tr "/" "-")
-        # 提取 description
-        desc=$(sed -n '/^---$/,/^---$/p' "$file" | grep "^description:" | sed 's/description: *//' | head -1)
-        printf "   %-25s → %-25s %s\n" "$rel_path" "\$${skill_name}" "${desc:0:40}"
-    done
+  while IFS= read -r -d '' file; do
+    skill_name="$(basename "$(dirname "$file")")"
+    peer_skill_dir="$PEER_SKILLS/$skill_name"
+    codex_skill_dir="$CODEX_SKILLS/$skill_name"
+    run_or_print "mkdir -p \"$peer_skill_dir\" \"$codex_skill_dir\""
+    run_or_print "cp \"$file\" \"$peer_skill_dir/SKILL.md\""
+    run_or_print "cp \"$file\" \"$codex_skill_dir/SKILL.md\""
+  done < <(find "$SRC_SKILLS" -type f -name 'SKILL.md' -print0)
 }
 
-# 主流程
-echo "═══════════════════════════════════════════════════════════"
-echo "  Cross-Tool Command Sync"
-echo "  Claude Code → OpenCode + Codex"
-echo "═══════════════════════════════════════════════════════════"
-echo ""
+check_consistency() {
+  local failed=0
+  echo "Checking command consistency between source and peer..."
+  while IFS= read -r -d '' file; do
+    rel="${file#$SRC_COMMANDS/}"
+    peer_file="$PEER_COMMANDS/$rel"
+    if [[ ! -f "$peer_file" ]]; then
+      echo "MISSING command in peer: $rel"
+      failed=1
+      continue
+    fi
+    if ! cmp -s "$file" "$peer_file"; then
+      echo "DRIFT command: $rel"
+      failed=1
+    fi
+  done < <(find "$SRC_COMMANDS" -type f -name '*.md' -print0)
 
-sync_to_opencode
-convert_to_codex_skills
-show_stats
+  echo "Checking skill consistency between source and peer/codex..."
+  while IFS= read -r -d '' file; do
+    skill_name="$(basename "$(dirname "$file")")"
+    peer_file="$PEER_SKILLS/$skill_name/SKILL.md"
+    codex_file="$CODEX_SKILLS/$skill_name/SKILL.md"
+    if [[ ! -f "$peer_file" ]]; then
+      echo "MISSING peer skill: $skill_name"
+      failed=1
+    elif ! cmp -s "$file" "$peer_file"; then
+      echo "DRIFT peer skill: $skill_name"
+      failed=1
+    fi
+    if [[ ! -f "$codex_file" ]]; then
+      echo "MISSING codex skill: $skill_name"
+      failed=1
+    elif ! cmp -s "$file" "$codex_file"; then
+      echo "DRIFT codex skill: $skill_name"
+      failed=1
+    fi
+  done < <(find "$SRC_SKILLS" -type f -name 'SKILL.md' -print0)
 
-echo ""
-if [[ "$DRY_RUN" == "true" ]]; then
-    echo "🔍 Dry run complete. Run without --dry-run to apply changes."
-else
-    echo "✅ Sync complete!"
-    echo ""
-    echo "📝 Usage:"
-    echo "   Claude Code: /spec:prd"
-    echo "   OpenCode:    /spec:prd"
-    echo "   Codex:       \$spec-prd"
+  if [[ "$failed" -eq 1 ]]; then
+    echo "Consistency check FAILED"
+    exit 2
+  fi
+  echo "Consistency check PASSED"
+}
+
+echo "============================================================"
+echo " Cross-Tool Command/Skill Sync"
+echo " Source: $SOURCE_LABEL"
+echo "============================================================"
+
+if [[ "$CHECK_ONLY" == "true" ]]; then
+  check_consistency
+  exit 0
 fi
+
+sync_commands_to_peer
+commands_to_codex_skills
+skills_to_peer_and_codex
+
+if [[ "$DRY_RUN" == "false" ]]; then
+  check_consistency
+fi
+
+echo "Done."

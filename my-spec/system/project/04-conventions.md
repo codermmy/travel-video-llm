@@ -344,7 +344,7 @@ refactor(photo): 重构上传去重逻辑
 |------|----------|------|
 | 单元测试 | `test_{module}.py` | `test_auth.py` |
 | 集成测试 | `test_{module}_integration.py` | `test_photo_integration.py` |
-| E2E 测试 | `{feature}.e2e.ts` | `login.e2e.ts` |
+| 人工验收记录 | `manual-acceptance.md` | `manual-acceptance.md` |
 
 ### 7.2 测试覆盖要求
 
@@ -352,7 +352,7 @@ refactor(photo): 重构上传去重逻辑
 |------|----------|
 | 核心业务逻辑 | 必须有单元测试 |
 | API 接口 | 必须有集成测试 |
-| 关键用户流程 | 应有 E2E 测试 |
+| 前端关键用户流程 | 必须有人工验收记录 |
 | 边界条件 | 必须覆盖 |
 | 错误场景 | 必须覆盖 |
 

@@ -57,9 +57,9 @@
 | `optional` | 可选执行 |
 
 本项目的 profile：
-- `backend` (required)
-- `mobile_static` (required)
-- `mobile_e2e_manual_assisted` (conditional)
+- `backend` (conditional)
+- `mobile_static` (conditional)
+- `mobile_manual_acceptance` (conditional)
 - `mobile_unit` (optional)
 
 ---

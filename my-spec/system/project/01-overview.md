@@ -140,6 +140,7 @@ uploaded → clustered
 | **地图** | 足迹展示、事件标记、聚类 | `mobile/app/(tabs)/index.tsx` | `frontend/modules/map.md` |
 | **上传** | 照片导入、去重、上传 | `mobile/src/services/album/` | `frontend/modules/upload.md` |
 | **故事** | 事件详情、章节、幻灯片 | `mobile/app/events/[eventId].tsx` | `frontend/modules/story.md` |
+| **时间线** | 事件按月分组浏览、时间轴卡片 | `mobile/app/(tabs)/events.tsx` | `frontend/modules/story.md` |
 
 ### 4.2 后端模块
 

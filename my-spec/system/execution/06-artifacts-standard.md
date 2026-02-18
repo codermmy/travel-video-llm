@@ -23,7 +23,7 @@ my-spec/artifacts/<change-name>/
 │   ├── mobile-lint.txt      # ESLint 输出
 │   ├── mobile-typecheck.txt # TypeScript 检查输出
 │   ├── coverage.txt         # 覆盖率报告（如有）
-│   └── e2e-result.md        # E2E 测试结果（如有）
+│   └── manual-acceptance.md # 前端人工验收报告（如有）
 │
 ├── screenshots/             # UI 截图
 │   ├── before/              # 修改前截图
@@ -73,7 +73,7 @@ my-spec/artifacts/<change-name>/
 |---------|------|------|------|
 | backend | ✅ PASS | 12s | 15 tests passed |
 | mobile_static | ✅ PASS | 8s | 0 errors, 2 warnings |
-| mobile_e2e_manual_assisted | ⏭️ SKIP | - | 未命中触发条件 |
+| mobile_manual_acceptance | ⏭️ SKIP | - | 未命中触发条件 |
 
 ## 关键发现
 

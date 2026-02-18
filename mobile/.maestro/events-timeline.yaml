@@ -1,0 +1,73 @@
+appId: com.maoyuan.travelalbum
+env:
+  DEV_SERVER_URL: ${DEV_SERVER_URL}
+---
+
+- launchApp
+- tapOn:
+    text: "事件"
+    optional: true
+- runFlow:
+    file: flows/shared/connect-dev-server.yaml
+    optional: true
+- tapOn:
+    id: "quick-start-button"
+    optional: true
+- tapOn:
+    text: "允许"
+    optional: true
+- tapOn:
+    text: "Allow"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "map-screen"
+    timeout: 30000
+    optional: true
+- extendedWaitUntil:
+    notVisible: "Loading from"
+    timeout: 120000
+    optional: true
+
+- tapOn: "事件"
+- extendedWaitUntil:
+    visible: "旅行事件"
+    timeout: 20000
+
+- assertVisible: "旅行事件"
+- assertVisible: "按时间线梳理每一段回忆"
+- takeScreenshot: tc001-timeline-layout
+
+- assertVisible: "个事件"
+- assertVisible: "张照片"
+- takeScreenshot: tc002-month-grouping
+
+- takeScreenshot: tc004-tc005-event-card
+
+- swipe:
+    direction: DOWN
+    duration: 700
+- takeScreenshot: tc007-pull-refresh
+
+- swipe:
+    direction: UP
+    duration: 900
+- swipe:
+    direction: UP
+    duration: 900
+- takeScreenshot: tc008-pagination-scroll
+
+- tapOn:
+    point: "50%,45%"
+- extendedWaitUntil:
+    visible: "旅行故事"
+    timeout: 20000
+- takeScreenshot: tc006-enter-detail
+
+- tapOn: "返回"
+- extendedWaitUntil:
+    visible: "旅行事件"
+    timeout: 15000
+
+- assertVisible: "手动导入"
+- takeScreenshot: tc009-hero-still-visible

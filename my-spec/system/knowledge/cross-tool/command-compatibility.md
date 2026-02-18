@@ -111,50 +111,21 @@ Create a new change under `my-spec/changes/`...
 
 ### 方案 C：自动转换脚本
 
-创建脚本自动将 Claude Code 命令转换为 Codex Skills：
+使用仓库脚本统一同步三端资产（commands + skills）：
 
 ```bash
-#!/bin/bash
-# convert-to-codex-skills.sh
-
-SOURCE_DIR=".claude/commands"
-CODEX_SKILLS_DIR=".codex/skills"
-
-find "$SOURCE_DIR" -name "*.md" | while read -r file; do
-    # 获取相对路径并转换为技能名
-    rel_path="${file#$SOURCE_DIR/}"
-    skill_name=$(echo "${rel_path%.md}" | tr "/" "-")
-
-    # 创建技能目录
-    skill_dir="$CODEX_SKILLS_DIR/$skill_name"
-    mkdir -p "$skill_dir"
-
-    # 读取原文件
-    content=$(cat "$file")
-
-    # 提取 description
-    desc=$(echo "$content" | grep "^description:" | sed 's/description: *//')
-
-    # 提取正文（跳过 frontmatter）
-    body=$(echo "$content" | sed -n '/^---$/,/^---$/!p' | tail -n +2)
-
-    # 生成 SKILL.md
-    cat > "$skill_dir/SKILL.md" << EOF
----
-name: $skill_name
-description: $desc Use \$${skill_name} to invoke.
----
-
-$body
-
-## Example triggers
-- "\$${skill_name}"
-- "run ${skill_name}"
-EOF
-
-    echo "Created: $skill_dir/SKILL.md"
-done
+./scripts/sync-commands.sh --source claude
+./scripts/sync-commands.sh --source opencode
+./scripts/sync-commands.sh --source opencode --check
+./scripts/sync-commands.sh --check
 ```
+
+说明：
+
+- `--source claude|opencode` 选择单一源
+- 默认源为 `opencode`
+- 同步目标包含：另一端 commands、`.codex/skills`、另一端 skills
+- `--check` 用于一致性校验（不改文件）
 
 ## 推荐的命令编写规范
 
@@ -209,7 +180,7 @@ ln -sf ../.claude/commands .opencode/commands
 
 ### 步骤 3：转换为 Codex Skills
 
-运行转换脚本或手动创建。
+运行 `./scripts/sync-commands.sh --source <claude|opencode>`。
 
 ### 步骤 4：验证
 
@@ -236,10 +207,8 @@ $spec-prd
 ### 迁移清单
 
 - [x] Claude Code 命令已就绪
-- [ ] 创建 `.opencode/commands/` 符号链接
-- [ ] 创建 `.codex/skills/` 目录
-- [ ] 转换命令为 Codex Skills 格式
-- [ ] 测试三个工具的命令执行
+- [x] 三端命令/技能可通过统一脚本同步
+- [ ] 在 CI 加入 `./scripts/sync-commands.sh --source opencode --check`
 
 ## 工具对比总结
 

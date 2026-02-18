@@ -53,6 +53,7 @@ find my-spec/system/knowledge -name "*.md" | xargs grep -l "maestro"
 | 小米设备无法安装驱动 | `xiaomi-usb-install.md` | USB安装, INSTALL_FAILED_USER_RESTRICTED |
 | Maestro 驱动连接超时 | `driver-connection-timeout.md` | DEADLINE_EXCEEDED, waiting_for_connection |
 | 找不到页面元素 | `element-not-found.md` | welcome-screen, 蒙层, 弹窗 |
+| Tab 点击和弹窗处理 | `tab-click-and-popup.md` | Tab, 点击, 弹窗, optional, 坐标点击, 测试有效性 |
 
 ### Expo 开发 (`expo/`)
 
@@ -65,7 +66,7 @@ find my-spec/system/knowledge -name "*.md" | xargs grep -l "maestro"
 
 | 问题 | 文件 | 关键词 |
 |------|------|--------|
-| （待补充） | | |
+| SectionList renderItem 不显示 | `sectionlist-flex-layout.md` | SectionList, flex, 布局, visible false, bounds 异常 |
 
 ### 业务逻辑 (`business/`)
 

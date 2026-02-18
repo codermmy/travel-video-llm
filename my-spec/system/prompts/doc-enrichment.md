@@ -43,6 +43,7 @@ D. 同步测试文档
   - my-spec/system/execution/02-testing-playbook.md
   - frontend/modules/testing.md
   - backend/modules/testing.md
+ - 前端测试策略遵循：`mobile_static + mobile_manual_acceptance`，不把前端 1:1 自动化作为门禁
 
 【输出要求】
 1) 列出本次更新文件清单
@@ -91,6 +92,7 @@ D. 同步测试文档
 1) 将预变更内容正式回写到 my-spec/system/**
 2) 校验命中的 doc-sync 规则都已被覆盖
 3) 补充跨端互链（若缺失）
+4) 校验测试口径一致：后端按触发执行、前端人工验收门禁
 4) 输出"回写完成报告"：
    - 更新文档清单
    - 每个文档的关键更新点

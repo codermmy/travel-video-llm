@@ -498,7 +498,7 @@ cd mobile && npm run lint && npm run typecheck
 - 401 自动登出
 - 表单验证
 
-### 10.3 E2E 测试场景
+### 10.3 人工验收场景
 
 - 完整登录流程
 - 完整注册流程

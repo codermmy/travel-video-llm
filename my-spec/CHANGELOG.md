@@ -6,6 +6,24 @@
 
 ## 变更记录
 
+### [2026-02-11] events-timeline-view
+
+**描述**: 将事件列表改造为按月分组的时间线视图，并补齐对应测试与文档联动。
+
+**类型**: feature
+
+**影响模块**:
+- 前端: `mobile/app/(tabs)/events.tsx`, `mobile/src/components/timeline/`, `mobile/src/utils/eventGrouping.ts`, `mobile/.maestro/events-timeline.yaml`
+- 后端: 无代码变更（执行回归测试）
+
+**归档文档**: `my-spec/archived/events-timeline-view/`
+- PRD: `prd.md`
+- 测试计划: `testplan.md`
+- 技术方案: `plan.md`
+- 变更日志: `changelog.md`
+
+---
+
 <!--
 每次 spec:verify 归档后，在此处添加新记录，格式如下：
 
@@ -50,20 +68,16 @@
 
 -->
 
-*暂无归档记录*
-
----
-
 ## 统计
 
 | 类型 | 数量 |
 |------|------|
-| feature | 0 |
+| feature | 1 |
 | fix | 0 |
 | refactor | 0 |
 | docs | 0 |
 | chore | 0 |
-| **总计** | **0** |
+| **总计** | **1** |
 
 ---
 

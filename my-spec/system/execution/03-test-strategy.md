@@ -4,7 +4,7 @@
 
 1. 单元测试（UT）：服务逻辑、工具函数
 2. 集成测试（IT）：API、数据库、任务编排
-3. E2E：RN/Web 关键用户流
+3. 人工验收（Manual）：前端复杂交互与业务场景
 
 ## 项目类型适配
 
@@ -25,8 +25,9 @@
 
 ## 必跑 profile（当前仓库）
 
-- required: `backend`, `mobile_static`
-- conditional: `mobile_e2e_manual_assisted`（命中 UI 主链路变更时）
+- conditional: `backend`（命中后端变更时）
+- conditional: `mobile_static`（命中前端变更时）
+- conditional: `mobile_manual_acceptance`（命中前端变更时）
 - optional: `mobile_unit`
 
 ## 证据产物

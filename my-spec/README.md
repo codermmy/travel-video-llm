@@ -37,6 +37,13 @@ my-spec/
 
 完整规则请查看 `my-spec/system/core/02-status-machine.md`。
 
+## 单一真相源（冲突处理）
+
+- 命令输入/输出/前置条件：`my-spec/system/core/03-command-contract.md`
+- 状态流转和门禁：`my-spec/system/core/02-status-machine.md`
+- 测试执行标准：`my-spec/system/execution/01-test-profile.yaml`
+- 文档联动标准：`my-spec/system/execution/04-doc-sync-rules.yaml`
+
 ## 测试适配
 
 - 项目测试配置文件：`my-spec/system/execution/01-test-profile.yaml`

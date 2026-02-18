@@ -2,15 +2,16 @@
 
 ## 执行清单
 
-- [ ] T1: 更新接口/模型
-- [ ] T2: 更新服务逻辑
-- [ ] T3: 编写/更新测试
-- [ ] T4: 运行 required 测试并修复失败
-- [ ] T5: 生成文档预变更说明
-- [ ] T6: 人工验收准备
+- [ ] T1: 实现代码改动
+- [ ] T2: 执行 required profiles
+- [ ] T3: 修复失败并重跑
+- [ ] T4: 更新 doc_change_preview
+- [ ] T5: 准备 verify 材料
 
-## 执行规则
+## 记录规则
 
-1. 每完成一个任务，记录变更说明和证据路径。
-2. 若需人工操作，使用握手步骤并记录 step_id。
-3. required 测试未通过时不得结束 apply 阶段。
+每个任务完成时补充：
+
+- changed files:
+- evidence paths:
+- decision note:

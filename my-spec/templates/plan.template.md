@@ -14,13 +14,18 @@
 
 ## 3. 测试执行计划
 
-- 读取 profile：`my-spec/system/execution/01-test-profile.yaml`
 - required profile：
 - conditional profile：
-- 预计运行顺序：
+- optional profile：
 
-## 4. 文档影响范围
+## 4. 任务拆解（可执行）
 
-- 命中的 doc-sync 规则：
-- 必改文档列表：
-- 预计更新内容：
+- [ ] T1:
+- [ ] T2:
+- [ ] T3:
+
+## 5. 文档联动
+
+- 命中规则：
+- 必改文档：
+- 可选文档：
