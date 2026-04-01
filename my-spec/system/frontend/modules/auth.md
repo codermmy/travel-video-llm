@@ -524,7 +524,6 @@ cd mobile && npm run lint && npm run typecheck
 
 - [ ] `my-spec/system/backend/modules/auth.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
-- [ ] `my-spec/system/execution/01-test-profile.yaml`（若测试命令变化）
 - [ ] `my-spec/system/frontend/modules/upload.md`（若影响登录后流程）
 
 ---

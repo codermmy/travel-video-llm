@@ -37,6 +37,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
+    "plugins": [
+      "expo-font",
+      "expo-router"
+    ],
     "extra": {
       "amap": {
         "androidKey": "b83d0e9f268966db7e99c716e4c5325e",

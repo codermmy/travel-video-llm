@@ -15,6 +15,10 @@ from app.models.task import AsyncTask
 from app.services.ai_service import ai_service
 from app.services.clustering_service import cluster_user_photos
 from app.services.event_ai_service import generate_event_story_for_event
+from app.services.event_enhancement_service import (
+    cleanup_expired_event_enhancements,
+    generate_event_enhanced_story_for_event,
+)
 from app.services.event_enrichment import ensure_event_title, format_coordinate_location
 from app.services.geocoding_service import geocoding_service
 from app.tasks.celery_app import celery_app
@@ -303,6 +307,75 @@ def generate_event_story_task(user_id: str, event_id: str, task_record_id: str) 
         db.close()
 
 
+@celery_app.task(name="generate_event_enhancement_story_task")
+def generate_event_enhancement_story_task(
+    user_id: str, event_id: str, task_record_id: str
+) -> dict:
+    """Generate enhanced AI story for one event using uploaded representative images."""
+
+    db: Session = SessionLocal()
+    try:
+        task = _get_task(db, task_record_id=task_record_id, user_id=user_id)
+        if not task:
+            raise RuntimeError("task record not found")
+
+        _update_task(
+            db,
+            task,
+            status="started",
+            stage="ai",
+            progress=15,
+            total=1,
+            started_at=_now_utc(),
+        )
+
+        ok, reason = generate_event_enhanced_story_for_event(
+            db=db, user_id=user_id, event_id=event_id
+        )
+        debug_info = _ai_debug_info()
+
+        if ok:
+            _update_task(
+                db,
+                task,
+                status="success",
+                stage="ai",
+                progress=100,
+                result=f"云端增强故事生成完成 ({debug_info})",
+                completed_at=_now_utc(),
+            )
+            return {"eventId": event_id, "success": True, "provider": ai_service.provider_name()}
+
+        error_message = f"{reason or 'event_enhanced_story_generation_failed'} ({debug_info})"
+        _update_task(
+            db,
+            task,
+            status="failure",
+            stage="ai",
+            progress=100,
+            error=error_message,
+            completed_at=_now_utc(),
+        )
+        return {
+            "eventId": event_id,
+            "success": False,
+            "error": reason,
+            "provider": ai_service.provider_name(),
+        }
+    finally:
+        db.close()
+
+
+@celery_app.task(name="cleanup_expired_event_enhancements_task")
+def cleanup_expired_event_enhancements_task() -> dict:
+    db: Session = SessionLocal()
+    try:
+        removed = cleanup_expired_event_enhancements(db)
+        return {"removed": removed}
+    finally:
+        db.close()
+
+
 def trigger_clustering_task(user_id: str, db: Session) -> Optional[str]:
     """Create task record and enqueue processing.
 
@@ -398,6 +471,60 @@ def trigger_event_story_task(user_id: str, event_id: str, db: Session) -> Option
     try:
         async_result = celery_app.send_task(
             "generate_event_story_task",
+            kwargs={
+                "user_id": user_id,
+                "event_id": event_id,
+                "task_record_id": task.id,
+            },
+        )
+    except Exception as e:
+        task.status = "failure"
+        task.error = str(e)
+        task.completed_at = _now_utc()
+        db.commit()
+        return None
+
+    task.task_id = async_result.id
+    db.commit()
+    return async_result.id
+
+
+def trigger_event_enhancement_task(user_id: str, event_id: str, db: Session) -> Optional[str]:
+    """Create async task for enhanced event story generation."""
+
+    task = AsyncTask(
+        user_id=user_id,
+        task_id=None,
+        task_type="event_enhancement",
+        status="pending",
+        stage="pending",
+        progress=0,
+        total=1,
+        result=None,
+        error=None,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    if _is_in_memory_bind(db):
+        ok, reason = generate_event_enhanced_story_for_event(
+            db=db, user_id=user_id, event_id=event_id
+        )
+        debug_info = _ai_debug_info()
+        task.status = "success" if ok else "failure"
+        task.stage = "ai"
+        task.progress = 100
+        task.result = f"云端增强故事生成完成 ({debug_info})" if ok else None
+        task.error = None if ok else f"{reason} ({debug_info})"
+        task.started_at = _now_utc()
+        task.completed_at = _now_utc()
+        db.commit()
+        return None
+
+    try:
+        async_result = celery_app.send_task(
+            "generate_event_enhancement_story_task",
             kwargs={
                 "user_id": user_id,
                 "event_id": event_id,

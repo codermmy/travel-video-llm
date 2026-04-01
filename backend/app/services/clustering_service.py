@@ -59,6 +59,25 @@ def _normalize_datetime(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _is_timestamp_valid(value: datetime) -> bool:
+    """检查时间戳是否有效。
+
+    无效情况：
+    - 时间 < 2000-01-01（相机未设置时间）
+    - 时间 > 当前时间 + 1 天（未来时间）
+    """
+    if value.year < 2000:
+        return False
+    # 允许未来 1 天内的时间（考虑时区差异）
+    # 如果输入是 naive datetime，先转换为 UTC
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    max_valid_time = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    if value > max_valid_time:
+        return False
+    return True
+
+
 def _has_valid_gps(lat: Optional[float], lon: Optional[float]) -> bool:
     if lat is None or lon is None:
         return False
@@ -87,14 +106,14 @@ class ClusteringConfig:
     # Legacy defaults retained as fallback boundaries.
     time_threshold_hours: int = 48
     distance_threshold_km: float = 50.0
-    min_photos_per_event: int = 5
+    min_photos_per_event: int = 2  # P0: 从 3 降低到 2，允许更小的旅行事件
 
     enable_semantic_clustering: bool = True
     enable_temporal_rules: bool = True
-    semantic_similarity_threshold: float = 0.85
-    merge_short_interval_min: int = 30
-    city_jump_threshold_km: float = 100.0
-    hdbscan_min_cluster_size: int = 5
+    semantic_similarity_threshold: float = 0.65  # P0: 从 0.80 降低到 0.65，提高语义聚类召回率
+    merge_short_interval_min: int = 180  # P0: 从 60 增加到 180 分钟 (3 小时)，容忍更长的短间隔合并
+    city_jump_threshold_km: float = 50.0  # 降低到 50km，更敏感的城市切换
+    hdbscan_min_cluster_size: int = 3  # 降低到 3，适应小事件
     enable_ai_descriptions: bool = False
 
     @classmethod
@@ -242,9 +261,13 @@ class SpacetimeHDBSCAN:
                 right = photos[j]
 
                 time_diff_seconds = abs((left.shoot_time - right.shoot_time).total_seconds())
-                time_norm = min(time_diff_seconds / time_denominator, 1.0)
+
+                # P0: 优化小范围 GPS 聚类 - 对于 500m 半径内的照片，放宽时间阈值
+                # 这允许在同一景点（如博物馆、公园）内拍摄的照片更容易聚类在一起
+                SMALL_RADIUS_KM = 0.5  # 500 米
 
                 spatial_norm = 0.0
+                is_small_range = False
                 if _photo_has_valid_gps(left) and _photo_has_valid_gps(right):
                     distance_km = haversine_distance(
                         left.gps_lat,
@@ -253,6 +276,13 @@ class SpacetimeHDBSCAN:
                         right.gps_lon,
                     )
                     spatial_norm = min(distance_km / distance_denominator, 1.0)
+                    is_small_range = distance_km <= SMALL_RADIUS_KM
+
+                # 对于小范围内的照片，放宽时间惩罚（乘以 0.5 系数）
+                if is_small_range:
+                    time_norm = min((time_diff_seconds * 0.5) / time_denominator, 1.0)
+                else:
+                    time_norm = min(time_diff_seconds / time_denominator, 1.0)
 
                 combined = math.sqrt((time_norm * time_norm) + (spatial_norm * spatial_norm))
                 matrix[i, j] = combined
@@ -916,6 +946,12 @@ class TemporalRules:
                 right.gps_lon,
             )
 
+            # P0: 增强城市跳跃检测 - 对于 > 200km 的跳跃直接拆分（不管时间间隔）
+            # 这是为了处理跨城市/跨国旅行的场景，避免将不相关的事件合并
+            if distance > 200:
+                result.append(list(current))
+                continue
+
             if distance > jump_threshold_km:
                 result.append(list(current))
             else:
@@ -926,20 +962,30 @@ class TemporalRules:
 
     @staticmethod
     def filter_night_singletons(events: list[list[PhotoData]]) -> list[list[PhotoData]]:
+        """过滤夜间单张照片（22:00-06:00），这些通常是误触或噪声。
+
+        规则：
+        - 多张照片的事件：保留
+        - 白天单张照片：保留
+        - 夜间单张照片：过滤掉（可能是误触）
+        """
         if not events:
             return events
 
         normalized: list[list[PhotoData]] = []
         for event in events:
+            # 多张照片的事件直接保留
             if len(event) != 1:
                 normalized.append(event)
                 continue
 
+            # 单张照片检查时间
             hour = event[0].shoot_time.hour
+            # 夜间（22:00-06:00）的单张照片过滤掉
             if 22 <= hour or hour <= 6:
-                normalized.append(event)
-            else:
-                normalized.append(event)
+                continue  # 过滤掉，不加入结果
+            # 白天单张照片保留
+            normalized.append(event)
 
         return normalized
 
@@ -1110,11 +1156,25 @@ def cluster_user_photos(
     if not photos:
         return []
 
+    # 分离正常照片和时间戳异常照片
     photo_data: list[PhotoData] = []
+    invalid_timestamp_photo_ids: set[str] = set()
+
     for photo in photos:
         shoot_time = photo.shoot_time or photo.created_at or datetime.now(tz=timezone.utc)
-        shoot_time = _normalize_datetime(shoot_time)
 
+        # 检查时间戳是否有效
+        if not _is_timestamp_valid(shoot_time):
+            # 时间戳异常的照片单独标记，不参与聚类
+            invalid_timestamp_photo_ids.add(photo.id)
+            logger.warning(
+                "Photo %s has invalid timestamp: %s, will be marked as noise",
+                photo.id,
+                shoot_time,
+            )
+            continue
+
+        shoot_time = _normalize_datetime(shoot_time)
         photo_data.append(
             PhotoData(
                 id=photo.id,
@@ -1127,12 +1187,28 @@ def cluster_user_photos(
         )
 
     clusters = clustering.cluster(photo_data)
-    return clustering.create_events_from_clusters(
+    events = clustering.create_events_from_clusters(
         user_id=user_id,
         clusters=clusters,
         db=db,
         noise_photo_ids=clustering._last_noise_photo_ids,
     )
+
+    # 标记时间戳异常的照片为 noise
+    if invalid_timestamp_photo_ids:
+        for photo in db.scalars(
+            select(Photo).where(
+                and_(
+                    Photo.user_id == user_id,
+                    Photo.id.in_(list(invalid_timestamp_photo_ids)),
+                    Photo.event_id.is_(None),
+                )
+            )
+        ).all():
+            photo.status = "noise"
+        db.commit()
+
+    return events
 
 
 def recluster_event(event_id: str, user_id: str, db: Session) -> list[Event]:

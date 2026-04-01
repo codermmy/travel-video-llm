@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from 'react-native-paper';
 
 import type { EventRecord } from '@/types/event';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 type TimelineEventCardProps = {
   event: EventRecord;
@@ -30,10 +31,11 @@ function formatDateRange(event: EventRecord): string {
 }
 
 function buildThumbnailUris(event: EventRecord): (string | null)[] {
-  if (!event.coverPhotoUrl) {
+  const coverUri = getPreferredEventCoverUri(event);
+  if (!coverUri) {
     return [null, null, null];
   }
-  return [event.coverPhotoUrl, null, null];
+  return [coverUri, null, null];
 }
 
 export function TimelineEventCard({ event, isLastInSection, onPress }: TimelineEventCardProps) {

@@ -7,6 +7,7 @@ from typing import Optional
 from app.models.event import Event
 from app.models.photo import Photo
 from app.services.ai_service import ai_service
+from app.services.story_signal_service import aggregate_story_signals
 
 
 @dataclass
@@ -32,11 +33,17 @@ def generate_chapter_story(
     chapter_photos: list[Photo],
     detailed_location: str,
     location_tags: str,
+    narrative_boost: str = "",
 ) -> Optional[ChapterStoryResult]:
     if not chapter_photos:
         return None
 
-    photo_descriptions = [p.caption for p in chapter_photos if p.caption]
+    chapter_signals = aggregate_story_signals(chapter_photos)
+    photo_descriptions = [
+        str(item)
+        for item in chapter_signals.get("photo_descriptions", [])
+        if isinstance(item, str) and item.strip()
+    ]
     if not photo_descriptions:
         photo_descriptions = [f"照片{idx + 1}" for idx in range(len(chapter_photos))]
 
@@ -53,13 +60,20 @@ def generate_chapter_story(
 地点特色：{location_tags or '旅行片段'}
 章节：第 {chapter_index} / {total_chapters} 章
 时间段：{time_range}
+结构化摘要：
+{chapter_signals.get('structured_summary') or '暂无结构化线索'}
+时间线索：
+{chr(10).join(chapter_signals.get('timeline_clues', [])[:8]) or '暂无'}
 场景关键词：{'；'.join(photo_descriptions[:15])}
+增强线索：
+{narrative_boost or '暂无增强线索'}
 
 要求：
 1. chapter_title：20字以内
 2. chapter_story：80-120字
 3. slideshow_caption：1-2句话，不超过20字
 4. 保持与整段旅途叙事连贯
+5. 如果存在增强线索，只能把它当作章节语气和细节参考，不能编造当前章节未出现的内容
 
 仅返回 JSON：
 {{

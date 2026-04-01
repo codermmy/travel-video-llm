@@ -1,11 +1,16 @@
 import axios, { AxiosHeaders } from 'axios';
 
-import { API_BASE_URL } from '@/constants/api';
+import { API_BASE_URL_CANDIDATES, getApiBaseUrl, getApiConnectionDebugInfo, setApiBaseUrl } from '@/constants/api';
 import { tokenStorage } from '@/services/storage/tokenStorage';
 import { authDebug, authWarn } from '@/utils/authDebug';
 import { getDeviceId } from '@/utils/deviceUtils';
 
 type UnauthorizedHandler = () => void;
+type RetryableRequestConfig = {
+  __apiBaseCandidateIndex?: number;
+  baseURL?: string;
+  url?: string;
+};
 
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 
@@ -37,11 +42,39 @@ function isAuthEndpoint(url: string): boolean {
 }
 
 export const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseUrl(),
   timeout: 15_000,
 });
 
+authDebug('apiClient init', getApiConnectionDebugInfo());
+
+function isRecoverableNetworkError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const value = error as { response?: unknown; code?: unknown; message?: unknown };
+  if (value.response) {
+    return false;
+  }
+
+  return (
+    value.code === 'ERR_NETWORK' ||
+    value.code === 'ECONNREFUSED' ||
+    value.message === 'Network Error'
+  );
+}
+
 apiClient.interceptors.request.use(async (config) => {
+  const currentBaseUrl = config.baseURL ?? getApiBaseUrl();
+  config.baseURL = currentBaseUrl;
+
+  const retryConfig = config as typeof config & RetryableRequestConfig;
+  if (typeof retryConfig.__apiBaseCandidateIndex !== 'number') {
+    const candidateIndex = API_BASE_URL_CANDIDATES.indexOf(currentBaseUrl);
+    retryConfig.__apiBaseCandidateIndex = candidateIndex >= 0 ? candidateIndex : 0;
+  }
+
   try {
     const deviceId = await getDeviceId();
     if (deviceId) {
@@ -91,6 +124,29 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (__DEV__ && isRecoverableNetworkError(error)) {
+      const config = error?.config as RetryableRequestConfig | undefined;
+      const currentIndex =
+        typeof config?.__apiBaseCandidateIndex === 'number' ? config.__apiBaseCandidateIndex : 0;
+      const nextIndex = currentIndex + 1;
+
+      if (config && nextIndex < API_BASE_URL_CANDIDATES.length) {
+        const nextBaseUrl = API_BASE_URL_CANDIDATES[nextIndex];
+        setApiBaseUrl(nextBaseUrl);
+        apiClient.defaults.baseURL = nextBaseUrl;
+        config.baseURL = nextBaseUrl;
+        config.__apiBaseCandidateIndex = nextIndex;
+
+        authWarn('apiClient retry with fallback base URL', {
+          failedBaseUrl: API_BASE_URL_CANDIDATES[currentIndex] ?? getApiBaseUrl(),
+          nextBaseUrl,
+          request: `${String(error?.config?.method ?? 'GET').toUpperCase()} ${String(config.url ?? '')}`,
+        });
+
+        return apiClient.request(config);
+      }
+    }
+
     if (error?.response?.status === 401) {
       const url = String(error?.config?.url ?? 'unknown');
       const method = String(error?.config?.method ?? 'GET').toUpperCase();
@@ -105,7 +161,7 @@ apiClient.interceptors.response.use(
       if (hasToken && !isAuthEndpoint(url)) {
         await tokenStorage.clearAll();
         unauthorizedHandler?.();
-        return Promise.reject(new Error('登录已过期，请重新登录'));
+        return Promise.reject(new Error('设备身份已失效，正在重新初始化，请稍后重试'));
       }
 
       authDebug('apiClient skip forced logout for 401', {

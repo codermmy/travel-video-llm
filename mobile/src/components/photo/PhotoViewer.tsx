@@ -15,6 +15,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import type { EventPhotoItem } from '@/types/event';
 import { formatDateTime } from '@/utils/dateUtils';
+import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,8 +34,10 @@ function formatGps(photo: EventPhotoItem): string | null {
 }
 
 export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerProps) {
-  const [currentIndex, setCurrentIndex] = useState(Math.min(Math.max(initialIndex, 0), photos.length - 1));
-  const [failedIds, setFailedIds] = useState<Record<string, boolean>>({});
+  const [currentIndex, setCurrentIndex] = useState(
+    Math.min(Math.max(initialIndex, 0), photos.length - 1),
+  );
+  const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
   const listRef = useRef<FlatList<EventPhotoItem>>(null);
 
   useEffect(() => {
@@ -84,7 +87,10 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+        <Pressable
+          onPress={onBack}
+          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+        >
           <MaterialCommunityIcons name="chevron-left" size={22} color="#FFFFFF" />
           <Text style={styles.backText}>返回</Text>
         </Pressable>
@@ -104,7 +110,8 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onMomentumEnd}
         renderItem={({ item }) => {
-          const uri = failedIds[item.id] ? null : item.photoUrl ?? item.thumbnailUrl;
+          const uriCandidates = getPhotoOriginalCandidates(item);
+          const uri = uriCandidates[failedCandidateIndices[item.id] ?? 0] ?? null;
           return (
             <View style={styles.slide}>
               {uri ? (
@@ -113,7 +120,10 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
                   style={styles.image}
                   resizeMode="contain"
                   onError={() => {
-                    setFailedIds((prev) => ({ ...prev, [item.id]: true }));
+                    setFailedCandidateIndices((prev) => ({
+                      ...prev,
+                      [item.id]: (prev[item.id] ?? 0) + 1,
+                    }));
                   }}
                 />
               ) : (

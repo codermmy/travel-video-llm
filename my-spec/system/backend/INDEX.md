@@ -7,7 +7,6 @@
 - `modules/photo.md`：照片上传、去重、状态管理
 - `modules/event.md`：聚类事件、故事生成、地理编码
 - `modules/sync.md`：跨设备同步策略
-- `modules/testing.md`：后端测试执行与门禁
 - `api/INDEX.md`：API 总览与契约入口
 - `database/schema-dictionary.md`：核心表结构与索引
 

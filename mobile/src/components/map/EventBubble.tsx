@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, Image, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { EventRecord } from '@/types/event';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 interface EventBubbleProps {
   event: EventRecord;
@@ -10,6 +11,7 @@ interface EventBubbleProps {
 }
 
 export const EventBubble: React.FC<EventBubbleProps> = ({ event, onPressDetails, onClose }) => {
+  const coverUri = getPreferredEventCoverUri(event);
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -29,8 +31,8 @@ export const EventBubble: React.FC<EventBubbleProps> = ({ event, onPressDetails,
           activeOpacity={0.8}
         >
           <View style={styles.imageContainer}>
-            {event.coverPhotoUrl ? (
-              <Image source={{ uri: event.coverPhotoUrl }} style={styles.image} />
+            {coverUri ? (
+              <Image source={{ uri: coverUri }} style={styles.image} />
             ) : (
               <View style={[styles.image, styles.placeholderImage]}>
                 <Ionicons name="image-outline" size={24} color="#999" />

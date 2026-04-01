@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -25,6 +26,12 @@ celery_app.conf.update(
     task_time_limit=settings.celery_task_time_limit,
     worker_pool=worker_pool,
     worker_concurrency=worker_concurrency,
+    beat_schedule={
+        "cleanup-expired-event-enhancements-daily": {
+            "task": "cleanup_expired_event_enhancements_task",
+            "schedule": crontab(hour=3, minute=15),
+        }
+    },
 )
 
 # Auto discover tasks under app.tasks

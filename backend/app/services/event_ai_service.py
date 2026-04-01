@@ -17,12 +17,11 @@ from app.services.chapter_ai_service import generate_chapter_story
 from app.services.event_enrichment import (
     ensure_event_title,
     format_coordinate_location,
-    get_event_location_text,
     split_into_chapters,
 )
 from app.services.photo_group_service import photo_group_service
 from app.services.photo_ai_service import generate_photo_caption
-from app.services.storage_service import storage_service
+from app.services.story_signal_service import aggregate_story_signals, build_photo_story_seed
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +59,12 @@ def _ensure_location_context(event: Event) -> tuple[str, str, str]:
 
 def _save_photo_captions(
     photos: list[Photo],
-    descriptions: list[str],
 ) -> None:
     if not photos:
         return
 
-    for idx, photo in enumerate(photos):
-        seed_desc = descriptions[idx % len(descriptions)] if descriptions else ""
+    for photo in photos:
+        seed_desc = build_photo_story_seed(photo)
         caption = generate_photo_caption(seed_desc) if seed_desc else None
         if caption:
             photo.caption = caption
@@ -91,6 +89,7 @@ def _save_event_chapters(
     photos: list[Photo],
     detailed_location: str,
     location_tags: str,
+    narrative_boost: str = "",
 ) -> None:
     db.execute(delete(EventChapter).where(EventChapter.event_id == event.id))
     db.execute(delete(PhotoGroup).where(PhotoGroup.event_id == event.id))
@@ -108,6 +107,7 @@ def _save_event_chapters(
             chapter_photos=chapter_photos,
             detailed_location=detailed_location,
             location_tags=location_tags,
+            narrative_boost=narrative_boost,
         )
         if not generated:
             continue
@@ -183,27 +183,9 @@ def generate_event_story_for_event(
     event.title = ensure_event_title(event)
     db.commit()
 
-    public_urls: list[str] = []
-    for photo in photos:
-        resolved = storage_service.resolve_public_url(photo.thumbnail_url)
-        if resolved:
-            public_urls.append(resolved)
-
-    if not public_urls:
-        event.status = "ai_failed"
-        event.ai_error = "photos_are_not_publicly_accessible_for_ai"
-        event.title = ensure_event_title(event)
-        db.commit()
-        return False, event.ai_error
-
     location, detailed_location, location_tags = _ensure_location_context(event)
-
-    analysis = ai_service.analyze_event_photos(
-        event_id=event_id,
-        photo_urls=public_urls,
-        location=location,
-    )
-    descriptions = [str(d) for d in analysis.get("descriptions", []) if d]
+    signals = aggregate_story_signals(photos)
+    descriptions = [str(d) for d in signals.get("photo_descriptions", []) if d]
 
     if not event.start_time or not event.end_time:
         event.status = "ai_failed"
@@ -220,6 +202,12 @@ def generate_event_story_for_event(
         photo_descriptions=descriptions,
         detailed_location=detailed_location,
         location_tags=location_tags,
+        structured_summary=str(signals.get("structured_summary") or ""),
+        timeline_clues=[
+            str(item)
+            for item in signals.get("timeline_clues", [])
+            if isinstance(item, str) and item.strip()
+        ],
     )
     if not story:
         event.status = "ai_failed"
@@ -233,17 +221,18 @@ def generate_event_story_for_event(
     event.full_story = full_story or None
     event.story_text = full_story or None
 
-    emotion = story.get("emotion")
+    emotion = story.get("emotion") or signals.get("dominant_emotion")
     if isinstance(emotion, str) and emotion:
         event.emotion_tag = emotion
 
-    _save_photo_captions(photos, descriptions)
+    _save_photo_captions(photos)
     _save_event_chapters(
         db,
         event=event,
         photos=photos,
         detailed_location=detailed_location,
         location_tags=location_tags,
+        narrative_boost="",
     )
 
     event.status = "generated"

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -16,12 +17,24 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { PhotoGrid } from '@/components/photo/PhotoGrid';
+import {
+  cleanupPreparedEnhancementUploads,
+  getEnhancementEligiblePhotos,
+  getRecommendedEnhancementPhotoIds,
+  prepareEnhancementUploads,
+} from '@/services/album/eventEnhancementService';
 import { eventApi } from '@/services/api/eventApi';
+import {
+  clearEventCoverOverride,
+  saveEventCoverOverride,
+} from '@/services/media/localMediaRegistry';
 import { taskApi } from '@/services/api/taskApi';
 import { usePhotoViewerStore } from '@/stores/photoViewerStore';
 import { useSlideshowStore } from '@/stores/slideshowStore';
 import type { EventDetail, EventStatus } from '@/types/event';
 import { formatDateRange } from '@/utils/dateUtils';
+import { formatFileSize } from '@/utils/imageUtils';
+import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
 const STATUS_META: Record<EventStatus, { label: string; color: string }> = {
   clustered: { label: '已聚类（待AI）', color: '#6A7BA4' },
@@ -59,6 +72,20 @@ function resolveLocation(event: EventDetail): string {
   return '地点待补充';
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '-';
+  }
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+}
+
 export default function EventDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ eventId: string }>();
@@ -68,7 +95,11 @@ export default function EventDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [coverFailed, setCoverFailed] = useState(false);
+  const [isCoverPickerVisible, setIsCoverPickerVisible] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isEnhancementPickerVisible, setIsEnhancementPickerVisible] = useState(false);
+  const [selectedEnhancementIds, setSelectedEnhancementIds] = useState<string[]>([]);
+  const [isEnhancing, setIsEnhancing] = useState(false);
 
   const setPhotoViewerSession = usePhotoViewerStore((s) => s.setSession);
   const setSlideshowSession = useSlideshowStore((s) => s.setSession);
@@ -131,6 +162,21 @@ export default function EventDetailScreen() {
     router.push('/slideshow');
   }, [event, router, setSlideshowSession]);
 
+  const pollTaskUntilSettled = useCallback(async (taskId?: string | null) => {
+    if (!taskId) {
+      return;
+    }
+
+    const start = Date.now();
+    while (Date.now() - start < 60_000) {
+      const task = await taskApi.getTaskStatus(taskId);
+      if (task.status === 'success' || task.status === 'failure') {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }, []);
+
   const retryAiStory = useCallback(async () => {
     if (!event) {
       return;
@@ -140,16 +186,7 @@ export default function EventDetailScreen() {
       setIsRegenerating(true);
       const result = await eventApi.regenerateStory(event.id);
 
-      if (result.taskId) {
-        const start = Date.now();
-        while (Date.now() - start < 60_000) {
-          const task = await taskApi.getTaskStatus(result.taskId);
-          if (task.status === 'success' || task.status === 'failure') {
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
-      }
+      await pollTaskUntilSettled(result.taskId);
 
       await loadDetail();
       Alert.alert('已提交', '故事生成任务已刷新。');
@@ -158,7 +195,7 @@ export default function EventDetailScreen() {
     } finally {
       setIsRegenerating(false);
     }
-  }, [event, loadDetail]);
+  }, [event, loadDetail, pollTaskUntilSettled]);
 
   const dateRangeText = useMemo(() => {
     if (!event) {
@@ -168,6 +205,151 @@ export default function EventDetailScreen() {
   }, [event]);
 
   const fullStory = event?.fullStory || event?.storyText || null;
+  const automaticCover = useMemo(() => {
+    if (!event) {
+      return { photoId: null, uri: null };
+    }
+    return resolveCoverCandidateFromPhotos(event.photos, [event.coverPhotoId]);
+  }, [event]);
+  const coverUri = event?.localCoverUri ?? automaticCover.uri ?? event?.coverPhotoUrl ?? null;
+  const enhancementEligiblePhotos = useMemo(
+    () => (event ? getEnhancementEligiblePhotos(event.photos) : []),
+    [event],
+  );
+  const enhancementSelectedPhotos = useMemo(() => {
+    if (!event) {
+      return [];
+    }
+    const idSet = new Set(selectedEnhancementIds);
+    return event.photos.filter((photo) => idSet.has(photo.id));
+  }, [event, selectedEnhancementIds]);
+  const enhancementSummary = event?.enhancement ?? {
+    status: 'none' as const,
+    assetCount: 0,
+    totalBytes: 0,
+    canRetry: false,
+    lastUploadedAt: null,
+    retainedUntil: null,
+  };
+
+  const openEnhancementPicker = useCallback(() => {
+    if (!event) {
+      return;
+    }
+    const recommended = getRecommendedEnhancementPhotoIds(event.photos);
+    setSelectedEnhancementIds(recommended);
+    setIsEnhancementPickerVisible(true);
+  }, [event]);
+
+  const toggleEnhancementPhoto = useCallback((photoId: string) => {
+    setSelectedEnhancementIds((prev) => {
+      if (prev.includes(photoId)) {
+        return prev.filter((id) => id !== photoId);
+      }
+      if (prev.length >= 5) {
+        return prev;
+      }
+      return [...prev, photoId];
+    });
+  }, []);
+
+  const submitEnhancement = useCallback(async () => {
+    if (!event) {
+      return;
+    }
+    if (enhancementSelectedPhotos.length < 3 || enhancementSelectedPhotos.length > 5) {
+      Alert.alert('选择数量不符合要求', '请勾选 3-5 张代表图后再继续。');
+      return;
+    }
+
+    let preparedUploads: Awaited<ReturnType<typeof prepareEnhancementUploads>> = [];
+    try {
+      setIsEnhancing(true);
+      preparedUploads = await prepareEnhancementUploads(enhancementSelectedPhotos);
+      const result = await eventApi.enhanceStory(event.id, { uploads: preparedUploads });
+      await pollTaskUntilSettled(result.taskId);
+      await loadDetail();
+      setIsEnhancementPickerVisible(false);
+      Alert.alert('增强完成', '已使用代表图重新生成更强故事。');
+    } catch (err) {
+      Alert.alert('增强失败', err instanceof Error ? err.message : '请稍后再试');
+    } finally {
+      await cleanupPreparedEnhancementUploads(preparedUploads);
+      setIsEnhancing(false);
+    }
+  }, [enhancementSelectedPhotos, event, loadDetail, pollTaskUntilSettled]);
+
+  const retryEnhancement = useCallback(async () => {
+    if (!event) {
+      return;
+    }
+
+    try {
+      setIsEnhancing(true);
+      const result = await eventApi.enhanceStory(event.id, { reuseExisting: true });
+      await pollTaskUntilSettled(result.taskId);
+      await loadDetail();
+      Alert.alert('已提交', '已复用 7 天内的增强素材重新生成故事。');
+    } catch (err) {
+      Alert.alert('增强重试失败', err instanceof Error ? err.message : '请稍后再试');
+    } finally {
+      setIsEnhancing(false);
+    }
+  }, [event, loadDetail, pollTaskUntilSettled]);
+
+  const onSelectCoverPhoto = useCallback(
+    async (photo: EventDetail['photos'][number]) => {
+      if (!event) {
+        return;
+      }
+
+      const nextCoverUri = getPreferredPhotoThumbnailUri(photo);
+      try {
+        await saveEventCoverOverride({
+          eventId: event.id,
+          photoId: photo.id,
+          localCoverUri: nextCoverUri,
+        });
+        setEvent((prev) =>
+          prev
+            ? {
+                ...prev,
+                localCoverUri: nextCoverUri,
+                selectedCoverPhotoId: photo.id,
+              }
+            : prev,
+        );
+        setCoverFailed(false);
+        setIsCoverPickerVisible(false);
+      } catch (err) {
+        Alert.alert('封面更新失败', err instanceof Error ? err.message : '请稍后再试');
+      }
+    },
+    [event],
+  );
+
+  const onResetCover = useCallback(async () => {
+    if (!event) {
+      return;
+    }
+
+    try {
+      await clearEventCoverOverride(event.id);
+      setEvent((prev) =>
+        prev
+          ? {
+              ...prev,
+              localCoverUri: automaticCover.uri,
+              selectedCoverPhotoId: automaticCover.photoId,
+            }
+          : prev,
+      );
+      setCoverFailed(false);
+      setIsCoverPickerVisible(false);
+    } catch (err) {
+      Alert.alert('恢复默认失败', err instanceof Error ? err.message : '请稍后再试');
+    }
+  }, [automaticCover.photoId, automaticCover.uri, event]);
 
   if (loading) {
     return (
@@ -208,9 +390,9 @@ export default function EventDetailScreen() {
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heroCard}>
-          {event.coverPhotoUrl && !coverFailed ? (
+          {coverUri && !coverFailed ? (
             <Image
-              source={{ uri: event.coverPhotoUrl }}
+              source={{ uri: coverUri }}
               style={styles.heroImage}
               resizeMode="cover"
               onError={() => setCoverFailed(true)}
@@ -232,10 +414,22 @@ export default function EventDetailScreen() {
             <Text style={styles.backBtnText}>返回</Text>
           </Pressable>
 
+          <Pressable
+            style={styles.coverActionBtn}
+            onPress={() => setIsCoverPickerVisible(true)}
+            disabled={event.photos.length === 0}
+          >
+            <MaterialCommunityIcons name="image-edit-outline" size={16} color="#10204A" />
+            <Text style={styles.coverActionBtnText}>更换封面</Text>
+          </Pressable>
+
           <View style={styles.heroMeta}>
             <Text style={styles.heroTitle}>{event.title || '未命名事件'}</Text>
             <Text style={styles.heroSub}>{resolveLocation(event)}</Text>
             <Text style={styles.heroSub}>{dateRangeText}</Text>
+            <Text style={styles.heroHint}>
+              {event.selectedCoverPhotoId ? '当前使用本地优先封面' : '封面将优先使用本地图片'}
+            </Text>
           </View>
         </View>
 
@@ -286,6 +480,79 @@ export default function EventDetailScreen() {
           </View>
         )}
 
+        <View style={styles.sectionCard}>
+          <View style={styles.enhancementHeader}>
+            <View style={styles.enhancementTitleWrap}>
+              <MaterialCommunityIcons name="cloud-upload-outline" size={18} color="#355CB0" />
+              <Text style={styles.sectionTitle}>云端增强</Text>
+            </View>
+            {enhancementSummary.canRetry ? (
+              <View style={styles.enhancementBadge}>
+                <Text style={styles.enhancementBadgeText}>7 天内可直重试</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <Text style={styles.sectionBody}>
+            只会上传你手动勾选的 3-5
+            张压缩代表图，用于本事件更强故事重生成；默认路径不会上传整组照片。
+          </Text>
+
+          <View style={styles.enhancementInfoCard}>
+            <View style={styles.enhancementInfoRow}>
+              <Text style={styles.enhancementInfoLabel}>上传内容</Text>
+              <Text style={styles.enhancementInfoValue}>3-5 张压缩代表图</Text>
+            </View>
+            <View style={styles.enhancementInfoRow}>
+              <Text style={styles.enhancementInfoLabel}>当前保留</Text>
+              <Text style={styles.enhancementInfoValue}>
+                {enhancementSummary.assetCount} 张 · {formatFileSize(enhancementSummary.totalBytes)}
+              </Text>
+            </View>
+            <View style={styles.enhancementInfoRow}>
+              <Text style={styles.enhancementInfoLabel}>最近到期</Text>
+              <Text style={styles.enhancementInfoValue}>
+                {formatDateTime(enhancementSummary.retainedUntil)}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionHint}>
+            推荐优先选择构图稳定、场景代表性强的照片。当前可用于增强的本地照片有{' '}
+            {enhancementEligiblePhotos.length} 张。
+          </Text>
+
+          <View style={styles.enhancementActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.enhancementPrimaryBtn,
+                pressed && styles.pressed,
+                (isEnhancing || enhancementEligiblePhotos.length < 3) && styles.retryAiBtnDisabled,
+              ]}
+              disabled={isEnhancing || enhancementEligiblePhotos.length < 3}
+              onPress={openEnhancementPicker}
+            >
+              {isEnhancing ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.enhancementPrimaryBtnText}>选择代表图并增强</Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.enhancementGhostBtn,
+                pressed && styles.pressed,
+                (!enhancementSummary.canRetry || isEnhancing) && styles.retryAiBtnDisabled,
+              ]}
+              disabled={!enhancementSummary.canRetry || isEnhancing}
+              onPress={retryEnhancement}
+            >
+              <Text style={styles.enhancementGhostBtnText}>直接重试增强</Text>
+            </Pressable>
+          </View>
+        </View>
+
         {event.chapters.length > 0 ? (
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>章节</Text>
@@ -335,6 +602,170 @@ export default function EventDetailScreen() {
           />
         </View>
       </ScrollView>
+
+      <Modal
+        visible={isEnhancementPickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEnhancementPickerVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>选择代表图</Text>
+                <Text style={styles.modalHint}>
+                  勾选 3-5 张本地照片。系统已按代表性预选，上传后保留 7 天用于直接重试。
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setIsEnhancementPickerVisible(false)}
+                style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons name="close" size={18} color="#5C6C90" />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.selectionStats}>
+                <Text style={styles.selectionStatsText}>
+                  已选择 {selectedEnhancementIds.length} / 5
+                </Text>
+                <Text style={styles.selectionStatsHint}>
+                  至少 3 张，当前可选 {enhancementEligiblePhotos.length} 张
+                </Text>
+              </View>
+
+              <View style={styles.selectionGrid}>
+                {enhancementEligiblePhotos.map((photo) => {
+                  const coverCandidate = getPreferredPhotoThumbnailUri(photo);
+                  const selectedIndex = selectedEnhancementIds.indexOf(photo.id);
+                  const isSelected = selectedIndex >= 0;
+                  return (
+                    <Pressable
+                      key={photo.id}
+                      onPress={() => toggleEnhancementPhoto(photo.id)}
+                      style={({ pressed }) => [
+                        styles.selectionItem,
+                        isSelected && styles.selectionItemSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      {coverCandidate ? (
+                        <Image source={{ uri: coverCandidate }} style={styles.selectionImage} />
+                      ) : (
+                        <View style={styles.selectionPlaceholder}>
+                          <MaterialCommunityIcons
+                            name="image-off-outline"
+                            size={18}
+                            color="#8090B2"
+                          />
+                        </View>
+                      )}
+
+                      <View style={styles.selectionShade} />
+                      <View style={styles.selectionTopRow}>
+                        <View style={styles.selectionScoreBadge}>
+                          <Text style={styles.selectionScoreText}>
+                            {Math.round((photo.vision?.cover_score ?? 0) * 100)}
+                          </Text>
+                        </View>
+                        {isSelected ? (
+                          <View style={styles.selectionIndexBadge}>
+                            <Text style={styles.selectionIndexText}>{selectedIndex + 1}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() =>
+                  setSelectedEnhancementIds(getRecommendedEnhancementPhotoIds(event.photos))
+                }
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalGhostBtnText}>恢复推荐</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void submitEnhancement();
+                }}
+                style={({ pressed }) => [
+                  styles.modalPrimaryBtn,
+                  pressed && styles.pressed,
+                  (selectedEnhancementIds.length < 3 || isEnhancing) && styles.retryAiBtnDisabled,
+                ]}
+                disabled={selectedEnhancementIds.length < 3 || isEnhancing}
+              >
+                {isEnhancing ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalPrimaryBtnText}>上传并增强</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isCoverPickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsCoverPickerVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>选择事件封面</Text>
+                <Text style={styles.modalHint}>优先使用本地缩略图，无图时回退到远端图片。</Text>
+              </View>
+              <Pressable
+                onPress={() => setIsCoverPickerVisible(false)}
+                style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons name="close" size={18} color="#5C6C90" />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <PhotoGrid
+                photos={event.photos}
+                onPhotoPress={(photo) => {
+                  void onSelectCoverPhoto(photo);
+                }}
+                emptyText="这个事件还没有可用封面候选"
+                selectedPhotoId={event.selectedCoverPhotoId ?? automaticCover.photoId}
+              />
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => {
+                  void onResetCover();
+                }}
+                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalGhostBtnText}>恢复默认</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setIsCoverPickerVisible(false)}
+                style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalPrimaryBtnText}>完成</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -401,6 +832,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  coverActionBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  coverActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#10204A',
+  },
   backBtnText: {
     marginLeft: 1,
     fontSize: 12,
@@ -422,6 +870,11 @@ const styles = StyleSheet.create({
     marginTop: 5,
     color: 'rgba(255,255,255,0.9)',
     fontSize: 12,
+  },
+  heroHint: {
+    marginTop: 7,
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 11,
   },
   quickStats: {
     flexDirection: 'row',
@@ -464,6 +917,85 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#4C5C80',
+  },
+  enhancementHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  enhancementTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  enhancementBadge: {
+    borderRadius: 999,
+    backgroundColor: '#EEF4FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  enhancementBadgeText: {
+    color: '#355CB0',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  enhancementInfoCard: {
+    marginTop: 12,
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DBE5FA',
+    backgroundColor: '#F7FAFF',
+    padding: 12,
+  },
+  enhancementInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  enhancementInfoLabel: {
+    color: '#6E7FA2',
+    fontSize: 12,
+  },
+  enhancementInfoValue: {
+    color: '#27416E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  enhancementActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  enhancementPrimaryBtn: {
+    flex: 1,
+    borderRadius: 999,
+    backgroundColor: '#2F6AF6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  enhancementPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  enhancementGhostBtn: {
+    flex: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D8E2F7',
+    backgroundColor: '#F8FAFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  enhancementGhostBtnText: {
+    color: '#47608D',
+    fontSize: 12,
+    fontWeight: '700',
   },
   chapterList: {
     marginTop: 10,
@@ -580,6 +1112,167 @@ const styles = StyleSheet.create({
   ghostBtnText: {
     color: '#66779D',
     fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(7, 14, 29, 0.42)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    maxHeight: '78%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: '#F7F9FE',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 18,
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#D1D9EB',
+  },
+  modalHeader: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#26365D',
+  },
+  modalHint: {
+    marginTop: 4,
+    fontSize: 12,
+    color: '#6C7B9D',
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF0FF',
+  },
+  modalContent: {
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  selectionStats: {
+    gap: 4,
+    marginBottom: 14,
+  },
+  selectionStatsText: {
+    color: '#25365F',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  selectionStatsHint: {
+    color: '#7284A8',
+    fontSize: 12,
+  },
+  selectionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  selectionItem: {
+    position: 'relative',
+    width: '31%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#DCE5FA',
+    backgroundColor: '#EDF2FF',
+  },
+  selectionItemSelected: {
+    borderColor: '#2F6AF6',
+    borderWidth: 2,
+  },
+  selectionImage: {
+    width: '100%',
+    height: '100%',
+  },
+  selectionPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17, 33, 68, 0.08)',
+  },
+  selectionTopRow: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectionScoreBadge: {
+    minWidth: 30,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  selectionScoreText: {
+    color: '#27416E',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  selectionIndexBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: '#2F6AF6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionIndexText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  modalActions: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  modalGhostBtn: {
+    flex: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D5DDF2',
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  modalGhostBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#5B6B90',
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: '#2F6AF6',
+  },
+  modalPrimaryBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   pressed: {
     transform: [{ scale: 0.98 }],

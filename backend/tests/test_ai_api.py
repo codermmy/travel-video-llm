@@ -55,7 +55,9 @@ def test_ai_endpoints(monkeypatch) -> None:
         end_time,
         photo_descriptions,
         detailed_location="",
-        location_tags="": {
+        location_tags="",
+        structured_summary="",
+        timeline_clues=None: {
             "title": "title",
             "story": "story",
             "full_story": "story",
@@ -151,7 +153,9 @@ def test_generate_ai_story_writes_back(monkeypatch) -> None:
             end_time,
             photo_descriptions,
             detailed_location="",
-            location_tags="": {
+            location_tags="",
+            structured_summary="",
+            timeline_clues=None: {
                 "title": "T",
                 "story": "S",
                 "full_story": "S",

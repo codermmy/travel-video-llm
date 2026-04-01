@@ -106,11 +106,97 @@ class StorageService:
             object_key=object_key,
         )
 
+    def upload_avatar_file(
+        self, *, user_id: str, file_hash: str, file_obj: BinaryIO
+    ) -> StorageUploadResult:
+        relative_dir = Path("avatars") / user_id
+        file_name = f"{file_hash}.jpg"
+        local_dir = Path(settings.upload_dir) / relative_dir
+        local_dir.mkdir(parents=True, exist_ok=True)
+        local_path = local_dir / file_name
+
+        with open(local_path, "wb") as out:
+            while True:
+                chunk = file_obj.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        relative_url = f"/uploads/{(relative_dir / file_name).as_posix()}"
+
+        if self.oss is None:
+            return StorageUploadResult(
+                local_path=str(local_path),
+                public_url=relative_url,
+                storage_provider="local",
+                object_key=None,
+            )
+
+        object_key = f"avatars/{user_id}/{file_name}"
+        self.oss.upload_file(local_path=str(local_path), object_key=object_key)
+        return StorageUploadResult(
+            local_path=str(local_path),
+            public_url=self.oss.build_public_url(object_key),
+            storage_provider="oss",
+            object_key=object_key,
+        )
+
+    def upload_event_enhancement_file(
+        self, *, user_id: str, event_id: str, asset_id: str, file_obj: BinaryIO
+    ) -> StorageUploadResult:
+        relative_dir = Path("enhancements") / user_id / event_id
+        file_name = f"{asset_id}.jpg"
+        local_dir = Path(settings.upload_dir) / relative_dir
+        local_dir.mkdir(parents=True, exist_ok=True)
+        local_path = local_dir / file_name
+
+        with open(local_path, "wb") as out:
+            while True:
+                chunk = file_obj.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        relative_url = f"/uploads/{(relative_dir / file_name).as_posix()}"
+
+        if self.oss is None:
+            return StorageUploadResult(
+                local_path=str(local_path),
+                public_url=relative_url,
+                storage_provider="local",
+                object_key=None,
+            )
+
+        object_key = f"enhancements/{user_id}/{event_id}/{file_name}"
+        self.oss.upload_file(local_path=str(local_path), object_key=object_key)
+        return StorageUploadResult(
+            local_path=str(local_path),
+            public_url=self.oss.build_public_url(object_key),
+            storage_provider="oss",
+            object_key=object_key,
+        )
+
     def build_public_photo_url(self, file_hash: str) -> tuple[str, str, Optional[str]]:
         if self.oss is not None:
             object_key = self.oss.build_object_key(file_hash)
             return self.oss.build_public_url(object_key), "oss", object_key
         return self.local.build_public_url(file_hash), "local", None
+
+    def delete_uploaded_file(self, *, local_path: Optional[str], object_key: Optional[str]) -> None:
+        if object_key and self.oss is not None:
+            try:
+                bucket = self.oss._build_bucket()
+                bucket.delete_object(object_key)
+            except Exception:
+                logger.exception("Failed to delete object from OSS: %s", object_key)
+
+        if local_path:
+            try:
+                path = Path(local_path)
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                logger.exception("Failed to delete local uploaded file: %s", local_path)
 
     def resolve_public_url(self, value: Optional[str]) -> Optional[str]:
         if not value:

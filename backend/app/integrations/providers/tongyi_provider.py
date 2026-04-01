@@ -60,6 +60,8 @@ class TongyiProvider:
         photo_descriptions: list[str],
         detailed_location: str = "",
         location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: Optional[list[str]] = None,
     ) -> dict[str, Any] | None:
         if not self.is_configured():
             self._set_error(self.configuration_error_code())
@@ -71,6 +73,8 @@ class TongyiProvider:
             photo_descriptions=photo_descriptions,
             detailed_location=detailed_location,
             location_tags=location_tags,
+            structured_summary=structured_summary,
+            timeline_clues=timeline_clues,
         )
         if result is None:
             self._set_error(self.client.get_last_error_code() or "tongyi_response_parse_failed")

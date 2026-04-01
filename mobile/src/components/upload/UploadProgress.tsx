@@ -149,7 +149,10 @@ export function UploadProgress({
           {percent}%
         </Text>
 
-        <ProgressBar progress={Math.max(0, Math.min(1, percent / 100))} style={styles.progressBar} />
+        <ProgressBar
+          progress={Math.max(0, Math.min(1, percent / 100))}
+          style={styles.progressBar}
+        />
 
         {hintText ? (
           <Text variant="bodySmall" style={styles.hint}>

@@ -24,6 +24,7 @@
 | 照片查看器 | `mobile/src/components/photo/PhotoViewer.tsx` |
 | 照片网格 | `mobile/src/components/photo/PhotoGrid.tsx` |
 | 事件 API | `mobile/src/services/api/eventApi.ts` |
+| 本地媒体注册表 | `mobile/src/services/media/localMediaRegistry.ts` |
 | 播放状态 | `mobile/src/stores/slideshowStore.ts` |
 | 类型定义 | `mobile/src/types/slideshow.ts` |
 | 章节类型 | `mobile/src/types/chapter.ts` |
@@ -48,6 +49,7 @@ interface EventDetail extends EventRecord {
   chapters: Chapter[];
   photoGroups: PhotoGroup[];
   photos: EventPhoto[];
+  enhancement: EventEnhancementSummary;
 }
 
 interface Chapter {
@@ -74,6 +76,10 @@ interface PhotoGroup {
 
 interface EventPhoto {
   id: string;
+  fileHash: string | null;
+  assetId: string | null;
+  localUri: string | null;
+  localThumbnailUri: string | null;
   thumbnailUrl: string | null;
   photoUrl: string | null;
   photoIndex: number;
@@ -81,15 +87,42 @@ interface EventPhoto {
   caption: string | null;
   microStory: string | null;
 }
+
+interface EventEnhancementSummary {
+  status: 'none' | 'retained' | 'expired';
+  assetCount: number;
+  totalBytes: number;
+  canRetry: boolean;
+  lastUploadedAt: string | null;
+  retainedUntil: string | null;
+}
 ```
 
 ### 2.2 页面功能
 
 - 显示事件标题、地点、时间
 - 展示故事摘要和完整故事
-- 照片网格展示
+- 照片网格展示（本地缩略图优先，远端 URL 兜底）
 - 进入幻灯片播放入口
 - 重新生成故事按钮
+- 提供事件级“云端增强”入口，可选择 3-5 张本地代表图后上传并触发更强故事重生成
+- 如果 7 天保留窗口仍有效，可直接复用已上传的增强素材重试
+- 支持在事件详情页手动更换封面，并将选择结果持久化到本地
+
+### 2.3 本地媒体优先规则
+
+- `eventApi.getEventDetail()` 会先拉取服务端事件数据，再通过 `fileHash` 关联 `localMediaRegistry` 回填 `localUri/localThumbnailUri`。
+- 封面优先级：本地手动封面覆盖 `localCoverUri` > 事件代表图 `coverPhotoId` 对应本地媒体 > 首个可用本地缩略图 > 服务端 `coverPhotoUrl`。
+- `PhotoGrid` 使用 `localThumbnailUri -> localUri -> thumbnailUrl -> photoUrl` 顺序取图。
+- `PhotoViewer` 和 `SlideshowPlayer` 使用 `localUri -> photoUrl -> localThumbnailUri -> thumbnailUrl` 顺序取图。
+
+### 2.4 云端增强入口
+
+- 入口位置：事件详情页故事区下方的独立卡片，不与默认重生成按钮混用。
+- 选择策略：优先从本地可访问图片中预选 3-5 张代表图，参考端侧 `cover_score` 做系统推荐，用户可手动改选。
+- 上传策略：前端先将本地图片压缩成 JPEG，再通过 `multipart/form-data` 调用 `eventApi.enhanceStory()` 上传。
+- 状态反馈：提交后沿用 `taskApi.getTaskStatus()` 轮询异步任务，完成后刷新事件详情。
+- 保留与清理：事件详情展示当前保留素材数量、体积、到期时间；设置页可汇总查看并手动清理全部增强素材。
 
 ---
 
@@ -269,6 +302,14 @@ for (const candidate of sources) {
 // 全部失败
 setMusicStatus(event.musicUrl ? 'error' : 'none');
 ```
+
+---
+
+## 6. 当前边界
+
+- 当前已完成事件详情、图片查看器、幻灯片播放器的本地媒体优先展示。
+- 当前已完成事件封面本地覆盖与本地持久化。
+- 当前尚未提供端侧视频导出实现；如果后续补齐原生导出能力，需要同步更新本模块文档与相关验收说明。
 
 ### 5.3 播放状态同步
 
@@ -551,7 +592,6 @@ const currentGroup = useMemo(() =>
 
 - [ ] `my-spec/system/backend/modules/event.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
-- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增前端人工验收要求）
 - [ ] `my-spec/system/frontend/modules/map.md`（若影响跳转逻辑）
 
 ---

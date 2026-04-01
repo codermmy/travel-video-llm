@@ -1,3 +1,5 @@
+import type { LocalMediaReference, OnDeviceVisionResult } from './vision';
+
 export interface PhotoExif {
   gpsLat?: number;
   gpsLon?: number;
@@ -7,25 +9,22 @@ export interface PhotoExif {
   cameraModel?: string;
 }
 
-export interface PhotoMetadata {
+export interface PhotoMetadata extends Partial<LocalMediaReference> {
   uri: string;
-  hash: string;
   width: number;
   height: number;
   fileSize?: number;
+  vision?: OnDeviceVisionResult;
   exif: PhotoExif;
-}
-
-export interface PhotoHashResult {
-  uri: string;
-  hash: string;
-  width: number;
-  height: number;
 }
 
 export interface PhotoRecord {
   id: string;
+  assetId?: string | null;
   fileHash?: string | null;
+  localUri?: string | null;
+  localThumbnailUri?: string | null;
+  localCoverUri?: string | null;
   photoUrl?: string | null;
   thumbnailUrl?: string | null;
   gpsLat?: number | null;
@@ -33,12 +32,21 @@ export interface PhotoRecord {
   shootTime?: string | null;
   eventId?: string | null;
   status?: string | null;
+  vision?: OnDeviceVisionResult | null;
 }
 
 export interface PhotoUploadResult {
   uploaded: number;
   failed: number;
   taskId?: string | null;
+  items?: {
+    id: string;
+    clientRef?: string | null;
+    assetId?: string | null;
+    gpsLat?: number | null;
+    gpsLon?: number | null;
+    shootTime?: string | null;
+  }[];
 }
 
 export interface PhotoListResult {

@@ -4,16 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Index,
-    String,
-    UniqueConstraint,
-    func,
-    text,
-)
+from sqlalchemy import Boolean, DateTime, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -67,47 +58,6 @@ class User(Base):
     if TYPE_CHECKING:
         from app.models.event import Event
         from app.models.photo import Photo
-        from app.models.user import UserDeviceSyncState
 
     photos: Mapped[list["Photo"]] = relationship(back_populates="user")
     events: Mapped[list["Event"]] = relationship(back_populates="user")
-    sync_states: Mapped[list["UserDeviceSyncState"]] = relationship()
-
-
-class UserDeviceSyncState(Base):
-    __tablename__ = "user_device_sync_states"
-
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid4())
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False, index=True
-    )
-    device_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-
-    last_pull_cursor: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_pull_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_prompt_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "device_id", name="uq_user_device_sync_state"),
-        Index("idx_user_device_sync_state_user_device", "user_id", "device_id"),
-    )
-
-    user: Mapped["User"] = relationship()

@@ -102,3 +102,27 @@ def test_username_conflict_returns_409() -> None:
         "/api/v1/users/me", headers=headers_b, json={"username": "same_name"}
     )
     assert second.status_code == 409
+
+
+def test_upload_avatar_uses_dedicated_user_endpoint() -> None:
+    token, _ = _register_and_get_token("users-avatar-001", "头像用户")
+    headers = {"Authorization": f"Bearer {token}"}
+    file_hash = "a" * 64
+
+    response = client.post(
+        "/api/v1/users/me/avatar",
+        headers=headers,
+        params={"file_hash": file_hash},
+        files={"file": ("avatar.jpg", b"avatar-bytes", "image/jpeg")},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["avatar_url"] == f"/uploads/avatars/{data['id']}/{file_hash}.jpg"
+
+    legacy = client.post(
+        "/api/v1/photos/upload/file",
+        headers=headers,
+        params={"file_hash": file_hash},
+        files={"file": ("avatar.jpg", b"avatar-bytes", "image/jpeg")},
+    )
+    assert legacy.status_code == 404

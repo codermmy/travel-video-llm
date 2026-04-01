@@ -18,6 +18,7 @@ import {
   returnToInitialState,
   zoomIntoCluster,
 } from '@/utils/mapClusterUtils';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
 
 declare function require(moduleName: string): unknown;
@@ -242,7 +243,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         <View style={styles.fallbackContainer}>
           <Ionicons name="warning-outline" size={64} color="#ccc" />
           <Text style={styles.fallbackTitle}>地图模块不可用</Text>
-          <Text style={styles.fallbackText}>请确认你运行的是 Development Build（不是 Expo Go）。</Text>
+          <Text style={styles.fallbackText}>
+            请确认你运行的是 Development Build（不是 Expo Go）。
+          </Text>
           {amapError ? <Text style={styles.fallbackText}>错误: {amapError}</Text> : null}
         </View>
       );
@@ -270,7 +273,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         style={styles.map}
         onLoad={() => setIsMapReady(true)}
         onPress={handleMapPress}
-        initialCameraPosition={stack?.initialState || { target: { latitude: 39.9042, longitude: 116.4074 }, zoom: 5 }}
+        initialCameraPosition={
+          stack?.initialState || { target: { latitude: 39.9042, longitude: 116.4074 }, zoom: 5 }
+        }
       >
         {clusters.map((cluster) => (
           <MarkerComponent
@@ -280,7 +285,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
             zIndex={selectedClusterId === cluster.id ? 100 : 1}
           >
             <ClusterMarker
-              coverUrl={cluster.events[0]?.coverPhotoUrl || null}
+              coverUrl={getPreferredEventCoverUri(cluster.events[0])}
               clusterCount={cluster.count}
               isSelected={selectedClusterId === cluster.id}
               onPress={() => handleClusterPress(cluster.id)}

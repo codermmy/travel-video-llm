@@ -6,11 +6,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.schemas.chapter import EventChapterResponse
+from app.schemas.photo import PhotoVisionResult
 from app.schemas.photo_group import PhotoGroupResponse
 
 EventStatus = Literal[
     "clustered", "ai_pending", "ai_processing", "generated", "ai_failed"
 ]
+EnhancementStatus = Literal["none", "retained", "expired"]
 
 
 class EventResponse(BaseModel):
@@ -22,6 +24,11 @@ class EventResponse(BaseModel):
     startTime: Optional[datetime] = None
     endTime: Optional[datetime] = None
     photoCount: int = 0
+    coverPhotoId: Optional[str] = None
+    coverAssetId: Optional[str] = None
+    coverShootTime: Optional[datetime] = None
+    coverGpsLat: Optional[float] = None
+    coverGpsLon: Optional[float] = None
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
     fullStory: Optional[str] = None
@@ -34,6 +41,22 @@ class EventResponse(BaseModel):
     updatedAt: Optional[datetime] = None
 
 
+class EventEnhancementSummary(BaseModel):
+    status: EnhancementStatus = "none"
+    assetCount: int = 0
+    totalBytes: int = 0
+    canRetry: bool = False
+    lastUploadedAt: Optional[datetime] = None
+    retainedUntil: Optional[datetime] = None
+
+
+class EnhancementStorageSummary(BaseModel):
+    eventCount: int = 0
+    assetCount: int = 0
+    totalBytes: int = 0
+    nextExpiresAt: Optional[datetime] = None
+
+
 class EventListResponse(BaseModel):
     items: list[EventResponse]
     total: int
@@ -44,6 +67,8 @@ class EventListResponse(BaseModel):
 
 class EventPhotoItem(BaseModel):
     id: str
+    assetId: Optional[str] = None
+    fileHash: Optional[str] = None
     photoUrl: Optional[str] = None
     thumbnailUrl: Optional[str] = None
     shootTime: Optional[datetime] = None
@@ -54,12 +79,14 @@ class EventPhotoItem(BaseModel):
     visualDesc: Optional[str] = None
     microStory: Optional[str] = None
     emotionTag: Optional[str] = None
+    vision: Optional[PhotoVisionResult] = None
 
 
 class EventDetailResponse(EventResponse):
     photos: list[EventPhotoItem] = Field(default_factory=list)
     chapters: list[EventChapterResponse] = Field(default_factory=list)
     photoGroups: list[PhotoGroupResponse] = Field(default_factory=list)
+    enhancement: EventEnhancementSummary = Field(default_factory=EventEnhancementSummary)
 
 
 class EventCreateRequest(BaseModel):
@@ -82,3 +109,9 @@ class EventUpdateRequest(BaseModel):
 class RegenerateStoryResponse(BaseModel):
     taskId: Optional[str] = None
     status: str
+
+
+class EnhanceStoryResponse(BaseModel):
+    taskId: Optional[str] = None
+    status: str
+    enhancement: EventEnhancementSummary

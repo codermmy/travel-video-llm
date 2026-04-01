@@ -225,6 +225,8 @@ class TongyiClient:
         photo_descriptions: list[str],
         detailed_location: str = "",
         location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: Optional[list[str]] = None,
     ) -> dict[str, Any] | None:
         """生成事件故事
 
@@ -237,20 +239,26 @@ class TongyiClient:
             故事生成结果 {title, story, emotion}
         """
         desc_text = "\n".join([f"- {d}" for d in photo_descriptions])
+        timeline_text = "\n".join([f"- {item}" for item in (timeline_clues or [])])
 
         prompt = f"""请根据以下信息创作旅行故事：
 
 地点：{detailed_location or location}
 时间：{date_range}
-地点特色：{location_tags or '根据画面判断'}
-照片描述：
+地点特色：{location_tags or '根据结构化线索判断'}
+结构化摘要：
+{structured_summary or '暂无结构化摘要'}
+时间线索：
+{timeline_text or '- 暂无时间线索'}
+照片结构化描述：
 {desc_text}
 
 要求：
 1. 200-300字
 2. 贴近真实旅行，包含2-3个具体场景
-3. 情感自然流露，不要固定基调
-4. 文风细腻、流畅、有画面感
+3. 只能根据结构化线索写作，不能假设看到了图片
+4. 情感自然流露，不要固定基调
+5. 文风细腻、流畅、有画面感
 
 请以 JSON 格式返回：
 {{

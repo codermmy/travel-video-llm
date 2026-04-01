@@ -38,6 +38,8 @@ class AIProvider(Protocol):
         photo_descriptions: list[str],
         detailed_location: str = "",
         location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: Optional[list[str]] = None,
     ) -> dict[str, Any] | None: ...
 
     def generate_story(self, prompt: str, max_tokens: int = 500) -> str | None: ...

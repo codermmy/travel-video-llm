@@ -10,8 +10,11 @@ from app.models.chapter import EventChapter
 from app.models.photo import Photo
 from app.models.photo_group import PhotoGroup
 from app.services.micro_story_service import micro_story_service
-from app.services.storage_service import storage_service
-from app.services.vision_analysis_service import vision_analysis_service
+from app.services.story_signal_service import (
+    build_photo_analysis_for_micro_story,
+    build_photo_story_seed,
+    load_photo_story_signal,
+)
 
 
 class PhotoGroupService:
@@ -57,9 +60,7 @@ class PhotoGroupService:
     def _derive_group_theme(
         group_analyses: list[dict[str, Any]], group_index: int
     ) -> str:
-        descriptions = [
-            str(item.get("description") or "").strip() for item in group_analyses
-        ]
+        descriptions = [str(item.get("description") or "").strip() for item in group_analyses]
         descriptions = [d for d in descriptions if d]
         if not descriptions:
             return f"片段 {group_index}"
@@ -98,14 +99,16 @@ class PhotoGroupService:
             analyses: list[dict[str, Any]] = []
             for offset, photo in enumerate(photos):
                 photo.photo_index = chapter_start_index + local_start + offset
-                public_url = storage_service.resolve_public_url(photo.thumbnail_url)
-                analysis = (
-                    vision_analysis_service.analyze_photo(public_url)
-                    if public_url
-                    else {"description": "", "emotion": "Thoughtful"}
+                analysis = build_photo_analysis_for_micro_story(photo)
+                signal = load_photo_story_signal(photo)
+                if not photo.visual_desc and signal:
+                    photo.visual_desc = json.dumps(signal, ensure_ascii=False)
+                photo.emotion_tag = str(
+                    signal.get("emotion_hint")
+                    or analysis.get("emotion")
+                    or photo.emotion_tag
+                    or "Thoughtful"
                 )
-                photo.visual_desc = json.dumps(analysis, ensure_ascii=False)
-                photo.emotion_tag = str(analysis.get("emotion") or "Thoughtful")
                 analyses.append(analysis)
 
             group_theme = self._derive_group_theme(analyses, group_index)
@@ -127,7 +130,11 @@ class PhotoGroupService:
                 "group_emotion": group_emotion,
             }
             for idx, photo in enumerate(photos):
-                analysis = analyses[idx] if idx < len(analyses) else {"description": ""}
+                analysis = (
+                    analyses[idx]
+                    if idx < len(analyses)
+                    else {"description": build_photo_story_seed(photo)}
+                )
                 photo.micro_story = micro_story_service.generate_micro_story(
                     photo_analysis=analysis,
                     group_context=group_context,

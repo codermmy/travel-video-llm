@@ -1,13 +1,17 @@
+/**
+ * 设备会话状态管理
+ *
+ * 当前产品模式：单设备、本机使用、默认不上图。
+ * App 启动时会自动恢复本地设备会话；若本地无有效会话，则自动完成设备注册。
+ */
 import { create } from 'zustand';
 
 import { setUnauthorizedHandler } from '@/services/api/client';
 import {
   getLocalUserInfo,
   isApiError,
-  loginWithEmail,
   logout,
-  register,
-  registerWithEmail,
+  register as registerDeviceApi,
 } from '@/services/api/authApi';
 import { tokenStorage } from '@/services/storage/tokenStorage';
 import { authDebug, authWarn } from '@/utils/authDebug';
@@ -24,20 +28,24 @@ type AuthState = {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+
+  bootstrapDeviceSession: () => Promise<void>;
   register: (nickname?: string) => Promise<boolean>;
-  registerWithEmail: (
-    email: string,
-    password: string,
-    verificationCode: string,
-    nickname?: string,
-  ) => Promise<boolean>;
-  loginWithEmail: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   clearError: () => void;
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
+type DeviceSessionPayload = {
+  token: string;
+  user_id: string;
+  device_id: string | null;
+  email: string | null;
+  is_new_user: boolean;
+  auth_type: string;
+};
+
+const EMPTY_AUTH_STATE = {
   token: null,
   userId: null,
   deviceId: null,
@@ -45,221 +53,145 @@ export const useAuthStore = create<AuthState>((set) => ({
   isNewUser: false,
   authType: null,
   isAuthenticated: false,
-  isLoading: true,
-  error: null,
+};
 
-  register: async (nickname?: string) => {
-    set({ isLoading: true, error: null });
+export const useAuthStore = create<AuthState>((set, get) => {
+  const applyDeviceSession = (payload: DeviceSessionPayload): void => {
+    set({
+      token: payload.token,
+      userId: payload.user_id,
+      deviceId: payload.device_id,
+      email: payload.email,
+      isNewUser: payload.is_new_user,
+      authType: payload.auth_type,
+      isAuthenticated: true,
+      isLoading: false,
+      error: null,
+    });
+  };
+
+  const registerDevice = async (nickname?: string): Promise<boolean> => {
     try {
       authDebug('authStore.register start');
-      const res = await register(nickname);
+      const res = await registerDeviceApi(nickname);
       if (!res.data) {
         authWarn('authStore.register empty response');
-        set({ isLoading: false, error: 'register_failed' });
+        set({ ...EMPTY_AUTH_STATE, isLoading: false, error: 'register_failed' });
         return false;
       }
+
       authDebug('authStore.register success', {
         userId: res.data.user_id,
         hasToken: Boolean(res.data.token),
       });
-      set({
-        token: res.data.token,
-        userId: res.data.user_id,
-        deviceId: res.data.device_id,
-        email: res.data.email,
-        isNewUser: res.data.is_new_user,
-        authType: res.data.auth_type,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      applyDeviceSession(res.data);
       return true;
     } catch (error: unknown) {
       const errorMessage = getErrorMessage(error);
       authWarn('authStore.register failed', { error: errorMessage });
-      set({ isLoading: false, error: errorMessage });
+      set({ ...EMPTY_AUTH_STATE, isLoading: false, error: errorMessage });
       return false;
     }
-  },
+  };
 
-  registerWithEmail: async (
-    email: string,
-    password: string,
-    verificationCode: string,
-    nickname?: string,
-  ) => {
-    set({ isLoading: true, error: null });
-    try {
-      authDebug('authStore.registerWithEmail start', { email });
-      const res = await registerWithEmail({
-        email,
-        password,
-        verification_code: verificationCode,
-        nickname,
-      });
-      if (!res.data) {
-        authWarn('authStore.registerWithEmail empty response');
-        set({ isLoading: false, error: 'register_failed' });
-        return false;
-      }
-      authDebug('authStore.registerWithEmail success', {
-        userId: res.data.user_id,
-        hasToken: Boolean(res.data.token),
-      });
-      set({
-        token: res.data.token,
-        userId: res.data.user_id,
-        deviceId: res.data.device_id,
-        email: res.data.email,
-        isNewUser: res.data.is_new_user,
-        authType: res.data.auth_type,
-        isAuthenticated: true,
-        isLoading: false,
-      });
-      return true;
-    } catch (error: unknown) {
-      const errorMessage = getErrorMessage(error);
-      authWarn('authStore.registerWithEmail failed', { error: errorMessage });
-      set({ isLoading: false, error: errorMessage });
-      return false;
-    }
-  },
+  return {
+    token: null,
+    userId: null,
+    deviceId: null,
+    email: null,
+    isNewUser: false,
+    authType: null,
+    isAuthenticated: false,
+    isLoading: true,
+    error: null,
 
-  loginWithEmail: async (email: string, password: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      authDebug('authStore.loginWithEmail start', { email });
-      const res = await loginWithEmail({ email, password });
-      if (!res.data) {
-        authWarn('authStore.loginWithEmail empty response');
-        set({ isLoading: false, error: 'login_failed' });
-        return false;
-      }
-      authDebug('authStore.loginWithEmail success', {
-        userId: res.data.user_id,
-        hasToken: Boolean(res.data.token),
-      });
-      set({
-        token: res.data.token,
-        userId: res.data.user_id,
-        deviceId: res.data.device_id,
-        email: res.data.email,
-        isNewUser: res.data.is_new_user,
-        authType: res.data.auth_type,
-        isAuthenticated: true,
-        isLoading: false,
-      });
-      return true;
-    } catch (error: unknown) {
-      const errorMessage = getErrorMessage(error);
-      authWarn('authStore.loginWithEmail failed', { error: errorMessage });
-      set({ isLoading: false, error: errorMessage });
-      return false;
-    }
-  },
+    bootstrapDeviceSession: async () => {
+      set({ isLoading: true, error: null });
+      authDebug('authStore.bootstrapDeviceSession start');
 
-  logout: async () => {
-    authDebug('authStore.logout start');
-    await logout();
-    set({
-      token: null,
-      userId: null,
-      deviceId: null,
-      email: null,
-      isNewUser: false,
-      authType: null,
-      isAuthenticated: false,
-      isLoading: false,
-    });
-    authDebug('authStore.logout done');
-  },
+      try {
+        const [info, token, tokenSavedAt] = await Promise.all([
+          getLocalUserInfo(),
+          tokenStorage.getToken(),
+          tokenStorage.getTokenSavedAt(),
+        ]);
 
-  checkAuth: async () => {
-    set({ isLoading: true });
-    authDebug('authStore.checkAuth start');
-
-    try {
-      const [info, token, tokenSavedAt] = await Promise.all([
-        getLocalUserInfo(),
-        tokenStorage.getToken(),
-        tokenStorage.getTokenSavedAt(),
-      ]);
-
-      authDebug('authStore.checkAuth snapshot', {
-        hasToken: Boolean(token),
-        hasUserId: Boolean(info.userId),
-        tokenSavedAt,
-      });
-
-      if (token) {
-        const now = Date.now();
-        const tokenAge = tokenSavedAt ? now - tokenSavedAt : 0;
-        const isExpired = tokenSavedAt !== null && tokenAge > TOKEN_TTL_MS;
-
-        authDebug('authStore.checkAuth tokenMeta', {
-          tokenAge,
-          isExpired,
-          ttlMs: TOKEN_TTL_MS,
+        authDebug('authStore.bootstrapDeviceSession snapshot', {
+          hasToken: Boolean(token),
+          hasUserId: Boolean(info.userId),
+          tokenSavedAt,
         });
 
-        if (isExpired) {
-          authWarn('authStore.checkAuth token expired, clearing local auth');
-          await tokenStorage.clearAll();
-          set({
-            token: null,
-            userId: null,
-            deviceId: null,
-            email: null,
-            isAuthenticated: false,
-            isLoading: false,
+        if (token) {
+          const now = Date.now();
+          const tokenAge = tokenSavedAt ? now - tokenSavedAt : 0;
+          const isExpired = tokenSavedAt !== null && tokenAge > TOKEN_TTL_MS;
+
+          authDebug('authStore.bootstrapDeviceSession tokenMeta', {
+            tokenAge,
+            isExpired,
+            ttlMs: TOKEN_TTL_MS,
           });
-          return;
+
+          if (isExpired) {
+            authWarn('authStore.bootstrapDeviceSession token expired, clearing local auth');
+            await tokenStorage.clearAll();
+          } else {
+            if (tokenSavedAt === null) {
+              authDebug('authStore.bootstrapDeviceSession tokenSavedAt missing, touching value');
+              await tokenStorage.touchTokenSavedAt();
+            }
+
+            set({
+              token,
+              userId: info.userId,
+              deviceId: info.deviceId,
+              email: info.email,
+              isNewUser: false,
+              authType: info.email ? 'email' : 'device',
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            });
+            authDebug('authStore.bootstrapDeviceSession restored local session');
+            return;
+          }
         }
 
-        if (tokenSavedAt === null) {
-          authDebug('authStore.checkAuth tokenSavedAt missing, touching value');
-          await tokenStorage.touchTokenSavedAt();
-        }
+        authDebug('authStore.bootstrapDeviceSession register fresh device session');
+        await registerDevice();
+      } catch (error) {
+        const errorMessage = getErrorMessage(error);
+        authWarn('authStore.bootstrapDeviceSession failed', { error: errorMessage });
+        set({ ...EMPTY_AUTH_STATE, isLoading: false, error: errorMessage });
       }
+    },
 
-      if (token) {
-        set({
-          token,
-          userId: info.userId,
-          deviceId: info.deviceId,
-          email: info.email,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-        authDebug('authStore.checkAuth authenticated');
-        return;
-      }
+    register: async (nickname?: string) => {
+      set({ isLoading: true, error: null });
+      return registerDevice(nickname);
+    },
 
+    logout: async () => {
+      authDebug('authStore.logout start');
+      await logout();
       set({
-        token: null,
-        userId: null,
-        deviceId: null,
-        email: null,
-        isAuthenticated: false,
+        ...EMPTY_AUTH_STATE,
         isLoading: false,
+        error: null,
       });
-      authDebug('authStore.checkAuth unauthenticated (no token)');
-    } catch (error) {
-      authWarn('authStore.checkAuth failed', { error: String(error) });
-      set({
-        token: null,
-        userId: null,
-        deviceId: null,
-        email: null,
-        isAuthenticated: false,
-        isLoading: false,
-      });
-    }
-  },
+      authDebug('authStore.logout done');
+    },
 
-  clearError: () => {
-    set({ error: null });
-  },
-}));
+    checkAuth: async () => {
+      await get().bootstrapDeviceSession();
+    },
+
+    clearError: () => {
+      set({ error: null });
+    },
+  };
+});
 
 function getErrorMessage(error: unknown): string {
   if (isApiError(error)) {
@@ -271,10 +203,7 @@ function getErrorMessage(error: unknown): string {
       return detail.message;
     }
     if (error.response?.status === 401) {
-      return '账号或密码错误';
-    }
-    if (error.response?.status === 409) {
-      return '邮箱已被注册';
+      return '设备身份校验失败，请稍后重试';
     }
   }
   if (error instanceof Error) {
@@ -285,7 +214,7 @@ function getErrorMessage(error: unknown): string {
 
 setUnauthorizedHandler(() => {
   authWarn('authStore.unauthorizedHandler triggered');
-  void useAuthStore.getState().logout();
+  void useAuthStore.getState().bootstrapDeviceSession();
 });
 
 tokenStorage.setErrorCallback((error) => {

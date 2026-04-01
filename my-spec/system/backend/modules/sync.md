@@ -398,7 +398,6 @@ cd backend && pytest tests/test_sync.py -v
 - [ ] `my-spec/system/frontend/modules/upload.md`
 - [ ] `my-spec/system/backend/database/schema-dictionary.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
-- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增同步专项测试）
 
 ---
 

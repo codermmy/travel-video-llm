@@ -1,13 +1,5 @@
 import { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -109,7 +101,11 @@ export default function AvatarScreen() {
           onPress={uploadAvatar}
           disabled={!avatarUri || uploading}
         >
-          {uploading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>上传</Text>}
+          {uploading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.primaryText}>上传</Text>
+          )}
         </Pressable>
       </View>
     </View>

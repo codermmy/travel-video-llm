@@ -66,6 +66,8 @@ class AIService:
         photo_descriptions: list[str],
         detailed_location: str = "",
         location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: Optional[list[str]] = None,
     ) -> dict[str, Any] | None:
         """为事件生成故事"""
         cache_key = self._get_cache_key("story", str(event_id))
@@ -88,6 +90,8 @@ class AIService:
             photo_descriptions=photo_descriptions,
             detailed_location=detailed_location,
             location_tags=location_tags,
+            structured_summary=structured_summary,
+            timeline_clues=timeline_clues,
         )
 
         self.last_error_code = self._get_provider_error_code()

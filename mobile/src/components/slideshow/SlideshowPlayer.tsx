@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PlaybackState, type SlideshowProps } from '@/types/slideshow';
 import { formatDateTime } from '@/utils/dateUtils';
+import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
 
 const SPEED_OPTIONS_MS = [2000, 3000, 5000] as const;
 const DEFAULT_SLIDE_DURATION_MS = 3000;
@@ -42,7 +43,10 @@ function splitStory(story: string, maxChars = 50): string[] {
 
   const chunks: string[] = [];
   let currentChunk = '';
-  const sentences = story.split('。').map((s) => s.trim()).filter(Boolean);
+  const sentences = story
+    .split('。')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   for (const sentence of sentences) {
     if ((currentChunk + sentence).length <= maxChars) {
@@ -62,8 +66,11 @@ function splitStory(story: string, maxChars = 50): string[] {
   return chunks;
 }
 
-function getPhotoUri(photo: SlideshowProps['photos'][number]): string | null {
-  return photo.photoUrl ?? photo.thumbnailUrl ?? null;
+function getPhotoUri(
+  photo: SlideshowProps['photos'][number],
+  failedCandidateIndex = 0,
+): string | null {
+  return getPhotoOriginalCandidates(photo)[failedCandidateIndex] ?? null;
 }
 
 function isGenericCaption(input?: string | null): boolean {
@@ -123,6 +130,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [slideDurationMs, setSlideDurationMs] = useState(DEFAULT_SLIDE_DURATION_MS);
   const [musicStatus, setMusicStatus] = useState<MusicSourceStatus>('loading');
   const [footerHeight, setFooterHeight] = useState(168);
+  const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
 
   const opacity = useRef(new Animated.Value(1)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,7 +141,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const storyTranslateY = useRef(new Animated.Value(10)).current;
 
   const currentPhoto = photos[currentIndex];
-  const photoGroups = event.photoGroups || [];
+  const photoGroups = useMemo(() => event.photoGroups || [], [event.photoGroups]);
   const currentChapter = useMemo(() => {
     const chapters = event.chapters || [];
     return chapters.find(
@@ -227,6 +235,8 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     currentPhoto?.microStory,
     currentPhoto?.storyText,
     currentStoryChunk,
+    currentChapter?.chapterStory,
+    currentChapter?.slideshowCaption,
     event.fullStory,
     event.storyText,
   ]);
@@ -246,16 +256,21 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return;
     }
 
-    const currentUri = getPhotoUri(photos[currentIndex]);
-    const nextUri = getPhotoUri(photos[(currentIndex + 1) % photos.length]);
-    const prevUri = getPhotoUri(photos[(currentIndex - 1 + photos.length) % photos.length]);
+    const currentUri = getPhotoUri(
+      photos[currentIndex],
+      failedCandidateIndices[photos[currentIndex]?.id ?? ''] ?? 0,
+    );
+    const nextPhoto = photos[(currentIndex + 1) % photos.length];
+    const prevPhoto = photos[(currentIndex - 1 + photos.length) % photos.length];
+    const nextUri = getPhotoUri(nextPhoto, failedCandidateIndices[nextPhoto?.id ?? ''] ?? 0);
+    const prevUri = getPhotoUri(prevPhoto, failedCandidateIndices[prevPhoto?.id ?? ''] ?? 0);
 
     [currentUri, nextUri, prevUri]
       .filter((uri): uri is string => Boolean(uri))
       .forEach((uri) => {
         void Image.prefetch(uri);
       });
-  }, [currentIndex, photos]);
+  }, [currentIndex, failedCandidateIndices, photos]);
 
   const resetControlAutoHide = useCallback(() => {
     if (controlsTimerRef.current) {
@@ -538,12 +553,15 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const headerTop = insets.top + 12;
   const footerBottom = insets.bottom + 20;
 
-  const onFooterLayout = useCallback((event: LayoutChangeEvent) => {
-    const height = event.nativeEvent.layout.height;
-    if (height > 0 && Math.abs(height - footerHeight) > 2) {
-      setFooterHeight(height);
-    }
-  }, [footerHeight]);
+  const onFooterLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const height = event.nativeEvent.layout.height;
+      if (height > 0 && Math.abs(height - footerHeight) > 2) {
+        setFooterHeight(height);
+      }
+    },
+    [footerHeight],
+  );
 
   if (photos.length === 0) {
     return (
@@ -568,11 +586,24 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         resetControlAutoHide();
       }}
     >
-      <Animated.View style={[styles.imageWrap, { opacity }]}> 
+      <Animated.View style={[styles.imageWrap, { opacity }]}>
         <Image
-          source={{ uri: getPhotoUri(currentPhoto) ?? undefined }}
+          source={{
+            uri:
+              getPhotoUri(currentPhoto, failedCandidateIndices[currentPhoto?.id ?? ''] ?? 0) ??
+              undefined,
+          }}
           style={styles.photo}
           resizeMode="cover"
+          onError={() => {
+            if (!currentPhoto?.id) {
+              return;
+            }
+            setFailedCandidateIndices((prev) => ({
+              ...prev,
+              [currentPhoto.id]: (prev[currentPhoto.id] ?? 0) + 1,
+            }));
+          }}
         />
         <View style={styles.photoShade} />
       </Animated.View>
@@ -596,9 +627,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             style={styles.storyOverlayGradient}
           >
             <View style={styles.storyHeaderRow}>
-              <View style={[styles.storyTypeBadge, { backgroundColor: storyTypeMeta.tintSoft }]}> 
+              <View style={[styles.storyTypeBadge, { backgroundColor: storyTypeMeta.tintSoft }]}>
                 <View style={[styles.storyTypeDot, { backgroundColor: storyTypeMeta.tint }]} />
-                <Text style={[styles.storyTypeBadgeText, { color: storyTypeMeta.tint }]}> 
+                <Text style={[styles.storyTypeBadgeText, { color: storyTypeMeta.tint }]}>
                   {storyTypeMeta.label}
                 </Text>
               </View>
@@ -618,16 +649,16 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       {controlsVisible ? (
         <>
           <View style={styles.header}>
-            <View style={[styles.headerInner, { top: headerTop }]}> 
-            <Pressable
-              onPress={onClose}
-              style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
-            >
-              <MaterialCommunityIcons name="close" size={20} color="#FFFFFF" />
-            </Pressable>
-            <Text style={styles.counterText}>
-              {currentIndex + 1} / {photos.length}
-            </Text>
+            <View style={[styles.headerInner, { top: headerTop }]}>
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons name="close" size={20} color="#FFFFFF" />
+              </Pressable>
+              <Text style={styles.counterText}>
+                {currentIndex + 1} / {photos.length}
+              </Text>
             </View>
           </View>
 

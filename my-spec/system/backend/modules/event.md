@@ -175,7 +175,62 @@ POST /api/v1/events/{event_id}/regenerate-story
 
 ---
 
-### 2.4 更新事件信息
+### 2.4 云端增强故事
+
+```
+POST /api/v1/events/{event_id}/enhance-story
+```
+
+**用途**：用户显式上传 3-5 张压缩代表图，触发一次更强的事件故事重生成
+
+**请求方式**：`multipart/form-data`
+
+- `files`: 3-5 张压缩图片
+- `photoIds`: 与上传图片同顺序的事件照片 ID（可选）
+- `reuseExisting`: `true` 时不重新上传，直接复用 7 天内保留的增强素材
+
+**响应**：
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "taskId": "uuid",
+    "status": "queued",
+    "enhancement": {
+      "status": "retained",
+      "assetCount": 3,
+      "totalBytes": 412345,
+      "canRetry": true,
+      "retainedUntil": "2026-04-08T12:00:00Z"
+    }
+  }
+}
+```
+
+**业务规则**：
+- 增强链路与默认故事链路分开，不改变“默认不上图”产品形态
+- 每次只接受 3-5 张代表图
+- 上传素材保留 7 天，可直接复用重试
+- 增强任务会重新回写事件故事与章节
+
+### 2.5 增强素材汇总与清理
+
+```
+GET /api/v1/events/enhancement-storage/summary
+DELETE /api/v1/events/enhancement-storage
+```
+
+**用途**：为设置页提供增强素材统计与手动清理能力
+
+**业务规则**：
+- 汇总当前用户保留中的增强素材数量、事件数量、总体积、最近到期时间
+- 删除接口只清理增强素材，不删除已生成的事件故事
+- 过期素材会在读写接口前自动清理
+
+---
+
+### 2.6 更新事件信息
 
 ```
 PATCH /api/v1/events/{event_id}
@@ -191,7 +246,7 @@ PATCH /api/v1/events/{event_id}
 
 ---
 
-### 2.5 删除事件
+### 2.7 删除事件
 
 ```
 DELETE /api/v1/events/{event_id}
@@ -204,7 +259,7 @@ DELETE /api/v1/events/{event_id}
 
 ---
 
-### 2.6 事件统计
+### 2.8 事件统计
 
 ```
 GET /api/v1/events/stats
@@ -274,6 +329,27 @@ GET /api/v1/events/stats
 | `created_at` | DateTime | 创建时间 | |
 
 **索引**：`(event_id, chapter_index)` UNIQUE
+
+### 3.4 EventEnhancementAsset 表
+
+| 字段 | 类型 | 说明 | 约束 |
+|------|------|------|------|
+| `id` | UUID | 主键 | PK |
+| `user_id` | UUID | 用户 ID | FK → users |
+| `event_id` | UUID | 事件 ID | FK → events |
+| `photo_id` | UUID | 对应的事件照片 ID | FK → photos, 可空 |
+| `local_path` | String | 服务端本地缓存路径 | 非空 |
+| `public_url` | String | 对外访问 URL / 相对路径 | 可空 |
+| `storage_provider` | String | `local` / `oss` | 可空 |
+| `object_key` | String | OSS 对象键 | 可空 |
+| `file_size` | Integer | 素材体积（字节） | 默认 0 |
+| `analysis_result` | JSON | 云端看图结果 | 可空 |
+| `expires_at` | DateTime | 到期时间 | 非空 |
+
+**用途**：
+- 记录事件级增强素材
+- 支持 7 天内直接重试
+- 支持过期自动清理与设置页手动清理
 
 ### 3.3 PhotoGroup 表
 
@@ -415,10 +491,10 @@ GET /api/v1/events/stats
 │     ├─ 获取地点名称、详细地址、POI 标签                                  │
 │     └─ 保存到 Event.location_name, detailed_location, location_tags    │
 │                                                                         │
-│  2. 照片分析                                                             │
-│     ├─ 选择代表性照片（均匀采样 + 封面候选）                              │
-│     ├─ 调用 AI 视觉分析（通义千问）                                      │
-│     └─ 生成 visual_desc, micro_story, emotion_tag                      │
+│  2. 默认故事信号聚合                                                     │
+│     ├─ 读取照片 Metadata、地理信息、端侧结构化识别结果                    │
+│     ├─ 聚合结构化摘要、时间线索、章节切分种子                             │
+│     └─ 默认链路不要求图片公网 URL，不调用服务端看图                      │
 │                                                                         │
 │  3. 故事生成                                                             │
 │     ├─ 构建上下文（地点、时间、照片描述）                                 │
@@ -432,6 +508,7 @@ GET /api/v1/events/stats
 │                                                                         │
 │  5. 照片组生成                                                           │
 │     ├─ 在章节内按场景/主题分组                                           │
+│     ├─ 基于结构化信号生成 micro_story / caption                         │
 │     └─ 生成 group_theme, group_emotion, group_scene_desc               │
 │                                                                         │
 │  6. 状态更新                                                             │
@@ -441,6 +518,8 @@ GET /api/v1/events/stats
 ```
 
 ### 6.2 AI 提供商
+
+> 说明：默认故事链路使用文本模型根据结构化旅行线索生成故事；仅增强链路才允许进入云端看图分支。
 
 当前使用通义千问（Tongyi），配置：
 
@@ -508,7 +587,8 @@ async def generate_event_story_for_event(event_id: UUID):
 **失败原因记录**：
 - AI API 调用超时
 - AI API 返回格式错误
-- 照片 URL 无法访问
+- 事件缺少可用时间范围
+- 结构化信号缺失或不足
 - 地理编码失败
 
 ---

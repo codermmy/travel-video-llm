@@ -9,6 +9,9 @@ class VisionAnalysisService:
     def __init__(self) -> None:
         self.vision_client = ai_service.client
 
+    def _client(self):
+        return ai_service.client
+
     def analyze_photo(self, photo_url: str) -> dict[str, Any]:
         prompt = """请描述这张照片中真实可见的内容，并给出结构化结果。
 
@@ -22,7 +25,7 @@ class VisionAnalysisService:
 
 不要臆造照片中不存在的内容。"""
 
-        result = self.vision_client.analyze_image(photo_url, prompt)
+        result = self._client().analyze_image(photo_url, prompt)
         if not isinstance(result, dict):
             return {
                 "description": "",

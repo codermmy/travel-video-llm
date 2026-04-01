@@ -478,7 +478,6 @@ cd backend && pytest tests/test_auth.py -v
 - [ ] `my-spec/system/frontend/modules/auth.md`
 - [ ] `my-spec/system/backend/api/INDEX.md`
 - [ ] `my-spec/system/backend/database/schema-dictionary.md`
-- [ ] `my-spec/system/execution/01-test-profile.yaml`（若新增测试依赖）
 
 ---
 

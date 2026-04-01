@@ -6,7 +6,6 @@
 - `modules/map.md`：地图主页、标记交互、跳转逻辑
 - `modules/upload.md`：上传入口、进度展示、重试策略
 - `modules/story.md`：事件详情、故事展示、播放器交互
-- `modules/testing.md`：前端测试策略、安装与执行命令
 
 ## 维护规则
 

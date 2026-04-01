@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, ActivityIndicator, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -6,10 +6,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { eventApi } from '@/services/api/eventApi';
 import type { EventRecord } from '@/types/event';
 import { MapViewContainer } from '@/components/map/MapViewContainer';
-import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
-import { autoImportRecentMonths } from '@/services/album/photoImportService';
-import { taskApi } from '@/services/api/taskApi';
-import { syncService } from '@/services/sync/syncService';
 
 export default function MapScreen() {
   const router = useRouter();
@@ -17,9 +13,6 @@ export default function MapScreen() {
   const [loading, setLoading] = useState(true);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importVisible, setImportVisible] = useState(false);
-  const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
-  const didAutoImportRef = useRef(false);
 
   const loadEvents = useCallback(
     async (mode: 'initial' | 'background' = 'background') => {
@@ -58,65 +51,6 @@ export default function MapScreen() {
     }, [loadEvents]),
   );
 
-  useEffect(() => {
-    if (didAutoImportRef.current) {
-      return;
-    }
-    didAutoImportRef.current = true;
-
-    const run = async () => {
-      try {
-        let waitMs = 0;
-        while (syncService.isBootstrapActive() && waitMs < 20_000) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          waitMs += 500;
-        }
-
-        if (syncService.isBootstrapActive()) {
-          return;
-        }
-
-        setImportVisible(true);
-        setImportProgress({ stage: 'scanning', detail: '自动导入最近 6 个月照片...' });
-        const result = await autoImportRecentMonths({
-          months: 6,
-          maxPhotos: 200,
-          minIntervalMs: 6 * 60 * 60 * 1000,
-          onProgress: (p) => setImportProgress(p),
-        });
-
-        if (result.taskId) {
-          const startedAt = Date.now();
-          while (Date.now() - startedAt < 120_000) {
-            const status = await taskApi.getTaskStatus(result.taskId);
-            setImportProgress({
-              stage: 'clustering',
-              current: Math.max(0, Math.min(100, status.progress ?? 0)),
-              total: 100,
-              detail:
-                status.result ||
-                (status.error ? `失败: ${status.error}` : `状态: ${status.status}`),
-            });
-            if (status.status === 'success' || status.status === 'failure') {
-              break;
-            }
-            await new Promise((r) => setTimeout(r, 1200));
-          }
-          await loadEvents('background');
-        } else if (result.dedupedNew > 0) {
-          await loadEvents('background');
-        }
-      } catch (e) {
-        console.warn('auto import skipped/failed:', e);
-      } finally {
-        setImportVisible(false);
-        setImportProgress({ stage: 'idle' });
-      }
-    };
-
-    void run();
-  }, [loadEvents]);
-
   const handleEventPress = useCallback(
     (eventId: string) => {
       router.push(`/events/${eventId}`);
@@ -146,11 +80,6 @@ export default function MapScreen() {
   return (
     <View style={styles.container} testID="map-screen">
       <MapViewContainer events={events} onEventPress={handleEventPress} />
-      <ImportProgressModal
-        visible={importVisible && importProgress.stage !== 'idle'}
-        progress={importProgress}
-        allowClose={false}
-      />
     </View>
   );
 }

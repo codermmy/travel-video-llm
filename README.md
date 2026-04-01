@@ -6,7 +6,8 @@ Travel album intelligent organization system.
 
 - `mobile/`: React Native (Expo) + TypeScript
 - `backend/`: FastAPI + SQLAlchemy + Alembic
-- `openspec/`: OpenSpec change proposals and specs
+- `my-spec/docs/`: Product and implementation docs
+- `my-spec/system/knowledge/`: Project knowledge base
 
 ## Prerequisites
 

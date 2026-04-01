@@ -26,10 +26,6 @@ type UserSearchData = {
   total: number;
 };
 
-type UploadFileData = {
-  url: string;
-};
-
 function normalizeUserProfile(profile: UserProfile): UserProfile {
   return {
     ...profile,
@@ -37,28 +33,29 @@ function normalizeUserProfile(profile: UserProfile): UserProfile {
   };
 }
 
-async function uploadAvatarFile(uri: string): Promise<string> {
+async function uploadAvatarFile(uri: string): Promise<UserProfile> {
   const fileHash = await calculateFileHash(uri);
   const formData = new FormData();
-  formData.append(
-    'file',
+  formData.append('file', {
+    uri,
+    name: `${fileHash}.jpg`,
+    type: 'image/jpeg',
+  } as unknown as Blob);
+
+  const response = await apiClient.post<ApiResponse<UserProfile>>(
+    '/api/v1/users/me/avatar',
+    formData,
     {
-      uri,
-      name: `${fileHash}.jpg`,
-      type: 'image/jpeg',
-    } as unknown as Blob,
+      params: { file_hash: fileHash },
+      headers: { 'Content-Type': 'multipart/form-data' },
+    },
   );
 
-  const response = await apiClient.post<ApiResponse<UploadFileData>>('/api/v1/photos/upload/file', formData, {
-    params: { file_hash: fileHash },
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-
-  if (!response.data.data?.url) {
+  if (!response.data.data) {
     throw new Error('avatar_upload_empty_response');
   }
 
-  return response.data.data.url;
+  return normalizeUserProfile(response.data.data);
 }
 
 export const userApi = {
@@ -96,11 +93,7 @@ export const userApi = {
     return normalizeUserProfile(response.data.data);
   },
 
-  async searchUsersByNickname(
-    nickname: string,
-    page = 1,
-    pageSize = 20,
-  ): Promise<UserSearchData> {
+  async searchUsersByNickname(nickname: string, page = 1, pageSize = 20): Promise<UserSearchData> {
     const response = await apiClient.get<ApiResponse<UserSearchData>>(
       `/api/v1/users/by-nickname/${encodeURIComponent(nickname)}`,
       { params: { page, page_size: pageSize } },
@@ -115,7 +108,6 @@ export const userApi = {
   },
 
   async uploadAvatarAndUpdate(uri: string): Promise<UserProfile> {
-    const avatarUrl = await uploadAvatarFile(uri);
-    return this.updateCurrentUser({ avatar_url: avatarUrl });
+    return uploadAvatarFile(uri);
   },
 };

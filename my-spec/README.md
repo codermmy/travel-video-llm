@@ -1,57 +1,17 @@
-# my-spec 工作流说明
+# 项目文档索引
 
-my-spec 是本仓库的 AI 驱动研发系统，目标是把需求澄清、测试先行、实现闭环、文档联动和归档追溯统一到一条可重复执行的流水线。
+`my-spec/` 现在只作为普通项目文档目录使用，不再承担 spec 工作流。
 
-## 核心原则
+## 目录说明
 
-1. 文档不是附属品，而是执行系统的一部分。
-2. 先验证需求，再写实现；先定义测试，再写代码。
-3. 任何变更都必须留下证据（日志、报告、截图、回归说明）。
-4. 任何变更都必须同步更新 system 文档或明确声明无需更新。
-5. Bug 修复使用 `spec:hotfix` 命令，快速同步文档而不走完整流程。
+- `docs/`：产品需求、分阶段实现文档、专题说明
+- `system/knowledge/`：项目知识库与踩坑记录
+- `system/project/`：项目概览、架构和模块说明
 
-## 目录结构
+## 维护原则
 
-```text
-my-spec/
-  CHANGELOG.md    # 全局变更日志（所有归档变更的历史记录）
-  system/         # 项目知识系统（长期维护）
-  templates/      # 规范模板（命令生成文档时使用）
-  changes/        # 进行中的变更工单
-  archived/       # 已归档变更
-  artifacts/      # 测试/日志/截图/trace/握手状态
-  hotfix-log.md   # Hotfix 快速修复记录
-```
-
-## 五个命令
-
-- `/spec:prd`：创建并澄清变更，输出 `prd.md`
-- `/spec:testplan <change-name>`：生成测试计划，输出 `testplan.md`
-- `/spec:plan <change-name>`：生成薄技术方案和任务拆解
-- `/spec:apply <change-name>`：实现 + 测试 + 自修复 + 文档预变更
-- `/spec:verify <change-name>`：验收后同步文档并归档
-
-## 七个状态
-
-`DRAFT -> CLARIFIED -> TEST_DEFINED -> PLANNED -> IMPLEMENTING -> READY_FOR_VERIFY -> ARCHIVED`
-
-完整规则请查看 `my-spec/system/core/02-status-machine.md`。
-
-## 单一真相源（冲突处理）
-
-- 命令输入/输出/前置条件：`my-spec/system/core/03-command-contract.md`
-- 状态流转和门禁：`my-spec/system/core/02-status-machine.md`
-- 测试执行标准：`my-spec/system/execution/01-test-profile.yaml`
-- 文档联动标准：`my-spec/system/execution/04-doc-sync-rules.yaml`
-
-## 测试适配
-
-- 项目测试配置文件：`my-spec/system/execution/01-test-profile.yaml`
-- 执行手册：`my-spec/system/execution/02-testing-playbook.md`
-- 所有 `spec:testplan` / `spec:apply` 必须按 profile 选择并执行测试。
-
-## 推荐先读
-
-- `my-spec/system/README.md`（系统入口）
-- `my-spec/system/core/01-what-is-my-spec.md`（完整说明）
-- `my-spec/system/prompts/doc-enrichment.md`（AI 提示词模板）
+1. 业务需求如果发生变化，先充分澄清并对齐，再进入实现。
+2. 复杂变更先补需求文档，文档至少包含需求拆解、技术参考和任务列表。
+3. 小型变更不强制走文档范式，但仍需先确认需求口径。
+4. 重大变更如果形成了稳定经验，需要同步更新知识库。
+5. 过期文档应及时删除或修正，避免和代码行为冲突。

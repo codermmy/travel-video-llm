@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import and_, func, select
@@ -9,57 +9,95 @@ from sqlalchemy.orm import Session
 from app.models.photo import Photo
 
 if TYPE_CHECKING:
-    from app.schemas.photo import PhotoUploadItem
+    from app.schemas.photo import PhotoUploadItem, PhotoVisionResult
+
+
+def _build_visual_desc(vision: "PhotoVisionResult" | None) -> str | None:
+    if vision is None:
+        return None
+
+    parts: list[str] = []
+    if vision.scene_category:
+        parts.append(vision.scene_category)
+    if vision.activity_hint:
+        parts.append(vision.activity_hint)
+    if vision.object_tags:
+        parts.append(" / ".join(vision.object_tags[:3]))
+    if vision.ocr_text:
+        parts.append(vision.ocr_text[:80])
+
+    if not parts:
+        return None
+    return " | ".join(parts)
 
 
 class PhotoService:
-    def check_duplicates(
-        self, user_id: str, hashes: list[str], db: Session
-    ) -> tuple[list[str], list[str]]:
-        existing_raw = db.scalars(
-            select(Photo.file_hash).where(
-                and_(Photo.user_id == user_id, Photo.file_hash.in_(hashes))
+    @staticmethod
+    def _find_existing_photo(
+        user_id: str, item: "PhotoUploadItem", db: Session
+    ) -> Photo | None:
+        asset_id = (item.assetId or "").strip()
+        if asset_id:
+            return db.scalar(
+                select(Photo).where(and_(Photo.user_id == user_id, Photo.asset_id == asset_id))
             )
-        ).all()
-        existing = {h for h in existing_raw if h is not None}
-        new_hashes = [h for h in hashes if h not in existing]
-        return new_hashes, list(existing)
+
+        if item.shootTime is None:
+            return None
+
+        query = select(Photo).where(
+            and_(
+                Photo.user_id == user_id,
+                Photo.shoot_time >= item.shootTime - timedelta(seconds=2),
+                Photo.shoot_time <= item.shootTime + timedelta(seconds=2),
+            )
+        )
+
+        if item.gpsLat is not None and item.gpsLon is not None:
+            query = query.where(
+                and_(
+                    Photo.gps_lat == item.gpsLat,
+                    Photo.gps_lon == item.gpsLon,
+                )
+            )
+        elif item.gpsLat is None and item.gpsLon is None:
+            query = query.where(
+                and_(
+                    Photo.gps_lat.is_(None),
+                    Photo.gps_lon.is_(None),
+                )
+            )
+        else:
+            return None
+
+        return db.scalar(query.limit(1))
 
     def upload_photos(
         self, user_id: str, items: list["PhotoUploadItem"], db: Session
     ) -> tuple[int, int]:
-        existing_hashes = set(
-            db.scalars(
-                select(Photo.file_hash).where(
-                    and_(
-                        Photo.user_id == user_id,
-                        Photo.file_hash.in_([i.hash for i in items]),
-                    )
-                )
-            ).all()
-        )
-
         uploaded = 0
         failed = 0
 
         for item in items:
-            if item.hash in existing_hashes:
+            if self._find_existing_photo(user_id, item, db):
                 failed += 1
                 continue
 
             photo = Photo(
                 user_id=user_id,
-                file_hash=item.hash,
-                thumbnail_path=item.thumbnailPath,
-                thumbnail_url=f"/uploads/photos/{item.hash}.jpg",
+                asset_id=item.assetId,
                 gps_lat=item.gpsLat,
                 gps_lon=item.gpsLon,
                 shoot_time=item.shootTime,
                 file_size=item.fileSize,
                 status="uploaded",
+                visual_desc=_build_visual_desc(item.vision),
+                emotion_tag=item.vision.emotion_hint if item.vision is not None else None,
+                vision_result=(
+                    item.vision.model_dump(mode="json") if item.vision is not None else None
+                ),
             )
             db.add(photo)
-            existing_hashes.add(item.hash)
             uploaded += 1
 
         db.commit()

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, Image } from 'react-native';
 import type { EventRecord } from '@/types/event';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import type { MarkerProps } from './amapTypes';
 
 interface EventMarkerProps {
@@ -16,6 +17,7 @@ export const EventMarker: React.FC<EventMarkerProps> = ({
   onPress,
   MarkerComponent,
 }) => {
+  const coverUri = getPreferredEventCoverUri(event);
   if (typeof event.gpsLat !== 'number' || typeof event.gpsLon !== 'number') {
     return null;
   }
@@ -28,8 +30,8 @@ export const EventMarker: React.FC<EventMarkerProps> = ({
     >
       <View style={[styles.container, isSelected && styles.selectedContainer]}>
         <View style={styles.imageWrapper}>
-          {event.coverPhotoUrl ? (
-            <Image source={{ uri: event.coverPhotoUrl }} style={styles.image} />
+          {coverUri ? (
+            <Image source={{ uri: coverUri }} style={styles.image} />
           ) : (
             <View style={[styles.image, styles.placeholder]} />
           )}

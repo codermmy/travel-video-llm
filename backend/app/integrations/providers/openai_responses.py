@@ -201,23 +201,31 @@ class OpenAIResponsesProvider:
         photo_descriptions: list[str],
         detailed_location: str = "",
         location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: Optional[list[str]] = None,
     ) -> dict[str, Any] | None:
         desc_text = "\n".join([f"- {d}" for d in photo_descriptions])
+        timeline_text = "\n".join([f"- {item}" for item in (timeline_clues or [])])
         prompt = f"""你是一位专业旅行写作者，请根据素材创作真实、细腻、有画面感的旅行故事。
 
 【旅行信息】
 地点：{detailed_location or location}
 时间：{date_range}
-地点特色：{location_tags or '根据画面自行判断'}
+地点特色：{location_tags or '根据结构化线索判断'}
+结构化摘要：
+{structured_summary or '暂无结构化摘要'}
+时间线索：
+{timeline_text or '- 暂无时间线索'}
 
-【照片场景】
+【照片结构化线索】
 {desc_text}
 
 【要求】
 1. 200-300 字中文
 2. 情感自然流露，不要固定基调
-3. 包含 2-3 个具体场景细节
-4. 语言优美但不空泛，贴近真实旅行
+3. 必须以时间、地点、活动、情绪为主线，不要假设服务端看到了图片
+4. 包含 2-3 个具体场景细节，但细节只能来自结构化线索
+5. 语言优美但不空泛，贴近真实旅行
 
 请严格返回 JSON：
 {{

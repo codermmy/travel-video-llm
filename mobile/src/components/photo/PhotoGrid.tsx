@@ -11,11 +11,13 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import type { EventPhotoItem } from '@/types/event';
+import { getPhotoThumbnailCandidates } from '@/utils/mediaRefs';
 
 type PhotoGridProps = {
   photos: EventPhotoItem[];
   onPhotoPress?: (photo: EventPhotoItem, index: number) => void;
   emptyText?: string;
+  selectedPhotoId?: string | null;
 };
 
 const COLUMNS = 3;
@@ -26,9 +28,11 @@ function PhotoCard(props: {
   index: number;
   size: number;
   onPress?: (photo: EventPhotoItem, index: number) => void;
+  selectedPhotoId?: string | null;
 }) {
-  const [hasError, setHasError] = useState(false);
-  const uri = !hasError ? props.photo.thumbnailUrl ?? props.photo.photoUrl : null;
+  const [failedCandidateIndex, setFailedCandidateIndex] = useState(0);
+  const uriCandidates = getPhotoThumbnailCandidates(props.photo);
+  const uri = uriCandidates[failedCandidateIndex] ?? null;
 
   return (
     <Pressable
@@ -47,7 +51,9 @@ function PhotoCard(props: {
           source={{ uri }}
           style={styles.image}
           resizeMode="cover"
-          onError={() => setHasError(true)}
+          onError={() => {
+            setFailedCandidateIndex((prev) => prev + 1);
+          }}
         />
       ) : (
         <View style={styles.placeholder}>
@@ -55,11 +61,21 @@ function PhotoCard(props: {
           <Text style={styles.placeholderText}>不可用</Text>
         </View>
       )}
+      {props.photo.id === props.selectedPhotoId ? (
+        <View style={styles.selectedBadge}>
+          <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
 
-function PhotoGridBase({ photos, onPhotoPress, emptyText = '暂无照片' }: PhotoGridProps) {
+function PhotoGridBase({
+  photos,
+  onPhotoPress,
+  emptyText = '暂无照片',
+  selectedPhotoId = null,
+}: PhotoGridProps) {
   const { width } = useWindowDimensions();
   const size = useMemo(() => {
     const horizontalPadding = 32;
@@ -83,7 +99,13 @@ function PhotoGridBase({ photos, onPhotoPress, emptyText = '暂无照片' }: Pho
       numColumns={COLUMNS}
       columnWrapperStyle={styles.row}
       renderItem={({ item, index }) => (
-        <PhotoCard photo={item} index={index} size={size} onPress={onPhotoPress} />
+        <PhotoCard
+          photo={item}
+          index={index}
+          size={size}
+          onPress={onPhotoPress}
+          selectedPhotoId={selectedPhotoId}
+        />
       )}
       removeClippedSubviews
       initialNumToRender={12}
@@ -120,6 +142,19 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 10,
     color: '#6C7C9D',
+  },
+  selectedBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(31, 72, 172, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.75)',
   },
   emptyState: {
     alignItems: 'center',

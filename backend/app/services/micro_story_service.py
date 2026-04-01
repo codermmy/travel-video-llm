@@ -24,7 +24,7 @@ class MicroStoryService:
     ) -> str:
         analysis_text = json.dumps(photo_analysis, ensure_ascii=False)
         context_text = json.dumps(group_context, ensure_ascii=False)
-        prompt = f"""请基于真实视觉信息写一条微故事。
+        prompt = f"""请基于结构化旅行线索写一条微故事。
 
 照片识别结果：{analysis_text}
 组上下文：{context_text}
@@ -32,7 +32,7 @@ class MicroStoryService:
 
 要求：
 1. 15-25个中文字
-2. 只能使用照片中可见元素
+2. 只能使用结构化结果里明确出现的元素
 3. 不要编造不存在的场景
 4. 直接输出一句话"""
 

@@ -16,7 +16,6 @@ import { useRouter } from 'expo-router';
 import { userApi } from '@/services/api/userApi';
 
 const NICKNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,64}$/;
-const USERNAME_PATTERN = /^[a-z0-9_-]{2,64}$/;
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -24,14 +23,12 @@ export default function EditProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [nickname, setNickname] = useState('');
-  const [username, setUsername] = useState('');
 
   const loadUser = useCallback(async () => {
     try {
       setLoading(true);
       const user = await userApi.getCurrentUser();
       setNickname(user.nickname || '');
-      setUsername(user.username || '');
     } catch (e) {
       Alert.alert('加载失败', e instanceof Error ? e.message : '请稍后重试');
       router.back();
@@ -48,7 +45,6 @@ export default function EditProfileScreen() {
 
   const onSave = useCallback(async () => {
     const cleanNickname = nickname.trim();
-    const cleanUsername = username.trim().toLowerCase();
 
     if (!cleanNickname) {
       Alert.alert('提示', '昵称不能为空');
@@ -58,24 +54,19 @@ export default function EditProfileScreen() {
       Alert.alert('提示', '昵称仅支持中文、英文、数字、下划线和连字符，长度 2-64');
       return;
     }
-    if (cleanUsername && !USERNAME_PATTERN.test(cleanUsername)) {
-      Alert.alert('提示', '用户名仅支持小写字母、数字、下划线和连字符，长度 2-64');
-      return;
-    }
 
     try {
       setSaving(true);
-      await userApi.updateCurrentUser({
-        nickname: cleanNickname,
-        username: cleanUsername || undefined,
-      });
-      Alert.alert('保存成功', '资料已更新', [{ text: '确定', onPress: () => router.back() }]);
+      await userApi.updateCurrentUser({ nickname: cleanNickname });
+      Alert.alert('保存成功', '本机展示名称已更新', [
+        { text: '确定', onPress: () => router.back() },
+      ]);
     } catch (e) {
       Alert.alert('保存失败', e instanceof Error ? e.message : '请稍后重试');
     } finally {
       setSaving(false);
     }
-  }, [nickname, router, username]);
+  }, [nickname, router]);
 
   if (loading) {
     return (
@@ -91,7 +82,10 @@ export default function EditProfileScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>编辑资料</Text>
+        <Text style={styles.title}>编辑本机资料</Text>
+        <Text style={styles.subtitle}>
+          这里只保留轻量的本机展示信息，不涉及账号升级或社交资料。
+        </Text>
 
         <View style={styles.card}>
           <Text style={styles.label}>昵称</Text>
@@ -103,21 +97,14 @@ export default function EditProfileScreen() {
             maxLength={64}
           />
           <Text style={styles.hint}>长度 {nicknameCount}/64</Text>
-
-          <Text style={styles.label}>用户名（用于分享/搜索）</Text>
-          <TextInput
-            style={styles.input}
-            value={username}
-            onChangeText={(value) => setUsername(value.toLowerCase())}
-            placeholder="可选，如 traveler_01"
-            autoCapitalize="none"
-            maxLength={64}
-          />
-          <Text style={styles.hint}>仅支持小写字母、数字、_、-</Text>
         </View>
 
         <Pressable style={[styles.saveButton, saving && styles.buttonDisabled]} onPress={onSave}>
-          {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveText}>保存</Text>}
+          {saving ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.saveText}>保存</Text>
+          )}
         </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -143,6 +130,10 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: '#22335C',
+  },
+  subtitle: {
+    color: '#6478A4',
+    lineHeight: 20,
   },
   card: {
     borderRadius: 18,
@@ -170,7 +161,6 @@ const styles = StyleSheet.create({
   },
   hint: {
     marginTop: 6,
-    marginBottom: 8,
     fontSize: 11,
     color: '#7D91B8',
   },

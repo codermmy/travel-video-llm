@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '@/constants/api';
+import { getApiBaseUrl } from '@/constants/api';
 
 export function resolveApiUrl(input?: string | null): string | null {
   if (!input) {
@@ -11,8 +11,9 @@ export function resolveApiUrl(input?: string | null): string | null {
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed;
   }
+  const apiBaseUrl = getApiBaseUrl();
   if (trimmed.startsWith('/')) {
-    return `${API_BASE_URL}${trimmed}`;
+    return `${apiBaseUrl}${trimmed}`;
   }
-  return `${API_BASE_URL}/${trimmed}`;
+  return `${apiBaseUrl}/${trimmed}`;
 }

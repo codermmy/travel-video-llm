@@ -1,16 +1,9 @@
 import { useMemo } from 'react';
-import {
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { EventRecord } from '@/types/event';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 type EventCardListProps = {
   events: EventRecord[];
@@ -63,8 +56,11 @@ export function EventCardList({
           }}
         >
           <View style={styles.imageContainer}>
-            {event.coverPhotoUrl ? (
-              <Image source={{ uri: event.coverPhotoUrl }} style={styles.image} />
+            {getPreferredEventCoverUri(event) ? (
+              <Image
+                source={{ uri: getPreferredEventCoverUri(event) ?? undefined }}
+                style={styles.image}
+              />
             ) : (
               <View style={[styles.image, styles.placeholderImage]}>
                 <Ionicons name="image-outline" size={24} color="#8896B2" />
@@ -100,7 +96,7 @@ export function EventCardList({
           </View>
         </Pressable>
       )),
-    [events, onPressDetails, onPressEvent],
+    [events, onPressDetails, onPressEvent, selectedEventId],
   );
 
   return (

@@ -496,7 +496,6 @@ const MAX_STACK_DEPTH = 10;  // 防止无限缩放
 
 - [ ] `my-spec/system/backend/modules/map.md`
 - [ ] `my-spec/system/backend/modules/event.md`
-- [ ] `my-spec/system/execution/04-doc-sync-rules.yaml`
 - [ ] `my-spec/system/frontend/modules/story.md`（若影响事件详情跳转）
 
 ---

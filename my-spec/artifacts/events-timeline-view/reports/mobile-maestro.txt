@@ -1,4 +1,0 @@
-Running on KZNVVCZXUOORCIEY
- > Flow events-timeline
-Launch app "com.maoyuan.travelalbum"... COMPLETED
-Tap on (Optional) "事件"...Run flows/shared/connect-dev-server.yaml...

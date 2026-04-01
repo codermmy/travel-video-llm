@@ -5,9 +5,8 @@ import { ActivityIndicator, Button, Modal, Portal, ProgressBar, Text } from 'rea
 export type ImportStage =
   | 'idle'
   | 'scanning'
-  | 'hashing'
   | 'dedup'
-  | 'thumbnail'
+  | 'vision'
   | 'uploading'
   | 'clustering'
   | 'done';
@@ -23,12 +22,10 @@ function getStageLabel(stage: ImportStage): string {
   switch (stage) {
     case 'scanning':
       return '正在扫描相册';
-    case 'hashing':
-      return '正在计算哈希';
     case 'dedup':
       return '正在查重';
-    case 'thumbnail':
-      return '正在生成缩略图';
+    case 'vision':
+      return '正在启动端侧识别';
     case 'uploading':
       return '正在上传';
     case 'clustering':

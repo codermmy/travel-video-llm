@@ -5,3 +5,4 @@ export * from './photo';
 export * from './photoGroup';
 export * from './slideshow';
 export * from './user';
+export * from './vision';

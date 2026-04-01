@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -22,6 +22,7 @@ class Photo(Base):
         String(36), ForeignKey("events.id"), nullable=True
     )
 
+    asset_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     file_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     local_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -43,6 +44,7 @@ class Photo(Base):
     visual_desc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     micro_story: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     emotion_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    vision_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

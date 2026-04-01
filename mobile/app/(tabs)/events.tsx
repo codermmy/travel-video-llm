@@ -229,7 +229,7 @@ export default function EventsScreen() {
           </LinearGradient>
           <Text style={styles.emptyTitle}>还没有旅行事件</Text>
           <Text style={styles.emptyDescription}>
-            首次进入会自动尝试导入最近 6 个月照片，你也可以手动分批导入更早的照片。
+            默认不会自动扫描或上传相册。请手动选择需要整理的照片，系统只上传 metadata 和端侧结构化结果。
           </Text>
 
           <Button mode="contained" onPress={handleManualImport} style={styles.emptyActionBtn}>

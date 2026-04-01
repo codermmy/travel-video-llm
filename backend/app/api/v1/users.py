@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -63,6 +63,32 @@ def update_current_user(
     if payload.avatar_url is not None:
         user.avatar_url = payload.avatar_url
 
+    db.commit()
+    db.refresh(user)
+    return ApiResponse.ok(_user_to_response(user))
+
+
+@router.post("/me/avatar", response_model=ApiResponse[UserProfileResponse])
+def upload_current_user_avatar(
+    current_user_id: CurrentUserIdDep,
+    file_hash: str = Query(..., min_length=64, max_length=64),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> ApiResponse[UserProfileResponse]:
+    user = db.scalar(select(User).where(User.id == current_user_id))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
+    try:
+        upload = storage_service.upload_avatar_file(
+            user_id=current_user_id,
+            file_hash=file_hash,
+            file_obj=file.file,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"头像上传失败: {exc}") from exc
+
+    user.avatar_url = upload.public_url
     db.commit()
     db.refresh(user)
     return ApiResponse.ok(_user_to_response(user))
