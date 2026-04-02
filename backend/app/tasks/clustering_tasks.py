@@ -318,6 +318,30 @@ def generate_event_story_task(
             "error": reason,
             "provider": ai_service.provider_name(),
         }
+    except Exception as e:
+        db.rollback()
+        task = _get_task(db, task_record_id=task_record_id, user_id=user_id)
+        if task:
+            _update_task(
+                db,
+                task,
+                status="failure",
+                stage="ai",
+                progress=100,
+                error=str(e),
+                completed_at=_now_utc(),
+            )
+
+        event = db.scalar(select(Event).where(and_(Event.id == event_id, Event.user_id == user_id)))
+        if event:
+            event_service.mark_story_failed(
+                event=event,
+                target_version=event_version,
+                reason="story_generation_failed_unexpected_error",
+            )
+            db.commit()
+
+        raise
     finally:
         db.close()
 
@@ -383,6 +407,30 @@ def generate_event_enhancement_story_task(
             "error": reason,
             "provider": ai_service.provider_name(),
         }
+    except Exception as e:
+        db.rollback()
+        task = _get_task(db, task_record_id=task_record_id, user_id=user_id)
+        if task:
+            _update_task(
+                db,
+                task,
+                status="failure",
+                stage="ai",
+                progress=100,
+                error=str(e),
+                completed_at=_now_utc(),
+            )
+
+        event = db.scalar(select(Event).where(and_(Event.id == event_id, Event.user_id == user_id)))
+        if event:
+            event_service.mark_story_failed(
+                event=event,
+                target_version=event_version,
+                reason="event_enhanced_story_generation_unexpected_error",
+            )
+            db.commit()
+
+        raise
     finally:
         db.close()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -10,7 +11,9 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import get_db
+from app.models.event import Event
 from app.models.photo import Photo
+from app.models.user import User
 from main import create_app
 
 engine = create_engine(
@@ -333,3 +336,86 @@ def test_upload_metadata_persists_on_device_vision_payload() -> None:
         assert photo.vision_result["scene_category"] == "beach"
     finally:
         db.close()
+
+
+def test_delete_photo_reports_deleted_empty_event() -> None:
+    token = _register_and_get_token("photo-test-device-008")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "photo-test-device-008"))
+        assert user is not None
+
+        event = Event(user_id=user.id, title="单图事件", photo_count=1, status="clustered")
+        db.add(event)
+        db.flush()
+
+        photo = Photo(
+            user_id=user.id,
+            event_id=event.id,
+            asset_id="asset-delete-one",
+            status="clustered",
+        )
+        db.add(photo)
+        db.commit()
+        event_id = event.id
+        photo_id = photo.id
+    finally:
+        db.close()
+
+    response = client.delete(f"/api/v1/photos/{photo_id}", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["deletedEventIds"] == [event_id]
+
+    detail = client.get(f"/api/v1/events/{event_id}", headers=headers)
+    assert detail.status_code == 404
+
+
+def test_batch_delete_photos_deletes_now_empty_event() -> None:
+    token = _register_and_get_token("photo-test-device-009")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "photo-test-device-009"))
+        assert user is not None
+
+        event = Event(user_id=user.id, title="批量删除事件", photo_count=2, status="clustered")
+        db.add(event)
+        db.flush()
+
+        photos = [
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                asset_id="asset-delete-batch-a",
+                status="clustered",
+            ),
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                asset_id="asset-delete-batch-b",
+                status="clustered",
+            ),
+        ]
+        db.add_all(photos)
+        db.commit()
+        event_id = event.id
+        photo_ids = [photo.id for photo in photos]
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/photos/batch/delete",
+        headers=headers,
+        json={"photoIds": photo_ids},
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["deleted"] == 2
+    assert payload["deletedEventIds"] == [event_id]
+
+    detail = client.get(f"/api/v1/events/{event_id}", headers=headers)
+    assert detail.status_code == 404

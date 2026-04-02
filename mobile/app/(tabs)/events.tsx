@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, SectionList, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { ActivityIndicator, Button, Snackbar, Text } from 'react-native-paper';
 
+import { EventEditSheet } from '@/components/event/EventEditSheet';
+import { EventPhotoManagerSheet } from '@/components/event/EventPhotoManagerSheet';
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
+import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import { MonthHeader } from '@/components/timeline/MonthHeader';
 import { TimelineEventCard } from '@/components/timeline/TimelineEventCard';
@@ -14,8 +17,8 @@ import { eventApi } from '@/services/api/eventApi';
 import {
   AUTO_IMPORT_LIMIT,
   getImportCacheSummary,
+  importSelectedLibraryAssets,
   importRecentPhotos,
-  manualImportFromPicker,
   type ImportCacheSummary,
   type ImportResult,
 } from '@/services/album/photoImportService';
@@ -74,6 +77,11 @@ export default function EventsScreen() {
   const [showSettings, setShowSettings] = useState(false);
   const [taskProgressVisible, setTaskProgressVisible] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const [actionEvent, setActionEvent] = useState<EventRecord | null>(null);
+  const [editingEvent, setEditingEvent] = useState<EventRecord | null>(null);
+  const [photoManagerEventId, setPhotoManagerEventId] = useState<string | null>(null);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerSubmitting, setPickerSubmitting] = useState(false);
   const autoImportTriggeredRef = useRef(false);
 
   const dismissSnackbar = useCallback(() => setSnackbar(''), []);
@@ -91,7 +99,7 @@ export default function EventsScreen() {
     () => events.filter((event) => event.storyFreshness === 'stale').length,
     [events],
   );
-  const showImportActionCard = !importSummary?.lastRunAt;
+  const showImportActionCard = events.length === 0 && !importSummary?.lastRunAt;
 
   const loadImportSummary = useCallback(async () => {
     const summary = await getImportCacheSummary();
@@ -134,42 +142,98 @@ export default function EventsScreen() {
     }
   }, [loadEvents, loadImportSummary]);
 
-  const runImport = useCallback(
-    async (mode: 'recent' | 'manual') => {
+  const executeLibraryImport = useCallback(
+    async (assets: import('expo-media-library').Asset[]) => {
       setShowSettings(false);
       setImportVisible(true);
       setImportProgress({
         stage: 'scanning',
-        detail:
-          mode === 'recent'
-            ? `正在准备导入最近 ${AUTO_IMPORT_LIMIT} 张照片...`
-            : '正在选择照片并准备手动补导入...',
+        detail: '正在准备手动补导入...',
       });
 
       try {
-        const result =
-          mode === 'recent'
-            ? await importRecentPhotos({
-                limit: AUTO_IMPORT_LIMIT,
-                onProgress: (progress) => setImportProgress(progress),
-              })
-            : await manualImportFromPicker({
-                selectionLimit: AUTO_IMPORT_LIMIT,
-                onProgress: (progress) => setImportProgress(progress),
-              });
+        const result = await importSelectedLibraryAssets({
+          assets,
+          onProgress: (progress) => setImportProgress(progress),
+        });
 
         if (result.selected === 0) {
-          setSnackbar(mode === 'recent' ? '最近没有可导入的照片' : '你取消了本次导入');
+          setSnackbar('你取消了本次导入');
           return;
         }
 
         if (result.dedupedNew === 0) {
           if (result.failed > 0) {
-            setSnackbar(
-              mode === 'recent'
-                ? `最近 ${AUTO_IMPORT_LIMIT} 张里没有可处理的新照片`
-                : '导入失败：所选照片无法处理',
-            );
+            setSnackbar('导入失败：所选照片无法处理');
+            return;
+          }
+
+          setSnackbar(
+            result.dedupedExisting > 0
+              ? `没有发现可新增的照片，已去重 ${result.dedupedExisting} 张`
+              : '没有发现可新增的照片',
+          );
+          return;
+        }
+
+        if (result.taskId) {
+          setTaskId(result.taskId);
+          setTaskProgressVisible(true);
+          setSnackbar(buildImportSummaryText(result, 'manual', true));
+        } else {
+          setSnackbar(buildImportSummaryText(result, 'manual', false));
+          await refresh();
+        }
+      } catch (importError) {
+        const message = String(importError);
+        setSnackbar(
+          message.includes('permission_denied')
+            ? '没有相册权限，请到系统设置中开启'
+            : '导入失败，请稍后重试',
+        );
+        if (message.includes('permission_denied')) {
+          setShowSettings(true);
+        } else {
+          console.warn('manual import failed:', importError);
+        }
+      } finally {
+        setImportVisible(false);
+        setImportProgress({ stage: 'idle' });
+        setPickerSubmitting(false);
+        setPickerVisible(false);
+        try {
+          await loadImportSummary();
+        } catch (summaryError) {
+          console.warn('Failed to refresh import summary:', summaryError);
+        }
+      }
+    },
+    [loadImportSummary, refresh],
+  );
+
+  const runImport = useCallback(
+    async (mode: 'recent') => {
+      setShowSettings(false);
+      setImportVisible(true);
+      setImportProgress({
+        stage: 'scanning',
+        detail: `正在准备导入最近 ${AUTO_IMPORT_LIMIT} 张照片...`,
+      });
+
+      try {
+        const result = await importRecentPhotos({
+          limit: AUTO_IMPORT_LIMIT,
+          onProgress: (progress) => setImportProgress(progress),
+        });
+
+        if (result.selected === 0) {
+          setSnackbar('最近没有可导入的照片');
+          return;
+        }
+
+        if (result.dedupedNew === 0) {
+          if (result.failed > 0) {
+            setSnackbar(`最近 ${AUTO_IMPORT_LIMIT} 张里没有可处理的新照片`);
             return;
           }
 
@@ -216,8 +280,8 @@ export default function EventsScreen() {
   }, [runImport]);
 
   const handleManualImport = useCallback(() => {
-    void runImport('manual');
-  }, [runImport]);
+    setPickerVisible(true);
+  }, []);
 
   useEffect(() => {
     if (loading || refreshing || importVisible) {
@@ -255,6 +319,7 @@ export default function EventsScreen() {
         event={item}
         isLastInSection={index === section.data.length - 1}
         onPress={goToEventDetail}
+        onLongPress={setActionEvent}
       />
     ),
     [goToEventDetail],
@@ -408,6 +473,51 @@ export default function EventsScreen() {
       )}
 
       <ImportProgressModal visible={canShowModal} progress={importProgress} allowClose={false} />
+      <PhotoLibraryPickerModal
+        visible={pickerVisible}
+        title="手动补导入"
+        hint="从系统相册挑选照片，长按开始滑动多选；这只是补充导入能力。"
+        confirmLabel="开始导入"
+        confirmLoading={pickerSubmitting}
+        onClose={() => {
+          if (pickerSubmitting) {
+            return;
+          }
+          setPickerVisible(false);
+        }}
+        onConfirm={async (assets) => {
+          setPickerSubmitting(true);
+          await executeLibraryImport(assets);
+        }}
+      />
+      <EventEditSheet
+        visible={Boolean(editingEvent)}
+        event={editingEvent}
+        onClose={() => setEditingEvent(null)}
+        onSaved={() => {
+          setEditingEvent(null);
+          setActionEvent(null);
+          setSnackbar('事件信息已更新');
+          void refresh();
+        }}
+        onDeleted={() => {
+          setEditingEvent(null);
+          setActionEvent(null);
+          setSnackbar('事件已删除');
+          void refresh();
+        }}
+      />
+      <EventPhotoManagerSheet
+        visible={Boolean(photoManagerEventId)}
+        eventId={photoManagerEventId}
+        onClose={() => setPhotoManagerEventId(null)}
+        onChanged={({ deletedCurrentEvent }) => {
+          setPhotoManagerEventId(null);
+          setActionEvent(null);
+          setSnackbar(deletedCurrentEvent ? '事件照片已清空，事件已自动删除' : '事件照片已更新');
+          void refresh();
+        }}
+      />
       <UploadProgress
         visible={taskProgressVisible}
         taskId={taskId}
@@ -428,6 +538,95 @@ export default function EventsScreen() {
       <Snackbar visible={Boolean(snackbar)} onDismiss={dismissSnackbar} duration={2500}>
         {snackbar}
       </Snackbar>
+      <Modal
+        visible={Boolean(actionEvent)}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setActionEvent(null)}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setActionEvent(null)} />
+          <View style={styles.sheetCard}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>{actionEvent?.title || '未命名事件'}</Text>
+            <Text style={styles.sheetHint}>长按卡片后的快捷入口，不用先进入事件详情。</Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.sheetAction, pressed && styles.actionPressed]}
+              onPress={() => {
+                setEditingEvent(actionEvent);
+                setActionEvent(null);
+              }}
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={18} color={JourneyPalette.ink} />
+              <Text style={styles.sheetActionText}>编辑事件</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.sheetAction, pressed && styles.actionPressed]}
+              onPress={() => {
+                setPhotoManagerEventId(actionEvent?.id ?? null);
+                setActionEvent(null);
+              }}
+            >
+              <MaterialCommunityIcons
+                name="image-multiple-outline"
+                size={18}
+                color={JourneyPalette.ink}
+              />
+              <Text style={styles.sheetActionText}>管理照片</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.sheetDangerAction, pressed && styles.actionPressed]}
+              onPress={() => {
+                if (!actionEvent) {
+                  return;
+                }
+                Alert.alert(
+                  '删除事件',
+                  '删除后，本事件照片会回到“无事件”状态，现有故事也会移除。',
+                  [
+                    { text: '取消', style: 'cancel' },
+                    {
+                      text: '删除',
+                      style: 'destructive',
+                      onPress: () => {
+                        void (async () => {
+                          try {
+                            await eventApi.deleteEvent(actionEvent.id);
+                            setActionEvent(null);
+                            setSnackbar('事件已删除');
+                            await refresh();
+                          } catch (error) {
+                            setSnackbar(
+                              error instanceof Error ? error.message : '删除失败，请稍后再试',
+                            );
+                          }
+                        })();
+                      },
+                    },
+                  ],
+                );
+              }}
+            >
+              <MaterialCommunityIcons
+                name="trash-can-outline"
+                size={18}
+                color={JourneyPalette.danger}
+              />
+              <Text style={styles.sheetDangerText}>删除事件</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.sheetCancelAction, pressed && styles.actionPressed]}
+              onPress={() => setActionEvent(null)}
+            >
+              <Text style={styles.sheetCancelText}>取消</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -661,5 +860,78 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 110,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(21, 32, 31, 0.42)',
+  },
+  sheetCard: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: JourneyPalette.card,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.lineStrong,
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  sheetHint: {
+    marginBottom: 4,
+    color: JourneyPalette.inkSoft,
+    lineHeight: 20,
+  },
+  sheetAction: {
+    minHeight: 54,
+    borderRadius: 18,
+    backgroundColor: '#FFF9F2',
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sheetActionText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  sheetDangerAction: {
+    minHeight: 54,
+    borderRadius: 18,
+    backgroundColor: '#FCE8E5',
+    borderWidth: 1,
+    borderColor: '#F2C8C1',
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sheetDangerText: {
+    color: JourneyPalette.danger,
+    fontWeight: '800',
+  },
+  sheetCancelAction: {
+    minHeight: 52,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetCancelText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
   },
 });

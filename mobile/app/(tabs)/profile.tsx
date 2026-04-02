@@ -19,10 +19,8 @@ import {
   getImportCacheSummary,
   type ImportCacheSummary,
 } from '@/services/album/photoImportService';
-import { eventApi } from '@/services/api/eventApi';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 import { JourneyPalette } from '@/styles/colors';
-import { formatFileSize } from '@/utils/imageUtils';
 
 function formatDate(value?: string | null): string {
   if (!value) {
@@ -54,26 +52,18 @@ export default function ProfileScreen() {
   const [cleaning, setCleaning] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [localData, setLocalData] = useState<LocalDataSummary | null>(null);
-  const [enhancementData, setEnhancementData] = useState<{
-    eventCount: number;
-    assetCount: number;
-    totalBytes: number;
-    nextExpiresAt?: string | null;
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
-      const [profile, importSummary, enhancementSummary] = await Promise.all([
+      const [profile, importSummary] = await Promise.all([
         userApi.getCurrentUser(),
         getImportCacheSummary(),
-        eventApi.getEnhancementStorageSummary(),
       ]);
 
       setUser(profile);
       setLocalData(importSummary);
-      setEnhancementData(enhancementSummary);
       setError(null);
     } catch (loadError) {
       console.warn('load settings failed', loadError);
@@ -121,44 +111,6 @@ export default function ProfileScreen() {
     ]);
   }, [loadSettings]);
 
-  const handleEnhancedUploadInfo = useCallback(() => {
-    Alert.alert(
-      '增强上传说明',
-      '默认链路不会上传旅行照片。后续只有在你显式触发云端增强时，才会上传少量代表图，并提供单独的清理入口。',
-    );
-  }, []);
-
-  const handleClearEnhancementAssets = useCallback(() => {
-    Alert.alert(
-      '清理增强素材',
-      '会删除当前设备已上传的代表图缓存，并失去 7 天内直接重试增强的能力。已生成的故事不会被删除。',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '立即清理',
-          style: 'destructive',
-          onPress: () => {
-            void (async () => {
-              try {
-                setCleaning(true);
-                await eventApi.clearEnhancementStorage();
-                await loadSettings();
-                Alert.alert('清理完成', '增强素材已清空。');
-              } catch (clearError) {
-                Alert.alert(
-                  '清理失败',
-                  clearError instanceof Error ? clearError.message : '请稍后重试',
-                );
-              } finally {
-                setCleaning(false);
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [loadSettings]);
-
   if (loading) {
     return (
       <View style={styles.centerState}>
@@ -174,7 +126,7 @@ export default function ProfileScreen() {
     );
   }
 
-  if (!user || !localData || !enhancementData || error) {
+  if (!user || !localData || error) {
     return (
       <View style={styles.centerState}>
         <Text style={styles.errorText}>{error || '未加载到设置信息'}</Text>
@@ -228,8 +180,14 @@ export default function ProfileScreen() {
           <Text style={styles.statLabel}>导入记录</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statValue}>{enhancementData.assetCount}</Text>
-          <Text style={styles.statLabel}>增强素材</Text>
+          <Text style={styles.statValue}>
+            {localData.lastMode === 'manual'
+              ? '手动'
+              : localData.lastMode === 'recent'
+                ? '最近 200'
+                : '暂无'}
+          </Text>
+          <Text style={styles.statLabel}>最近入口</Text>
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statValue}>默认关闭</Text>
@@ -270,15 +228,15 @@ export default function ProfileScreen() {
         <View style={styles.infoRow}>
           <View style={[styles.infoIconWrap, { backgroundColor: JourneyPalette.accentWarmSoft }]}>
             <MaterialCommunityIcons
-              name="shield-check-outline"
+              name="robot-outline"
               size={18}
               color={JourneyPalette.accentWarm}
             />
           </View>
           <View style={styles.infoBody}>
-            <Text style={styles.infoTitle}>增强是显式行为</Text>
+            <Text style={styles.infoTitle}>AI 生成走文本线索</Text>
             <Text style={styles.infoText}>
-              只有你主动触发云端增强时，才会上传少量代表图，并单独管理其保留与清理。
+              当前故事生成只依赖时间、地点和端侧识别结果，不再在前端暴露云端增强入口。
             </Text>
           </View>
         </View>
@@ -320,57 +278,9 @@ export default function ProfileScreen() {
 
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>增强与管理</Text>
-          <Text style={styles.sectionHint}>代表图缓存</Text>
+          <Text style={styles.sectionTitle}>本机资料</Text>
+          <Text style={styles.sectionHint}>轻量信息</Text>
         </View>
-
-        <Pressable style={styles.menuItem} onPress={handleEnhancedUploadInfo}>
-          <MaterialCommunityIcons
-            name="cloud-upload-outline"
-            size={20}
-            color={JourneyPalette.accent}
-          />
-          <View style={styles.menuTextWrap}>
-            <Text style={styles.menuText}>增强上传说明</Text>
-            <Text style={styles.menuSubtext}>默认不上图，只有显式触发时才上传代表图。</Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
-        </Pressable>
-
-        <View style={styles.storageCard}>
-          <View style={styles.storageHeader}>
-            <View style={styles.menuTextWrap}>
-              <Text style={styles.menuText}>增强素材保留</Text>
-              <Text style={styles.menuSubtext}>
-                当前保留 {enhancementData.assetCount} 张代表图，覆盖 {enhancementData.eventCount}{' '}
-                个事件。
-              </Text>
-            </View>
-            <MaterialCommunityIcons
-              name="cloud-clock-outline"
-              size={18}
-              color={JourneyPalette.accent}
-            />
-          </View>
-
-          <View style={styles.dataRow}>
-            <Text style={styles.dataLabel}>素材体积</Text>
-            <Text style={styles.dataValue}>{formatFileSize(enhancementData.totalBytes)}</Text>
-          </View>
-          <View style={styles.dataRow}>
-            <Text style={styles.dataLabel}>最近到期</Text>
-            <Text style={styles.dataValue}>{formatDate(enhancementData.nextExpiresAt)}</Text>
-          </View>
-
-          <Pressable
-            style={[styles.secondaryButton, cleaning && styles.buttonDisabled]}
-            onPress={handleClearEnhancementAssets}
-            disabled={cleaning || enhancementData.assetCount === 0}
-          >
-            <Text style={styles.secondaryButtonText}>清理增强素材</Text>
-          </Pressable>
-        </View>
-
         <Pressable style={styles.menuItem} onPress={() => router.push('/profile/edit')}>
           <MaterialCommunityIcons
             name="account-edit-outline"

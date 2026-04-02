@@ -7,6 +7,18 @@ from typing import Any
 from app.models.photo import Photo
 
 
+def sample_story_items(items: list[str], max_items: int) -> list[str]:
+    if max_items <= 0 or len(items) <= max_items:
+        return items
+
+    if max_items == 1:
+        return [items[0]]
+
+    step = (len(items) - 1) / (max_items - 1)
+    sampled_indices = sorted({min(len(items) - 1, round(index * step)) for index in range(max_items)})
+    return [items[index] for index in sampled_indices]
+
+
 def load_photo_story_signal(photo: Photo) -> dict[str, Any]:
     if isinstance(photo.vision_result, dict):
         return dict(photo.vision_result)

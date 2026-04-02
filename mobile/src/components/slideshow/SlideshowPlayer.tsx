@@ -124,6 +124,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [playbackState, setPlaybackState] = useState<PlaybackState>(PlaybackState.Playing);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [progressVisible, setProgressVisible] = useState(true);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [storyVisible, setStoryVisible] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -131,6 +132,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [musicStatus, setMusicStatus] = useState<MusicSourceStatus>('loading');
   const [footerHeight, setFooterHeight] = useState(168);
   const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
+  const [photoAspectRatios, setPhotoAspectRatios] = useState<Record<string, number>>({});
 
   const opacity = useRef(new Animated.Value(1)).current;
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -141,6 +143,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const storyTranslateY = useRef(new Animated.Value(10)).current;
 
   const currentPhoto = photos[currentIndex];
+  const currentPhotoUri = useMemo(
+    () => getPhotoUri(currentPhoto, failedCandidateIndices[currentPhoto?.id ?? ''] ?? 0),
+    [currentPhoto, failedCandidateIndices],
+  );
   const photoGroups = useMemo(() => event.photoGroups || [], [event.photoGroups]);
   const currentChapter = useMemo(() => {
     const chapters = event.chapters || [];
@@ -277,8 +283,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       clearTimeout(controlsTimerRef.current);
     }
     setControlsVisible(true);
+    setProgressVisible(true);
     controlsTimerRef.current = setTimeout(() => {
       setControlsVisible(false);
+      setProgressVisible(false);
     }, CONTROL_AUTO_HIDE_MS);
   }, []);
 
@@ -353,7 +361,6 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   useEffect(() => {
     StatusBar.setHidden(true, 'fade');
     resetControlAutoHide();
-    restartStoryTimer();
 
     return () => {
       StatusBar.setHidden(false, 'fade');
@@ -364,7 +371,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         clearTimeout(storyTimerRef.current);
       }
     };
-  }, [resetControlAutoHide, restartStoryTimer]);
+  }, [resetControlAutoHide]);
 
   useEffect(() => {
     restartStoryTimer();
@@ -552,6 +559,14 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const storyBottom = controlsVisible ? insets.bottom + 20 + footerHeight + 12 : insets.bottom + 24;
   const headerTop = insets.top + 12;
   const footerBottom = insets.bottom + 20;
+  const currentPhotoAspectRatio = currentPhoto?.id ? photoAspectRatios[currentPhoto.id] : undefined;
+  const photoOrientation = currentPhotoAspectRatio
+    ? currentPhotoAspectRatio > 1.02
+      ? 'landscape'
+      : currentPhotoAspectRatio < 0.98
+        ? 'portrait'
+        : 'square'
+    : 'unknown';
 
   const onFooterLayout = useCallback(
     (event: LayoutChangeEvent) => {
@@ -579,32 +594,60 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     <Pressable
       style={styles.container}
       onPress={() => {
-        if (controlsVisible) {
+        if (controlsVisible || progressVisible) {
+          if (controlsTimerRef.current) {
+            clearTimeout(controlsTimerRef.current);
+          }
           setControlsVisible(false);
+          setProgressVisible(false);
           return;
         }
         resetControlAutoHide();
       }}
     >
       <Animated.View style={[styles.imageWrap, { opacity }]}>
-        <Image
-          source={{
-            uri:
-              getPhotoUri(currentPhoto, failedCandidateIndices[currentPhoto?.id ?? ''] ?? 0) ??
-              undefined,
-          }}
-          style={styles.photo}
-          resizeMode="cover"
-          onError={() => {
-            if (!currentPhoto?.id) {
-              return;
-            }
-            setFailedCandidateIndices((prev) => ({
-              ...prev,
-              [currentPhoto.id]: (prev[currentPhoto.id] ?? 0) + 1,
-            }));
-          }}
-        />
+        {currentPhotoUri ? (
+          <Image
+            source={{ uri: currentPhotoUri }}
+            style={styles.photoBackdrop}
+            resizeMode="cover"
+            blurRadius={22}
+          />
+        ) : null}
+        <View style={styles.photoBackdropTint} />
+        <View style={styles.photoFrame}>
+          <Image
+            source={{ uri: currentPhotoUri ?? undefined }}
+            style={[
+              styles.photo,
+              photoOrientation === 'landscape' && styles.photoLandscape,
+              photoOrientation === 'portrait' && styles.photoPortrait,
+              photoOrientation === 'square' && styles.photoSquare,
+            ]}
+            resizeMode="contain"
+            onLoad={(event) => {
+              if (!currentPhoto?.id) {
+                return;
+              }
+              const { width, height } = event.nativeEvent.source;
+              if (width > 0 && height > 0) {
+                setPhotoAspectRatios((prev) => ({
+                  ...prev,
+                  [currentPhoto.id]: width / height,
+                }));
+              }
+            }}
+            onError={() => {
+              if (!currentPhoto?.id) {
+                return;
+              }
+              setFailedCandidateIndices((prev) => ({
+                ...prev,
+                [currentPhoto.id]: (prev[currentPhoto.id] ?? 0) + 1,
+              }));
+            }}
+          />
+        </View>
         <View style={styles.photoShade} />
       </Animated.View>
 
@@ -666,7 +709,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             {formattedShotTime ? <Text style={styles.metaText}>{formattedShotTime}</Text> : null}
             {displayCaption ? <Text style={styles.captionText}>{displayCaption}</Text> : null}
             <Text style={styles.metaText}>{getMusicStatusText(musicStatus)}</Text>
-            <ProgressBar progress={progress} style={styles.progressBar} />
+            {progressVisible ? (
+              <ProgressBar progress={progress} style={styles.progressBar} />
+            ) : null}
 
             <View style={styles.speedRow}>
               {SPEED_OPTIONS_MS.map((value) => (
@@ -750,9 +795,37 @@ const styles = StyleSheet.create({
   imageWrap: {
     ...StyleSheet.absoluteFillObject,
   },
+  photoBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.56,
+    transform: [{ scale: 1.06 }],
+  },
+  photoBackdropTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5,11,24,0.36)',
+  },
+  photoFrame: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 18,
+  },
   photo: {
     width: '100%',
     height: '100%',
+  },
+  photoLandscape: {
+    width: '100%',
+    height: '78%',
+  },
+  photoPortrait: {
+    width: '94%',
+    height: '100%',
+  },
+  photoSquare: {
+    width: '94%',
+    height: '94%',
   },
   photoShade: {
     ...StyleSheet.absoluteFillObject,

@@ -4,16 +4,18 @@ from datetime import datetime, timedelta, timezone
 import json
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401
 from app.db.base import Base
 from app.db.session import get_db
+from app.models.chapter import EventChapter
 from app.models.event import Event
 from app.models.event_enhancement_asset import EventEnhancementAsset
 from app.models.photo import Photo
+from app.models.photo_group import PhotoGroup
 from app.models.user import User
 from app.services.clustering_service import cluster_user_photos
 from app.services.event_ai_service import generate_event_story_for_event
@@ -169,7 +171,7 @@ def test_event_detail_fallback_title_and_location() -> None:
     assert payload["locationName"] == "30.2590, 120.2150"
 
 
-def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
+def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured(monkeypatch) -> None:
     token = _register_and_get_token("events-test-device-004")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -207,6 +209,12 @@ def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
     finally:
         db.close()
 
+    monkeypatch.setattr("app.services.event_ai_service.ai_service.is_configured", lambda: False)
+    monkeypatch.setattr(
+        "app.services.event_ai_service.ai_service.configuration_error_code",
+        lambda: "provider_api_key_not_configured",
+    )
+
     resp = client.post(f"/api/v1/events/{event.id}/regenerate-story", headers=headers)
     assert resp.status_code == 200
     out = resp.json()["data"]
@@ -224,7 +232,7 @@ def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
     }
     if out["status"] == "processed_inline":
         assert payload["status"] in {"waiting_for_vision", "ai_failed"}
-        assert payload["aiError"] in {None, "openai_api_key_not_configured"}
+        assert payload["aiError"] in {None, "provider_api_key_not_configured"}
 
 
 def test_create_event_with_photo_ids_rebuilds_summary() -> None:
@@ -347,13 +355,10 @@ def test_update_photo_reassigns_event_and_refreshes_summaries() -> None:
 
     event_a_detail = client.get(f"/api/v1/events/{event_a_id}", headers=headers)
     event_b_detail = client.get(f"/api/v1/events/{event_b_id}", headers=headers)
-    assert event_a_detail.status_code == 200
+    assert event_a_detail.status_code == 404
     assert event_b_detail.status_code == 200
 
-    event_a_payload = event_a_detail.json()["data"]
     event_b_payload = event_b_detail.json()["data"]
-    assert event_a_payload["photoCount"] == 0
-    assert event_a_payload["coverPhotoId"] is None
     assert event_b_payload["photoCount"] == 2
     assert {photo["id"] for photo in event_b_payload["photos"]} == {photo_a_id, photo_b_id}
 
@@ -454,7 +459,7 @@ def test_update_event_title_keeps_version_but_marks_manual_override() -> None:
     assert payload["titleManuallySet"] is True
 
 
-def test_batch_reassign_event_updates_versions_once() -> None:
+def test_batch_reassign_event_updates_versions_once(monkeypatch) -> None:
     token = _register_and_get_token("events-test-device-012")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -533,6 +538,12 @@ def test_batch_reassign_event_updates_versions_once() -> None:
     finally:
         db.close()
 
+    monkeypatch.setattr("app.services.event_ai_service.ai_service.is_configured", lambda: False)
+    monkeypatch.setattr(
+        "app.services.event_ai_service.ai_service.configuration_error_code",
+        lambda: "provider_api_key_not_configured",
+    )
+
     response = client.post(
         "/api/v1/photos/batch/reassign-event",
         headers=headers,
@@ -540,19 +551,82 @@ def test_batch_reassign_event_updates_versions_once() -> None:
     )
     assert response.status_code == 200
     assert response.json()["data"]["updated"] == 2
+    assert response.json()["data"]["deletedEventIds"] == [event_a_id]
 
     event_a_detail = client.get(f"/api/v1/events/{event_a_id}", headers=headers)
     event_b_detail = client.get(f"/api/v1/events/{event_b_id}", headers=headers)
-    assert event_a_detail.status_code == 200
+    assert event_a_detail.status_code == 404
     assert event_b_detail.status_code == 200
 
-    event_a_payload = event_a_detail.json()["data"]
     event_b_payload = event_b_detail.json()["data"]
-    assert event_a_payload["eventVersion"] == 4
     assert event_b_payload["eventVersion"] == 5
-    assert event_a_payload["storyFreshness"] == "stale"
     assert event_b_payload["storyFreshness"] == "stale"
     assert event_b_payload["photoCount"] == 3
+
+
+def test_create_event_deletes_source_event_when_all_selected_photos_moved() -> None:
+    token = _register_and_get_token("events-test-device-014")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-014"))
+        assert user is not None
+
+        base_time = datetime(2024, 6, 6, 8, 0, 0, tzinfo=timezone.utc)
+        source_event = Event(
+            user_id=user.id,
+            title="原事件",
+            location_name="南京",
+            start_time=base_time,
+            end_time=base_time + timedelta(minutes=10),
+            photo_count=2,
+            status="generated",
+            event_version=2,
+            story_generated_from_version=2,
+            story_requested_for_version=2,
+            story_freshness="fresh",
+            slideshow_generated_from_version=2,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        db.add(source_event)
+        db.flush()
+
+        photos = [
+            Photo(
+                user_id=user.id,
+                event_id=source_event.id,
+                asset_id="asset-create-move-a",
+                shoot_time=base_time,
+                status="clustered",
+                vision_status="completed",
+            ),
+            Photo(
+                user_id=user.id,
+                event_id=source_event.id,
+                asset_id="asset-create-move-b",
+                shoot_time=base_time + timedelta(minutes=5),
+                status="clustered",
+                vision_status="completed",
+            ),
+        ]
+        db.add_all(photos)
+        db.commit()
+        source_event_id = source_event.id
+        photo_ids = [photo.id for photo in photos]
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/events",
+        headers=headers,
+        json={"title": "新事件", "photoIds": photo_ids},
+    )
+    assert response.status_code == 200
+
+    source_event_detail = client.get(f"/api/v1/events/{source_event_id}", headers=headers)
+    assert source_event_detail.status_code == 404
 
 
 class _StructuredStoryProviderStub:
@@ -818,3 +892,101 @@ def test_event_enhancement_upload_and_retry_flow() -> None:
     finally:
         db.close()
         ai_service.client = original_client
+
+
+def test_regenerate_story_replaces_existing_chapters_and_groups() -> None:
+    original_client = ai_service.client
+    ai_service.client = _StructuredStoryProviderStub()
+
+    db: Session = TestingSessionLocal()
+    try:
+        db.execute(text("PRAGMA foreign_keys=ON"))
+        user = User(device_id="events-test-device-013", auth_type="device")
+        db.add(user)
+        db.flush()
+
+        event = Event(
+            user_id=user.id,
+            title="旧标题",
+            location_name="杭州西湖",
+            gps_lat=30.259,
+            gps_lon=120.215,
+            start_time=datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 5, 1, 15, 40, 0, tzinfo=timezone.utc),
+            photo_count=12,
+            status="generated",
+            event_version=1,
+            story_generated_from_version=1,
+            story_requested_for_version=1,
+            story_freshness="fresh",
+            slideshow_generated_from_version=1,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        db.add(event)
+        db.flush()
+
+        old_chapter = EventChapter(
+            user_id=user.id,
+            event_id=event.id,
+            chapter_index=1,
+            chapter_title="旧章节",
+            chapter_story="旧故事",
+            slideshow_caption="旧字幕",
+            photo_start_index=0,
+            photo_end_index=2,
+        )
+        db.add(old_chapter)
+        db.flush()
+
+        db.add(
+            PhotoGroup(
+                user_id=user.id,
+                event_id=event.id,
+                chapter_id=old_chapter.id,
+                group_index=1,
+                group_theme="旧分组",
+                group_emotion="Peaceful",
+                group_scene_desc="{}",
+                photo_start_index=0,
+                photo_end_index=2,
+            )
+        )
+
+        for index in range(12):
+            db.add(
+                Photo(
+                    user_id=user.id,
+                    event_id=event.id,
+                    file_hash=f"{index + 100:064x}",
+                    shoot_time=datetime(2024, 5, 1, 14, index * 5, 0, tzinfo=timezone.utc),
+                    status="clustered",
+                    vision_status="completed",
+                    vision_result={
+                        "scene_category": "lake",
+                        "object_tags": ["water", "tree", "walkway"],
+                        "activity_hint": "walking",
+                        "emotion_hint": "peaceful",
+                        "landmark_hint": "lake",
+                    },
+                )
+            )
+
+        db.commit()
+
+        ok, reason = generate_event_story_for_event(db=db, user_id=user.id, event_id=event.id)
+
+        assert ok is True
+        assert reason is None
+
+        db.refresh(event)
+        assert event.status == "generated"
+
+        chapters = db.scalars(select(EventChapter).where(EventChapter.event_id == event.id)).all()
+        groups = db.scalars(select(PhotoGroup).where(PhotoGroup.event_id == event.id)).all()
+        assert chapters
+        assert groups
+        assert all(group.chapter_id for group in groups)
+    finally:
+        ai_service.client = original_client
+        db.close()

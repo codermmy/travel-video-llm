@@ -1,16 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  AppState,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { PaperProvider, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import {
   getOnDeviceVisionQueueSnapshot,
@@ -87,9 +81,10 @@ export default function RootLayout() {
     };
   }, [isAuthenticated]);
 
-  const visionBannerText = visionQueueSnapshot.syncingCount > 0
-    ? `正在同步分析结果，剩余 ${visionQueueSnapshot.remainingCount} 张`
-    : `正在后台分析照片内容，剩余 ${visionQueueSnapshot.remainingCount} 张，保持应用开启可加快完成`;
+  const visionBannerText =
+    visionQueueSnapshot.syncingCount > 0
+      ? `正在同步分析结果，剩余 ${visionQueueSnapshot.remainingCount} 张`
+      : `正在后台分析照片内容，剩余 ${visionQueueSnapshot.remainingCount} 张，保持应用开启可加快完成`;
 
   if (isLoading || (!isAuthenticated && !error)) {
     return (
@@ -127,45 +122,50 @@ export default function RootLayout() {
   }
 
   return (
-    <PaperProvider theme={appTheme}>
-      <View style={styles.appShell}>
-        <Stack initialRouteName="(tabs)" screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="photo-viewer"
-            options={{ headerShown: false, presentation: 'fullScreenModal' }}
-          />
-          <Stack.Screen
-            name="slideshow"
-            options={{ headerShown: false, presentation: 'fullScreenModal' }}
-          />
-          <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
-          <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
-          <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
-        </Stack>
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <PaperProvider theme={appTheme}>
+        <View style={styles.appShell}>
+          <Stack initialRouteName="(tabs)" screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="photo-viewer"
+              options={{ headerShown: false, presentation: 'fullScreenModal' }}
+            />
+            <Stack.Screen
+              name="slideshow"
+              options={{ headerShown: false, presentation: 'fullScreenModal' }}
+            />
+            <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
+            <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
+            <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
+          </Stack>
 
-        {visionQueueSnapshot.hasPendingWork ? (
-          <View pointerEvents="none" style={styles.queueBanner}>
-            <View style={styles.queueBannerIcon}>
-              <MaterialCommunityIcons name="image-search-outline" size={16} color="#FFFFFF" />
+          {visionQueueSnapshot.hasPendingWork ? (
+            <View pointerEvents="none" style={styles.queueBanner}>
+              <View style={styles.queueBannerIcon}>
+                <MaterialCommunityIcons name="image-search-outline" size={16} color="#FFFFFF" />
+              </View>
+              <Text style={styles.queueBannerText}>{visionBannerText}</Text>
             </View>
-            <Text style={styles.queueBannerText}>{visionBannerText}</Text>
-          </View>
-        ) : null}
+          ) : null}
 
-        <Snackbar
-          visible={Boolean(visionNotice)}
-          onDismiss={() => setVisionNotice('')}
-          duration={2800}
-        >
-          {visionNotice}
-        </Snackbar>
-      </View>
-    </PaperProvider>
+          <Snackbar
+            visible={Boolean(visionNotice)}
+            onDismiss={() => setVisionNotice('')}
+            duration={2800}
+          >
+            {visionNotice}
+          </Snackbar>
+        </View>
+      </PaperProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   appShell: {
     flex: 1,
   },

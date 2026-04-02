@@ -67,3 +67,21 @@ export interface PhotoStats {
   clustered: number;
   unclustered: number;
 }
+
+export interface PhotoBatchEventUpdateResult {
+  updated: number;
+  impactedEventIds: string[];
+  deletedEventIds: string[];
+}
+
+export interface PhotoBatchDeleteResult {
+  deleted: number;
+  impactedEventIds: string[];
+  deletedEventIds: string[];
+}
+
+export interface PhotoDeleteResult {
+  message: string;
+  impactedEventIds: string[];
+  deletedEventIds: string[];
+}

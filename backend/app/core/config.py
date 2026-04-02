@@ -47,6 +47,18 @@ class Settings(BaseSettings):
     openai_story_model: str = Field(default="gpt-5.1-codex")
     openai_timeout_seconds: int = Field(default=30)
 
+    # DeepSeek text generation
+    deepseek_base_url: str = Field(default="https://api.deepseek.com/v1")
+    deepseek_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DEEPSEEK_API_KEY",
+            "deepseek_api_key",
+        ),
+    )
+    deepseek_story_model: str = Field(default="deepseek-chat")
+    deepseek_timeout_seconds: int = Field(default=30)
+
     # Aliyun DashScope / Tongyi
     dashscope_api_key: str = Field(
         default="",
@@ -101,6 +113,10 @@ class Settings(BaseSettings):
     @property
     def openai_base_url_normalized(self) -> str:
         return self.openai_base_url.rstrip("/")
+
+    @property
+    def deepseek_base_url_normalized(self) -> str:
+        return self.deepseek_base_url.rstrip("/")
 
     @property
     def normalized_ai_provider(self) -> str:

@@ -10,6 +10,7 @@ import { ImportProgressModal, type ImportProgress } from '@/components/import/Im
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import { MapViewContainer } from '@/components/map/MapViewContainer';
 import { eventApi } from '@/services/api/eventApi';
+import { photoApi } from '@/services/api/photoApi';
 import {
   AUTO_IMPORT_LIMIT,
   getImportCacheSummary,
@@ -32,7 +33,9 @@ export default function MapScreen() {
   const [snackbar, setSnackbar] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [hasImportRun, setHasImportRun] = useState<boolean | null>(null);
+  const [totalPhotos, setTotalPhotos] = useState<number | null>(null);
   const autoImportTriggeredRef = useRef(false);
+  const showColdStartImportCard = totalPhotos === 0 && events.length === 0;
 
   const loadEvents = useCallback(
     async (mode: 'initial' | 'background' = 'background') => {
@@ -67,14 +70,20 @@ export default function MapScreen() {
     return summary;
   }, []);
 
+  const loadPhotoStats = useCallback(async () => {
+    const stats = await photoApi.getPhotoStats();
+    setTotalPhotos(stats.total);
+    return stats;
+  }, []);
+
   useEffect(() => {
-    void Promise.all([loadEvents('initial'), loadImportSummary()]);
-  }, [loadEvents, loadImportSummary]);
+    void Promise.all([loadEvents('initial'), loadImportSummary(), loadPhotoStats()]);
+  }, [loadEvents, loadImportSummary, loadPhotoStats]);
 
   useFocusEffect(
     useCallback(() => {
-      void Promise.all([loadEvents('background'), loadImportSummary()]);
-    }, [loadEvents, loadImportSummary]),
+      void Promise.all([loadEvents('background'), loadImportSummary(), loadPhotoStats()]);
+    }, [loadEvents, loadImportSummary, loadPhotoStats]),
   );
 
   const runAutoImport = useCallback(async () => {
@@ -123,7 +132,7 @@ export default function MapScreen() {
             ? `已新增 ${result.dedupedNew} 张，${result.queuedVision} 张会在后台继续分析，正在刷新足迹`
             : `已新增 ${result.dedupedNew} 张，正在刷新足迹`,
         );
-        await loadEvents('background');
+        await Promise.all([loadEvents('background'), loadPhotoStats()]);
       }
     } catch (importError) {
       const message = String(importError);
@@ -138,24 +147,24 @@ export default function MapScreen() {
       setImportVisible(false);
       setImportProgress({ stage: 'idle' });
       try {
-        await loadImportSummary();
+        await Promise.all([loadImportSummary(), loadPhotoStats()]);
       } catch (summaryError) {
         console.warn('Failed to refresh import summary:', summaryError);
       }
     }
-  }, [loadEvents, loadImportSummary]);
+  }, [loadEvents, loadImportSummary, loadPhotoStats]);
 
   useEffect(() => {
-    if (loading || hasImportRun === null) {
+    if (loading || hasImportRun === null || totalPhotos === null) {
       return;
     }
-    if (hasImportRun || autoImportTriggeredRef.current) {
+    if (hasImportRun || totalPhotos > 0 || events.length > 0 || autoImportTriggeredRef.current) {
       return;
     }
 
     autoImportTriggeredRef.current = true;
     void runAutoImport();
-  }, [hasImportRun, loading, runAutoImport]);
+  }, [events.length, hasImportRun, loading, runAutoImport, totalPhotos]);
 
   const handleEventPress = useCallback(
     (eventId: string) => {
@@ -200,44 +209,36 @@ export default function MapScreen() {
   return (
     <View style={styles.container} testID="map-screen">
       <MapViewContainer events={events} onEventPress={handleEventPress} />
-      <View pointerEvents="box-none" style={styles.overlay}>
-        <LinearGradient
-          colors={['rgba(255,252,247,0.96)', 'rgba(255,249,241,0.88)']}
-          style={styles.heroCard}
-        >
-          <View style={styles.heroTopRow}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.eyebrow}>ATLAS VIEW</Text>
-              <Text style={styles.heroTitle}>足迹</Text>
-              <Text style={styles.heroSubtitle}>
-                用地图回看旅行发生过的地方，点开聚类即可钻进具体事件。
-              </Text>
+      {showColdStartImportCard ? (
+        <View pointerEvents="box-none" style={styles.overlay}>
+          <LinearGradient
+            colors={['rgba(255,252,247,0.96)', 'rgba(255,249,241,0.88)']}
+            style={styles.importCard}
+          >
+            <Text style={styles.importTitle}>导入旅行照片</Text>
+            <Text style={styles.importHint}>
+              只有第一次还没有任何照片和事件时，才会显示这张卡片。
+            </Text>
+            <View style={styles.importActions}>
+              <Pressable
+                style={({ pressed }) => [styles.primaryAction, pressed && styles.actionPressed]}
+                onPress={() => void runAutoImport()}
+              >
+                <MaterialCommunityIcons name="image-multiple" size={16} color="#FFF9F2" />
+                <Text style={styles.primaryActionText}>导入最近 {AUTO_IMPORT_LIMIT} 张</Text>
+              </Pressable>
+              <View style={styles.heroHintRow}>
+                <MaterialCommunityIcons
+                  name="shield-lock-outline"
+                  size={14}
+                  color={JourneyPalette.inkSoft}
+                />
+                <Text style={styles.heroHintText}>默认不上图，只同步 metadata 与端侧结果。</Text>
+              </View>
             </View>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeValue}>{events.length}</Text>
-              <Text style={styles.heroBadgeLabel}>事件</Text>
-            </View>
-          </View>
-
-          <View style={styles.heroActions}>
-            <Pressable
-              style={({ pressed }) => [styles.primaryAction, pressed && styles.actionPressed]}
-              onPress={() => void runAutoImport()}
-            >
-              <MaterialCommunityIcons name="image-multiple" size={16} color="#FFF9F2" />
-              <Text style={styles.primaryActionText}>导入最近 {AUTO_IMPORT_LIMIT} 张</Text>
-            </Pressable>
-            <View style={styles.heroHintRow}>
-              <MaterialCommunityIcons
-                name="shield-lock-outline"
-                size={14}
-                color={JourneyPalette.inkSoft}
-              />
-              <Text style={styles.heroHintText}>默认不上图，只同步 metadata 与端侧结果。</Text>
-            </View>
-          </View>
-        </LinearGradient>
-      </View>
+          </LinearGradient>
+        </View>
+      ) : null}
       <ImportProgressModal visible={importVisible} progress={importProgress} allowClose={false} />
       <UploadProgress
         visible={taskProgressVisible}
@@ -313,10 +314,10 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
   },
-  heroCard: {
-    borderRadius: 30,
+  importCard: {
+    borderRadius: 24,
     paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingVertical: 16,
     borderWidth: 1,
     borderColor: 'rgba(37, 93, 88, 0.08)',
     shadowColor: JourneyPalette.shadow,
@@ -325,52 +326,18 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 6,
   },
-  heroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-  },
-  heroCopy: {
-    flex: 1,
-  },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: JourneyPalette.muted,
-  },
-  heroTitle: {
-    marginTop: 6,
-    fontSize: 32,
+  importTitle: {
+    fontSize: 18,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  heroSubtitle: {
-    marginTop: 8,
+  importHint: {
+    marginTop: 6,
     color: JourneyPalette.inkSoft,
     lineHeight: 20,
   },
-  heroBadge: {
-    minWidth: 76,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-  },
-  heroBadgeValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  heroBadgeLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    color: JourneyPalette.muted,
-  },
-  heroActions: {
-    marginTop: 16,
+  importActions: {
+    marginTop: 14,
     gap: 10,
   },
   primaryAction: {

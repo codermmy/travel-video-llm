@@ -11,6 +11,7 @@ type TimelineEventCardProps = {
   event: EventRecord;
   isLastInSection: boolean;
   onPress: (eventId: string) => void;
+  onLongPress?: (event: EventRecord) => void;
 };
 
 function formatDateRange(event: EventRecord): string {
@@ -31,7 +32,12 @@ function formatDateRange(event: EventRecord): string {
   return '时间未知';
 }
 
-export function TimelineEventCard({ event, isLastInSection, onPress }: TimelineEventCardProps) {
+export function TimelineEventCard({
+  event,
+  isLastInSection,
+  onPress,
+  onLongPress,
+}: TimelineEventCardProps) {
   const title = event.title?.trim() ? event.title : '未命名事件';
   const location = event.locationName || '地点待补充';
   const coverUri = getPreferredEventCoverUri(event);
@@ -40,6 +46,8 @@ export function TimelineEventCard({ event, isLastInSection, onPress }: TimelineE
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={() => onPress(event.id)}
+      onLongPress={() => onLongPress?.(event)}
+      delayLongPress={240}
     >
       <View style={styles.axisWrap}>
         <View style={styles.dot} />

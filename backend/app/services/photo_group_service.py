@@ -19,6 +19,16 @@ from app.services.story_signal_service import (
 
 class PhotoGroupService:
     @staticmethod
+    def _build_local_micro_story(photo: Photo, analysis: dict[str, Any]) -> str:
+        description = str(analysis.get("description") or build_photo_story_seed(photo) or "").strip()
+        emotion = str(analysis.get("emotion") or photo.emotion_tag or "").strip()
+        if description and emotion:
+            return f"{description[:14]}，情绪落在{emotion[:6]}里"[:25]
+        if description:
+            return f"{description[:16]}，这一刻被轻轻定格"[:25]
+        return "旅途中的这一刻，被镜头轻轻留住"
+
+    @staticmethod
     def _split_counts(photo_count: int) -> list[int]:
         if photo_count <= 0:
             return []
@@ -86,6 +96,7 @@ class PhotoGroupService:
         chapter_start_index: int,
         chapter_index: int,
         total_chapters: int,
+        use_ai_micro_story: bool = True,
     ) -> dict[str, str]:
         group_specs = self.divide_into_groups(len(chapter_photos))
         group_summaries: list[dict[str, str]] = []
@@ -135,10 +146,14 @@ class PhotoGroupService:
                     if idx < len(analyses)
                     else {"description": build_photo_story_seed(photo)}
                 )
-                photo.micro_story = micro_story_service.generate_micro_story(
-                    photo_analysis=analysis,
-                    group_context=group_context,
-                    photo_index_in_group=idx,
+                photo.micro_story = (
+                    micro_story_service.generate_micro_story(
+                        photo_analysis=analysis,
+                        group_context=group_context,
+                        photo_index_in_group=idx,
+                    )
+                    if use_ai_micro_story
+                    else self._build_local_micro_story(photo, analysis)
                 )
 
             db.add(

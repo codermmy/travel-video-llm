@@ -23,6 +23,16 @@ def test_factory_selects_openai_provider() -> None:
         settings.ai_provider = original
 
 
+def test_factory_selects_deepseek_provider() -> None:
+    original = settings.ai_provider
+    try:
+        settings.ai_provider = "deepseek"
+        provider = provider_factory.get_provider(force_reload=True)
+        assert provider.provider_name() == "deepseek"
+    finally:
+        settings.ai_provider = original
+
+
 def test_factory_selects_tongyi_provider() -> None:
     original = settings.ai_provider
     try:

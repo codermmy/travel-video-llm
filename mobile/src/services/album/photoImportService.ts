@@ -1,5 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 
 import type { PhotoMetadata } from '@/types/photo';
@@ -235,8 +234,8 @@ function dedupeMetadataIndices(indices: number[], items: PhotoMetadataItem[]): n
   return deduped;
 }
 
-async function resolvePickerAssets(
-  assets: ImagePicker.ImagePickerAsset[],
+async function resolveLibraryAssets(
+  assets: MediaLibrary.Asset[],
   onProgress?: ProgressCb,
 ): Promise<ProcessedPickerItem[]> {
   const resolved: ProcessedPickerItem[] = [];
@@ -244,35 +243,27 @@ async function resolvePickerAssets(
   setProgress(onProgress, 'scanning', 0, assets.length, '正在解析照片信息...');
   for (let index = 0; index < assets.length; index += 1) {
     const asset = assets[index];
-    let uri = asset.uri;
+    let uri = asset.uri ?? '';
     let location: { latitude: number; longitude: number } | null = null;
-    let fileSize = asset.fileSize ?? undefined;
-    let creationTime: number | undefined;
+    let fileSize: number | undefined;
+    let creationTime: number | undefined = asset.creationTime;
 
-    if (asset.assetId) {
-      try {
-        const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
-        uri = info.localUri ?? uri;
-        location = info.location ?? null;
-        creationTime =
-          typeof (info as { creationTime?: number }).creationTime === 'number'
-            ? (info as { creationTime: number }).creationTime
-            : undefined;
-      } catch (error) {
-        console.warn('Failed to resolve media asset info:', asset.assetId, error);
-      }
-    }
-
-    if (creationTime === undefined) {
-      const assetWithCreationTime = asset as { creationTime?: number };
+    try {
+      const info = await MediaLibrary.getAssetInfoAsync(asset.id);
+      uri = info.localUri ?? info.uri ?? uri;
+      location = info.location ?? null;
       creationTime =
-        typeof assetWithCreationTime.creationTime === 'number'
-          ? assetWithCreationTime.creationTime
-          : undefined;
+        typeof (info as { creationTime?: number }).creationTime === 'number'
+          ? (info as { creationTime: number }).creationTime
+          : creationTime;
+      const fileInfo = info as unknown as { fileSize?: number };
+      fileSize = typeof fileInfo.fileSize === 'number' ? fileInfo.fileSize : undefined;
+    } catch (error) {
+      console.warn('Failed to resolve media asset info:', asset.id, error);
     }
 
     resolved.push({
-      assetId: asset.assetId ?? undefined,
+      assetId: asset.id,
       uri,
       width: asset.width ?? 0,
       height: asset.height ?? 0,
@@ -362,6 +353,7 @@ async function runMetadataOnlyImport(params: {
   source: ImportSource;
   resolved: ProcessedPickerItem[];
   onProgress?: ProgressCb;
+  targetEventId?: string | null;
 }): Promise<ImportResult> {
   const processingFailed = params.resolved.filter((item) => !item.hasUsableUri).length;
   const importableItems = params.resolved.filter((item) => item.hasUsableUri);
@@ -417,6 +409,7 @@ async function runMetadataOnlyImport(params: {
       metadata: metadataList[index],
     })),
     (current, total) => setProgress(params.onProgress, 'uploading', current, total),
+    { triggerClustering: !params.targetEventId },
   );
 
   let queuedVision = 0;
@@ -473,6 +466,13 @@ async function runMetadataOnlyImport(params: {
       photoKeys: registryEntries.slice(0, 8).map((entry) => entry.photoId),
       queuedVision,
     });
+
+    if (params.targetEventId) {
+      const uploadedPhotoIds = uploadResult.items.map((item) => item.id);
+      if (uploadedPhotoIds.length > 0) {
+        await photoApi.reassignPhotosToEvent(uploadedPhotoIds, params.targetEventId);
+      }
+    }
   }
 
   setProgress(
@@ -480,9 +480,13 @@ async function runMetadataOnlyImport(params: {
     'clustering',
     undefined,
     undefined,
-    queuedVision > 0
-      ? 'metadata 已同步，事件正在聚合，照片内容会在后台继续分析...'
-      : 'metadata 已同步，正在聚合事件...',
+    params.targetEventId
+      ? queuedVision > 0
+        ? '照片已导入到当前事件，端侧分析会继续在后台完成...'
+        : '照片已导入到当前事件，事件摘要正在刷新...'
+      : queuedVision > 0
+        ? 'metadata 已同步，事件正在聚合，照片内容会在后台继续分析...'
+        : 'metadata 已同步，正在聚合事件...',
   );
 
   await finalizeImportCache({ source: params.source, importedItems: newItems });
@@ -524,32 +528,17 @@ export async function importRecentPhotos(params?: {
   });
 }
 
-export async function manualImportFromPicker(params: {
-  selectionLimit?: number;
+export async function importSelectedLibraryAssets(params: {
+  assets: MediaLibrary.Asset[];
+  targetEventId?: string | null;
   onProgress?: ProgressCb;
 }): Promise<ImportResult> {
-  const selectionLimit = params.selectionLimit ?? AUTO_IMPORT_LIMIT;
-
   await updateImportCache((cache) => {
     cache.lastAttemptMs = Date.now();
     cache.lastMode = 'manual';
   });
 
-  setProgress(params.onProgress, 'scanning', undefined, undefined, '正在请求权限...');
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    throw new Error('photo_library_permission_denied');
-  }
-
-  const pickerResult = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsMultipleSelection: true,
-    selectionLimit,
-    exif: true,
-    quality: 1,
-  });
-
-  if (pickerResult.canceled) {
+  if (params.assets.length === 0) {
     return {
       selected: 0,
       dedupedNew: 0,
@@ -561,25 +550,13 @@ export async function manualImportFromPicker(params: {
     };
   }
 
-  const assets = pickerResult.assets ?? [];
-  if (assets.length === 0) {
-    return {
-      selected: 0,
-      dedupedNew: 0,
-      dedupedExisting: 0,
-      uploaded: 0,
-      queuedVision: 0,
-      failed: 0,
-      taskId: null,
-    };
-  }
-
-  const resolved = await resolvePickerAssets(assets, params.onProgress);
+  const resolved = await resolveLibraryAssets(params.assets, params.onProgress);
   return runMetadataOnlyImport({
-    selectedCount: assets.length,
+    selectedCount: params.assets.length,
     source: 'manual',
     resolved,
     onProgress: params.onProgress,
+    targetEventId: params.targetEventId,
   });
 }
 

@@ -4,6 +4,7 @@ from typing import Optional
 
 from app.core.config import settings
 from app.integrations.providers.base import AIProvider
+from app.integrations.providers.deepseek_provider import DeepSeekProvider
 from app.integrations.providers.openai_responses import OpenAIResponsesProvider
 from app.integrations.providers.tongyi_provider import TongyiProvider
 
@@ -24,6 +25,8 @@ class AIProviderFactory:
     def _create_provider(provider_name: str) -> AIProvider:
         if provider_name == "openai":
             return OpenAIResponsesProvider()
+        if provider_name == "deepseek":
+            return DeepSeekProvider()
         if provider_name == "tongyi":
             return TongyiProvider()
         raise ValueError(f"unsupported_ai_provider:{provider_name}")

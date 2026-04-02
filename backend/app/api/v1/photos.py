@@ -15,10 +15,13 @@ from app.models.event import Event
 from app.models.photo import Photo
 from app.schemas.common import ApiResponse
 from app.schemas.photo import (
+    PhotoBatchDeleteRequest,
+    PhotoBatchDeleteResponse,
     CheckDuplicatesByMetadataData,
     CheckDuplicatesByMetadataRequest,
     PhotoBatchEventUpdateRequest,
     PhotoBatchEventUpdateResponse,
+    PhotoDeleteResponse,
     PhotoListData,
     PhotoMetadataItem,
     PhotoOut,
@@ -45,7 +48,7 @@ def _refresh_impacted_events(
     user_id: str,
     event_ids: set[str | None],
     structure_changed: bool = False,
-) -> None:
+) -> tuple[list[str], list[str]]:
     normalized_event_ids = {event_id for event_id in event_ids if event_id}
     if structure_changed:
         event_service.mark_events_structure_changed(
@@ -54,10 +57,18 @@ def _refresh_impacted_events(
             db=db,
         )
 
+    impacted_event_ids: list[str] = []
+    deleted_event_ids: list[str] = []
     for event_id in normalized_event_ids:
         event = event_service.refresh_event_summary(event_id=event_id, user_id=user_id, db=db)
         if not event:
             continue
+        if event.photo_count == 0:
+            if event_service.delete_empty_event(event_id=event_id, user_id=user_id, db=db):
+                deleted_event_ids.append(event_id)
+            continue
+
+        impacted_event_ids.append(event_id)
 
         queued = event_service.mark_event_pending_story_refresh(
             event_id=event_id,
@@ -73,6 +84,8 @@ def _refresh_impacted_events(
             event_version=queued.event_version,
             db=db,
         )
+
+    return sorted(impacted_event_ids), sorted(deleted_event_ids)
 
 
 def _build_visual_desc(vision: PhotoVisionResult | None) -> str | None:
@@ -544,7 +557,7 @@ def batch_reassign_photos_to_event(
 
     db.commit()
 
-    _refresh_impacted_events(
+    impacted_event_ids, deleted_event_ids = _refresh_impacted_events(
         db=db,
         user_id=current_user_id,
         event_ids=impacted_event_ids,
@@ -554,23 +567,75 @@ def batch_reassign_photos_to_event(
     return ApiResponse.ok(
         PhotoBatchEventUpdateResponse(
             updated=len(photos),
-            impactedEventIds=sorted(str(event_id) for event_id in impacted_event_ids if event_id),
+            impactedEventIds=impacted_event_ids,
+            deletedEventIds=deleted_event_ids,
         )
     )
 
 
-@router.delete("/{photo_id}", response_model=ApiResponse[dict])
+@router.post("/batch/delete", response_model=ApiResponse[PhotoBatchDeleteResponse])
+def batch_delete_photos(
+    request: PhotoBatchDeleteRequest,
+    current_user_id: CurrentUserIdDep,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhotoBatchDeleteResponse]:
+    photos = list(
+        db.scalars(
+            select(Photo).where(
+                and_(Photo.user_id == current_user_id, Photo.id.in_(request.photoIds))
+            )
+        ).all()
+    )
+    if len(photos) != len(set(request.photoIds)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片")
+
+    impacted_event_ids = {photo.event_id for photo in photos}
+    for photo in photos:
+        db.delete(photo)
+    db.commit()
+
+    refreshed_event_ids, deleted_event_ids = _refresh_impacted_events(
+        db=db,
+        user_id=current_user_id,
+        event_ids=impacted_event_ids,
+        structure_changed=True,
+    )
+
+    return ApiResponse.ok(
+        PhotoBatchDeleteResponse(
+            deleted=len(photos),
+            impactedEventIds=refreshed_event_ids,
+            deletedEventIds=deleted_event_ids,
+        )
+    )
+
+
+@router.delete("/{photo_id}", response_model=ApiResponse[PhotoDeleteResponse])
 def delete_photo(
     photo_id: str,
     current_user_id: CurrentUserIdDep,
     db: Session = Depends(get_db),
-) -> ApiResponse[dict]:
+) -> ApiResponse[PhotoDeleteResponse]:
     photo = db.scalar(
         select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == current_user_id))
     )
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
 
+    impacted_event_ids = {photo.event_id}
     db.delete(photo)
     db.commit()
-    return ApiResponse.ok({"message": "照片已删除"})
+
+    refreshed_event_ids, deleted_event_ids = _refresh_impacted_events(
+        db=db,
+        user_id=current_user_id,
+        event_ids=impacted_event_ids,
+        structure_changed=True,
+    )
+    return ApiResponse.ok(
+        PhotoDeleteResponse(
+            message="照片已删除",
+            impactedEventIds=refreshed_event_ids,
+            deletedEventIds=deleted_event_ids,
+        )
+    )

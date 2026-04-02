@@ -212,6 +212,22 @@ class EventService:
 
         return "ai_pending"
 
+    def repair_generated_event_state(self, event: Event) -> bool:
+        current_version = self._normalize_event_version(event)
+        if (
+            event.story_generated_from_version == current_version
+            and event.story_freshness == "fresh"
+            and event.status != "generated"
+        ):
+            event.status = "generated"
+            event.ai_error = None
+            if event.slideshow_generated_from_version != current_version:
+                event.slideshow_generated_from_version = current_version
+            if event.slideshow_freshness != "fresh":
+                event.slideshow_freshness = "fresh"
+            return True
+        return False
+
     def can_generate_story(
         self,
         event: Event,
@@ -398,12 +414,30 @@ class EventService:
                 event=event,
                 vision_summary=vision_summary,
             )
+            self.repair_generated_event_state(event)
             if event.status == "waiting_for_vision":
                 event.ai_error = None
 
         db.commit()
         db.refresh(event)
         return event
+
+    def delete_empty_event(self, event_id: str, user_id: str, db: Session) -> bool:
+        event = self.get_event_detail(event_id=event_id, user_id=user_id, db=db)
+        if not event:
+            return False
+
+        remaining_photos = db.scalar(
+            select(func.count())
+            .select_from(Photo)
+            .where(and_(Photo.user_id == user_id, Photo.event_id == event_id))
+        )
+        if int(remaining_photos or 0) > 0:
+            return False
+
+        db.delete(event)
+        db.commit()
+        return True
 
     def update_event(
         self,

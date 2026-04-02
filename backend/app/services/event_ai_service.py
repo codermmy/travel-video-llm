@@ -22,9 +22,32 @@ from app.services.event_enrichment import (
 from app.services.event_service import event_service
 from app.services.photo_group_service import photo_group_service
 from app.services.photo_ai_service import generate_photo_caption
-from app.services.story_signal_service import aggregate_story_signals, build_photo_story_seed
+from app.services.story_signal_service import (
+    aggregate_story_signals,
+    build_photo_story_seed,
+    sample_story_items,
+)
 
 logger = logging.getLogger(__name__)
+
+LARGE_EVENT_LOCAL_TEXT_ONLY_THRESHOLD = 40
+MAX_EVENT_STORY_DESCRIPTIONS = 36
+MAX_EVENT_STORY_TIMELINE_CLUES = 24
+
+
+def _should_use_local_text_only(photo_count: int) -> bool:
+    return photo_count > LARGE_EVENT_LOCAL_TEXT_ONLY_THRESHOLD
+
+
+def _build_local_photo_caption(seed_desc: str) -> str | None:
+    text = seed_desc.strip()
+    if not text:
+        return None
+
+    parts = [p.strip() for p in re.split(r"[，。；、,;\s]+", text) if p.strip()]
+    if not parts:
+        return text[:100]
+    return " · ".join(parts[:4])[:100]
 
 
 def _ensure_location_context(event: Event) -> tuple[str, str, str]:
@@ -60,13 +83,15 @@ def _ensure_location_context(event: Event) -> tuple[str, str, str]:
 
 def _save_photo_captions(
     photos: list[Photo],
+    *,
+    use_ai_caption: bool = True,
 ) -> None:
     if not photos:
         return
 
     for photo in photos:
         seed_desc = build_photo_story_seed(photo)
-        caption = generate_photo_caption(seed_desc) if seed_desc else None
+        caption = generate_photo_caption(seed_desc) if (seed_desc and use_ai_caption) else None
         if caption:
             photo.caption = caption
             continue
@@ -74,13 +99,9 @@ def _save_photo_captions(
         if photo.caption:
             continue
 
-        text = seed_desc.strip()
-        if not text:
-            continue
-
-        parts = [p.strip() for p in re.split(r"[，。；、,;\s]+", text) if p.strip()]
-        if parts:
-            photo.caption = " · ".join(parts[:4])[:100]
+        fallback = _build_local_photo_caption(seed_desc)
+        if fallback:
+            photo.caption = fallback
 
 
 def _save_event_chapters(
@@ -91,9 +112,10 @@ def _save_event_chapters(
     detailed_location: str,
     location_tags: str,
     narrative_boost: str = "",
+    use_ai_micro_story: bool = True,
 ) -> None:
-    db.execute(delete(EventChapter).where(EventChapter.event_id == event.id))
     db.execute(delete(PhotoGroup).where(PhotoGroup.event_id == event.id))
+    db.execute(delete(EventChapter).where(EventChapter.event_id == event.id))
 
     chapter_slices = split_into_chapters(photos, chunk_size=10)
     total_chapters = len(chapter_slices)
@@ -137,6 +159,7 @@ def _save_event_chapters(
             chapter_start_index=start_idx,
             chapter_index=chapter_number,
             total_chapters=total_chapters,
+            use_ai_micro_story=use_ai_micro_story,
         )
         chapter.chapter_intro = chapter_summary.get("intro")
         chapter.chapter_summary = chapter_summary.get("summary")
@@ -201,7 +224,19 @@ def generate_event_story_for_event(
 
     location, detailed_location, location_tags = _ensure_location_context(event)
     signals = aggregate_story_signals(photos)
-    descriptions = [str(d) for d in signals.get("photo_descriptions", []) if d]
+    descriptions = sample_story_items(
+        [str(d) for d in signals.get("photo_descriptions", []) if d],
+        MAX_EVENT_STORY_DESCRIPTIONS,
+    )
+    timeline_clues = sample_story_items(
+        [
+            str(item)
+            for item in signals.get("timeline_clues", [])
+            if isinstance(item, str) and item.strip()
+        ],
+        MAX_EVENT_STORY_TIMELINE_CLUES,
+    )
+    use_ai_per_photo_copy = not _should_use_local_text_only(len(photos))
 
     if not event.start_time or not event.end_time:
         event_service.mark_story_failed(
@@ -222,11 +257,7 @@ def generate_event_story_for_event(
         detailed_location=detailed_location,
         location_tags=location_tags,
         structured_summary=str(signals.get("structured_summary") or ""),
-        timeline_clues=[
-            str(item)
-            for item in signals.get("timeline_clues", [])
-            if isinstance(item, str) and item.strip()
-        ],
+        timeline_clues=timeline_clues,
     )
     if not story:
         event_service.mark_story_failed(
@@ -252,7 +283,7 @@ def generate_event_story_for_event(
     if isinstance(emotion, str) and emotion:
         event.emotion_tag = emotion
 
-    _save_photo_captions(photos)
+    _save_photo_captions(photos, use_ai_caption=use_ai_per_photo_copy)
     _save_event_chapters(
         db,
         event=event,
@@ -260,6 +291,7 @@ def generate_event_story_for_event(
         detailed_location=detailed_location,
         location_tags=location_tags,
         narrative_boost="",
+        use_ai_micro_story=use_ai_per_photo_copy,
     )
 
     event_service.mark_story_generated(event=event, target_version=generation_version)

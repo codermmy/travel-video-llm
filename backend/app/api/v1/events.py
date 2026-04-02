@@ -228,6 +228,9 @@ def _maybe_trigger_story_refresh(
     event = event_service.refresh_event_summary(event_id=event_id, user_id=user_id, db=db)
     if not event:
         return
+    if event.photo_count == 0:
+        event_service.delete_empty_event(event_id=event_id, user_id=user_id, db=db)
+        return
 
     queued = event_service.mark_event_pending_story_refresh(
         event_id=event_id,
@@ -568,7 +571,7 @@ def update_event(
         payload_fields["title_manually_set"] = True
     if "locationName" in payload.model_fields_set:
         payload_fields["location_name"] = payload.locationName
-    if "coverPhotoUrl" in payload.model_fields_set:
+    if "coverPhowtoUrl" in payload.model_fields_set:
         payload_fields["cover_photo_url"] = payload.coverPhotoUrl
     if "storyText" in payload.model_fields_set:
         payload_fields["story_text"] = payload.storyText

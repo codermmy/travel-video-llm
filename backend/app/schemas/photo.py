@@ -126,6 +126,25 @@ class PhotoBatchEventUpdateRequest(BaseModel):
 class PhotoBatchEventUpdateResponse(BaseModel):
     updated: int
     impactedEventIds: list[str] = Field(default_factory=list)
+    deletedEventIds: list[str] = Field(default_factory=list)
+
+
+class PhotoBatchDeleteRequest(BaseModel):
+    photoIds: Annotated[list[str], Field(min_length=1, max_length=200)] = Field(
+        default_factory=list
+    )
+
+
+class PhotoBatchDeleteResponse(BaseModel):
+    deleted: int
+    impactedEventIds: list[str] = Field(default_factory=list)
+    deletedEventIds: list[str] = Field(default_factory=list)
+
+
+class PhotoDeleteResponse(BaseModel):
+    message: str
+    impactedEventIds: list[str] = Field(default_factory=list)
+    deletedEventIds: list[str] = Field(default_factory=list)
 
 
 class PhotoStatsData(BaseModel):

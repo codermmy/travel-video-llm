@@ -1,6 +1,9 @@
 import { apiClient } from './client';
 
 import type {
+  PhotoBatchDeleteResult,
+  PhotoBatchEventUpdateResult,
+  PhotoDeleteResult,
   PhotoListResult,
   PhotoMetadata,
   PhotoRecord,
@@ -155,6 +158,9 @@ export const photoApi = {
   uploadPhotos: async (
     photos: { metadata: PhotoMetadata; vision?: OnDeviceVisionResult | null }[],
     onProgress?: (current: number, total: number) => void,
+    options?: {
+      triggerClustering?: boolean;
+    },
   ): Promise<PhotoUploadResult> => {
     const items: PhotoUploadItem[] = photos.map((photo, index) => ({
       clientRef: String(index),
@@ -177,7 +183,9 @@ export const photoApi = {
     for (let start = 0; start < items.length; start += UPLOAD_METADATA_BATCH_SIZE) {
       const chunk = items.slice(start, start + UPLOAD_METADATA_BATCH_SIZE);
       const isLastChunk = start + UPLOAD_METADATA_BATCH_SIZE >= items.length;
-      const result = await uploadMetadata(chunk, { triggerClustering: isLastChunk });
+      const result = await uploadMetadata(chunk, {
+        triggerClustering: options?.triggerClustering ?? isLastChunk,
+      });
       uploadedTotal += result.uploaded;
       failedTotal += result.failed;
       taskId = result.taskId ?? taskId;
@@ -225,18 +233,30 @@ export const photoApi = {
   reassignPhotosToEvent: async (
     photoIds: string[],
     eventId?: string | null,
-  ): Promise<{ updated: number; impactedEventIds: string[] }> => {
-    const response = await apiClient.post<
-      ApiResponse<{ updated: number; impactedEventIds: string[] }>
-    >('/api/v1/photos/batch/reassign-event', {
-      photoIds,
-      eventId: eventId ?? null,
-    });
+  ): Promise<PhotoBatchEventUpdateResult> => {
+    const response = await apiClient.post<ApiResponse<PhotoBatchEventUpdateResult>>(
+      '/api/v1/photos/batch/reassign-event',
+      {
+        photoIds,
+        eventId: eventId ?? null,
+      },
+    );
     return response.data.data;
   },
 
-  deletePhoto: async (id: string): Promise<void> => {
-    await apiClient.delete(`/api/v1/photos/${id}`);
+  deletePhotos: async (photoIds: string[]): Promise<PhotoBatchDeleteResult> => {
+    const response = await apiClient.post<ApiResponse<PhotoBatchDeleteResult>>(
+      '/api/v1/photos/batch/delete',
+      {
+        photoIds,
+      },
+    );
+    return response.data.data;
+  },
+
+  deletePhoto: async (id: string): Promise<PhotoDeleteResult> => {
+    const response = await apiClient.delete<ApiResponse<PhotoDeleteResult>>(`/api/v1/photos/${id}`);
+    return response.data.data;
   },
 
   getPhotosByEvent: async (
