@@ -263,6 +263,19 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
+        <Pressable style={styles.menuItem} onPress={() => router.push('/profile/import-tasks')}>
+          <MaterialCommunityIcons
+            name="timeline-clock-outline"
+            size={20}
+            color={JourneyPalette.accent}
+          />
+          <View style={styles.menuTextWrap}>
+            <Text style={styles.menuText}>查看导入任务</Text>
+            <Text style={styles.menuSubtext}>回看每次导入的分析、同步和聚合进度。</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
+        </Pressable>
+
         <Pressable
           style={[styles.primaryButton, cleaning && styles.buttonDisabled]}
           onPress={handleClearLocalCache}

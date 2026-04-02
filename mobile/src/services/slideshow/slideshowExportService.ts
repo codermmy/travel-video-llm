@@ -5,6 +5,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 
 import { buildSlideshowAudioPlan } from '@/services/slideshow/slideshowAudioService';
+import { getSlideshowPhotoSceneLayout } from '@/services/slideshow/slideshowCompositionLayout';
+import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
 import {
   buildSceneTimeline,
   getSceneDisplayPhoto,
@@ -14,8 +16,10 @@ import type {
   SlideshowAudioSegment,
   SlideshowEventContext,
   SlideshowPhoto,
+  SlideshowPhotoSceneLayout,
   SlideshowScene,
   SlideshowTimelineScene,
+  CompositionOrientation,
 } from '@/types/slideshow';
 import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
 
@@ -53,6 +57,8 @@ type NativeAudioSegment = SlideshowAudioSegment;
 
 type NativeExportConfig = {
   eventTitle: string;
+  compositionOrientation: CompositionOrientation;
+  photoSceneLayout: SlideshowPhotoSceneLayout;
   outputWidth: number;
   outputHeight: number;
   outputPath: string;
@@ -457,6 +463,7 @@ export async function exportSlideshowVideo(params: {
     params.slideDurationMs,
     EXPORT_MAX_DURATION_MS,
   );
+  const compositionProfile = buildSlideshowCompositionProfile(params.photos);
   const assetMap = await preparePhotoAssetMap(exportTimeline, params.photos);
   const audioPlan = await buildSlideshowAudioPlan({
     event: params.event,
@@ -467,6 +474,8 @@ export async function exportSlideshowVideo(params: {
 
   const config: NativeExportConfig = {
     eventTitle: params.event.title,
+    compositionOrientation: compositionProfile.orientation,
+    photoSceneLayout: getSlideshowPhotoSceneLayout(compositionProfile.orientation),
     outputWidth: EXPORT_WIDTH,
     outputHeight: EXPORT_HEIGHT,
     outputPath: buildOutputPath(params.event.title),
@@ -479,6 +488,7 @@ export async function exportSlideshowVideo(params: {
 
   logExportDebug('export_start', {
     eventId: params.event.id,
+    compositionOrientation: compositionProfile.orientation,
     includeSubtitles: params.includeSubtitles,
     sceneCount: config.scenes.length,
     subtitleCount: config.subtitles.length,

@@ -42,6 +42,24 @@ export type SlideshowTimelineScene = SlideshowScene & {
   durationMs: number;
 };
 
+export type CompositionOrientation = 'portrait-dominant' | 'landscape-dominant';
+
+export type SlideshowCompositionProfile = {
+  orientation: CompositionOrientation;
+  landscapeCount: number;
+  portraitCount: number;
+  squareCount: number;
+};
+
+export type SlideshowPhotoSceneLayout = {
+  stageLeftRatio: number;
+  stageTopRatio: number;
+  stageWidthRatio: number;
+  stageHeightRatio: number;
+  subtitleTopRatio: number;
+  subtitleHorizontalPaddingRatio: number;
+};
+
 export type SlideshowAudioManifestTrack = {
   provider: string;
   selectionBucket: string;

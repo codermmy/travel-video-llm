@@ -5,6 +5,12 @@ import type { PhotoMetadata } from '@/types/photo';
 import { toSafeIsoDateTime } from '@/utils/dateTimeUtils';
 import { photoApi } from '@/services/api/photoApi';
 import { registerLocalMediaEntries } from '@/services/media/localMediaRegistry';
+import {
+  createImportTask,
+  failImportTask,
+  finalizeImportTask,
+  updateImportTaskProgress,
+} from '@/services/import/importTaskService';
 import { enqueueOnDeviceVisionSync } from '@/services/vision/onDeviceVisionQueueService';
 import type { ImportProgress, ImportStage } from '@/components/import/ImportProgressModal';
 
@@ -50,6 +56,7 @@ export type ImportResult = {
   queuedVision: number;
   failed: number;
   taskId?: string | null;
+  importTaskId?: string | null;
 };
 
 export type ImportCacheSummary = {
@@ -131,8 +138,11 @@ function setProgress(
   current?: number,
   total?: number,
   detail?: string,
+  importTaskId?: string | null,
 ): void {
-  onProgress?.({ stage, current, total, detail });
+  const progress = { stage, current, total, detail };
+  onProgress?.(progress);
+  void updateImportTaskProgress(importTaskId, progress);
 }
 
 function isUsableUri(uri: string | null | undefined): uri is string {
@@ -165,6 +175,8 @@ function buildMetadataFromMediaAsset(params: ResolvedPickerItem): PhotoMetadata 
 function toRegistryEntry(item: ResolvedPickerItem): {
   photoId?: string | null;
   assetId?: string | null;
+  width?: number | null;
+  height?: number | null;
   shootTime?: string | null;
   gpsLat?: number | null;
   gpsLon?: number | null;
@@ -174,6 +186,8 @@ function toRegistryEntry(item: ResolvedPickerItem): {
   const shootTime = toSafeIsoDateTime(item.creationTime) ?? null;
   return {
     assetId: item.assetId ?? null,
+    width: item.width,
+    height: item.height,
     shootTime,
     gpsLat: item.location?.latitude ?? null,
     gpsLon: item.location?.longitude ?? null,
@@ -237,10 +251,11 @@ function dedupeMetadataIndices(indices: number[], items: PhotoMetadataItem[]): n
 async function resolveLibraryAssets(
   assets: MediaLibrary.Asset[],
   onProgress?: ProgressCb,
+  importTaskId?: string | null,
 ): Promise<ProcessedPickerItem[]> {
   const resolved: ProcessedPickerItem[] = [];
 
-  setProgress(onProgress, 'scanning', 0, assets.length, '正在解析照片信息...');
+  setProgress(onProgress, 'scanning', 0, assets.length, '正在解析照片信息...', importTaskId);
   for (let index = 0; index < assets.length; index += 1) {
     const asset = assets[index];
     let uri = asset.uri ?? '';
@@ -272,7 +287,7 @@ async function resolveLibraryAssets(
       location,
       hasUsableUri: isUsableUri(uri),
     });
-    setProgress(onProgress, 'scanning', index + 1, assets.length);
+    setProgress(onProgress, 'scanning', index + 1, assets.length, undefined, importTaskId);
   }
 
   return resolved;
@@ -296,6 +311,7 @@ function mergeImportedAssetIds(
 async function resolveRecentAssets(
   limit: number,
   onProgress?: ProgressCb,
+  importTaskId?: string | null,
 ): Promise<ProcessedPickerItem[]> {
   const page = await MediaLibrary.getAssetsAsync({
     first: limit,
@@ -305,7 +321,14 @@ async function resolveRecentAssets(
   const assets = page.assets ?? [];
   const resolved: ProcessedPickerItem[] = [];
 
-  setProgress(onProgress, 'scanning', 0, assets.length, `正在读取最近 ${limit} 张照片...`);
+  setProgress(
+    onProgress,
+    'scanning',
+    0,
+    assets.length,
+    `正在读取最近 ${limit} 张照片...`,
+    importTaskId,
+  );
   for (let index = 0; index < assets.length; index += 1) {
     const asset = assets[index];
     let uri = asset.uri;
@@ -329,7 +352,7 @@ async function resolveRecentAssets(
       location,
       hasUsableUri: isUsableUri(uri),
     });
-    setProgress(onProgress, 'scanning', index + 1, assets.length);
+    setProgress(onProgress, 'scanning', index + 1, assets.length, undefined, importTaskId);
   }
 
   return resolved;
@@ -354,6 +377,7 @@ async function runMetadataOnlyImport(params: {
   resolved: ProcessedPickerItem[];
   onProgress?: ProgressCb;
   targetEventId?: string | null;
+  importTaskId?: string | null;
 }): Promise<ImportResult> {
   const processingFailed = params.resolved.filter((item) => !item.hasUsableUri).length;
   const importableItems = params.resolved.filter((item) => item.hasUsableUri);
@@ -368,10 +392,18 @@ async function runMetadataOnlyImport(params: {
       queuedVision: 0,
       failed: processingFailed,
       taskId: null,
+      importTaskId: params.importTaskId ?? null,
     };
   }
 
-  setProgress(params.onProgress, 'dedup', undefined, undefined, '正在按 metadata 查重...');
+  setProgress(
+    params.onProgress,
+    'dedup',
+    undefined,
+    undefined,
+    '正在按 metadata 查重...',
+    params.importTaskId,
+  );
   const metadataItems = importableItems.map((item) =>
     buildMetadataItem({
       assetId: item.assetId,
@@ -396,6 +428,7 @@ async function runMetadataOnlyImport(params: {
       queuedVision: 0,
       failed: processingFailed,
       taskId: null,
+      importTaskId: params.importTaskId ?? null,
     };
   }
 
@@ -403,12 +436,20 @@ async function runMetadataOnlyImport(params: {
 
   const metadataList = newItems.map((item) => buildMetadataFromMediaAsset(item));
 
-  setProgress(params.onProgress, 'uploading', 0, newItems.length, '正在同步 metadata...');
+  setProgress(
+    params.onProgress,
+    'uploading',
+    0,
+    newItems.length,
+    '正在同步 metadata...',
+    params.importTaskId,
+  );
   const uploadResult = await photoApi.uploadPhotos(
     newItems.map((item, index) => ({
       metadata: metadataList[index],
     })),
-    (current, total) => setProgress(params.onProgress, 'uploading', current, total),
+    (current, total) =>
+      setProgress(params.onProgress, 'uploading', current, total, undefined, params.importTaskId),
     { triggerClustering: !params.targetEventId },
   );
 
@@ -451,6 +492,7 @@ async function runMetadataOnlyImport(params: {
           }
           return {
             photoId: uploadedItem.id,
+            importTaskId: params.importTaskId ?? null,
             assetId: uploadedItem.assetId ?? localItem.assetId,
             localUri: localItem.uri,
             localCoverUri: localItem.uri,
@@ -487,6 +529,7 @@ async function runMetadataOnlyImport(params: {
       : queuedVision > 0
         ? 'metadata 已同步，事件正在聚合，照片内容会在后台继续分析...'
         : 'metadata 已同步，正在聚合事件...',
+    params.importTaskId,
   );
 
   await finalizeImportCache({ source: params.source, importedItems: newItems });
@@ -499,6 +542,7 @@ async function runMetadataOnlyImport(params: {
     queuedVision,
     failed: uploadResult.failed + processingFailed,
     taskId: uploadResult.taskId ?? null,
+    importTaskId: params.importTaskId ?? null,
   };
 }
 
@@ -519,13 +563,29 @@ export async function importRecentPhotos(params?: {
     throw new Error('photo_library_permission_denied');
   }
 
-  const resolved = await resolveRecentAssets(limit, params?.onProgress);
-  return runMetadataOnlyImport({
-    selectedCount: resolved.length,
+  const importTaskId = await createImportTask({
     source: 'recent',
-    resolved,
-    onProgress: params?.onProgress,
+    detail: `正在准备导入最近 ${limit} 张照片...`,
   });
+
+  try {
+    const resolved = await resolveRecentAssets(limit, params?.onProgress, importTaskId);
+    const result = await runMetadataOnlyImport({
+      selectedCount: resolved.length,
+      source: 'recent',
+      resolved,
+      onProgress: params?.onProgress,
+      importTaskId,
+    });
+    await finalizeImportTask(importTaskId, result);
+    return result;
+  } catch (error) {
+    await failImportTask(
+      importTaskId,
+      error instanceof Error ? error.message : '导入失败，请稍后重试',
+    );
+    throw error;
+  }
 }
 
 export async function importSelectedLibraryAssets(params: {
@@ -547,17 +607,36 @@ export async function importSelectedLibraryAssets(params: {
       queuedVision: 0,
       failed: 0,
       taskId: null,
+      importTaskId: null,
     };
   }
 
-  const resolved = await resolveLibraryAssets(params.assets, params.onProgress);
-  return runMetadataOnlyImport({
-    selectedCount: params.assets.length,
+  const importTaskId = await createImportTask({
     source: 'manual',
-    resolved,
-    onProgress: params.onProgress,
-    targetEventId: params.targetEventId,
+    detail: params.targetEventId ? '正在准备补导入到当前事件...' : '正在准备手动补导入...',
   });
+
+  try {
+    const resolved = await resolveLibraryAssets(params.assets, params.onProgress, importTaskId);
+    const result = await runMetadataOnlyImport({
+      selectedCount: params.assets.length,
+      source: 'manual',
+      resolved,
+      onProgress: params.onProgress,
+      targetEventId: params.targetEventId,
+      importTaskId,
+    });
+    await finalizeImportTask(importTaskId, result, {
+      targetEventId: params.targetEventId,
+    });
+    return result;
+  } catch (error) {
+    await failImportTask(
+      importTaskId,
+      error instanceof Error ? error.message : '导入失败，请稍后重试',
+    );
+    throw error;
+  }
 }
 
 export async function getImportCacheSummary(): Promise<ImportCacheSummary> {

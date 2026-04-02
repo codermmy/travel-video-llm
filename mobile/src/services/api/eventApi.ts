@@ -162,6 +162,18 @@ async function hydrateEventDetailLocalMedia(event: EventDetail): Promise<EventDe
     return {
       ...photo,
       assetId: photo.assetId ?? mediaEntry?.assetId ?? null,
+      width:
+        typeof photo.width === 'number'
+          ? photo.width
+          : typeof mediaEntry?.width === 'number'
+            ? mediaEntry.width
+            : null,
+      height:
+        typeof photo.height === 'number'
+          ? photo.height
+          : typeof mediaEntry?.height === 'number'
+            ? mediaEntry.height
+            : null,
       localUri: photo.localUri ?? mediaEntry?.localUri ?? null,
       localThumbnailUri: photo.localThumbnailUri ?? mediaEntry?.localThumbnailUri ?? null,
       localCoverUri:

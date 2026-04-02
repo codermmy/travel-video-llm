@@ -208,10 +208,14 @@ class TravelSlideshowExportModule : Module() {
 
   private fun drawPhotoScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     val photoBitmap = loadScaledBitmap(Uri.parse(scene.photoUri ?: "")) ?: return
-
-    val frameRect = RectF(48f, 80f, config.outputWidth - 48f, config.outputHeight - 220f)
+    val frameRect = RectF(
+      (config.outputWidth * config.photoSceneLayout.stageLeftRatio).toFloat(),
+      (config.outputHeight * config.photoSceneLayout.stageTopRatio).toFloat(),
+      (config.outputWidth * (config.photoSceneLayout.stageLeftRatio + config.photoSceneLayout.stageWidthRatio)).toFloat(),
+      (config.outputHeight * (config.photoSceneLayout.stageTopRatio + config.photoSceneLayout.stageHeightRatio)).toFloat(),
+    )
     val backgroundRect = RectF(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat())
-    drawBitmapCenterCrop(canvas, photoBitmap, backgroundRect)
+    drawBlurredBackdrop(canvas, photoBitmap, backgroundRect)
     val shadePaint = Paint().apply { color = Color.argb(96, 20, 13, 9) }
     canvas.drawRect(backgroundRect, shadePaint)
 
@@ -222,7 +226,10 @@ class TravelSlideshowExportModule : Module() {
     drawBitmapFitCenter(canvas, photoBitmap, frameRect)
 
     if (config.includeSubtitles && !scene.body.isNullOrBlank()) {
-      val subtitleTop = config.outputHeight - 270f
+      val subtitleTop = min(
+        (config.outputHeight * config.photoSceneLayout.subtitleTopRatio).toFloat(),
+        config.outputHeight - 250f,
+      )
       val gradientPaint = Paint().apply {
         shader = LinearGradient(
           0f,
@@ -238,9 +245,9 @@ class TravelSlideshowExportModule : Module() {
       drawCenteredTextBlock(
         canvas = canvas,
         text = scene.body ?: "",
-        width = config.outputWidth - 140,
-        left = 70f,
-        top = config.outputHeight - 214f,
+        width = config.outputWidth - (config.outputWidth * config.photoSceneLayout.subtitleHorizontalPaddingRatio * 2).toInt(),
+        left = (config.outputWidth * config.photoSceneLayout.subtitleHorizontalPaddingRatio).toFloat(),
+        top = subtitleTop + 22f,
         textSizePx = 54f,
         lineSpacingExtraPx = 10f,
         color = Color.parseColor("#FFF8F0"),
@@ -421,6 +428,14 @@ class TravelSlideshowExportModule : Module() {
     canvas.drawBitmap(bitmap, srcRect, destination, null)
   }
 
+  private fun drawBlurredBackdrop(canvas: Canvas, bitmap: Bitmap, destination: RectF) {
+    val scaledWidth = max(24, bitmap.width / 32)
+    val scaledHeight = max(24, bitmap.height / 32)
+    val blurredBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
+    drawBitmapCenterCrop(canvas, blurredBitmap, destination)
+    blurredBitmap.recycle()
+  }
+
   private fun drawBitmapFitCenter(canvas: Canvas, bitmap: Bitmap, destination: RectF) {
     val sourceAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
     val destinationAspect = destination.width() / destination.height()
@@ -462,6 +477,11 @@ class TravelSlideshowExportModule : Module() {
     val audioSegments = rawConfig.list("audioSegments").map(::parseAudioSegment)
     return ExportConfig(
       eventTitle = rawConfig.string("eventTitle") ?: "Travel Story",
+      compositionOrientation = rawConfig.string("compositionOrientation") ?: "portrait-dominant",
+      photoSceneLayout = parsePhotoSceneLayout(
+        rawConfig.map("photoSceneLayout")
+          ?: throw IllegalArgumentException("photoSceneLayout is required"),
+      ),
       outputWidth = rawConfig.int("outputWidth") ?: 1080,
       outputHeight = rawConfig.int("outputHeight") ?: 1920,
       outputPath = rawConfig.string("outputPath") ?: throw IllegalArgumentException("outputPath is required"),
@@ -514,8 +534,22 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
+  private fun parsePhotoSceneLayout(raw: Map<String, Any?>): PhotoSceneLayout {
+    return PhotoSceneLayout(
+      stageLeftRatio = raw.double("stageLeftRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageLeftRatio is required"),
+      stageTopRatio = raw.double("stageTopRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageTopRatio is required"),
+      stageWidthRatio = raw.double("stageWidthRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageWidthRatio is required"),
+      stageHeightRatio = raw.double("stageHeightRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageHeightRatio is required"),
+      subtitleTopRatio = raw.double("subtitleTopRatio") ?: throw IllegalArgumentException("photoSceneLayout.subtitleTopRatio is required"),
+      subtitleHorizontalPaddingRatio = raw.double("subtitleHorizontalPaddingRatio")
+        ?: throw IllegalArgumentException("photoSceneLayout.subtitleHorizontalPaddingRatio is required"),
+    )
+  }
+
   private data class ExportConfig(
     val eventTitle: String,
+    val compositionOrientation: String,
+    val photoSceneLayout: PhotoSceneLayout,
     val outputWidth: Int,
     val outputHeight: Int,
     val outputPath: String,
@@ -560,6 +594,15 @@ class TravelSlideshowExportModule : Module() {
     val fadeInMs: Int,
     val fadeOutMs: Int,
   )
+
+  private data class PhotoSceneLayout(
+    val stageLeftRatio: Double,
+    val stageTopRatio: Double,
+    val stageWidthRatio: Double,
+    val stageHeightRatio: Double,
+    val subtitleTopRatio: Double,
+    val subtitleHorizontalPaddingRatio: Double,
+  )
 }
 
 private fun Map<String, Any?>.string(key: String): String? = when (val value = this[key]) {
@@ -577,9 +620,20 @@ private fun Map<String, Any?>.int(key: String): Int? = when (val value = this[ke
 
 private fun Map<String, Any?>.boolean(key: String): Boolean? = this[key] as? Boolean
 
+private fun Map<String, Any?>.double(key: String): Double? = when (val value = this[key]) {
+  is Double -> value
+  is Float -> value.toDouble()
+  is Int -> value.toDouble()
+  is Long -> value.toDouble()
+  else -> null
+}
+
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.list(key: String): List<Map<String, Any?>> =
   (this[key] as? List<*>)?.mapNotNull { it as? Map<String, Any?> } ?: emptyList()
+
+@Suppress("UNCHECKED_CAST")
+private fun Map<String, Any?>.map(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
 
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.stringList(key: String): List<String> =

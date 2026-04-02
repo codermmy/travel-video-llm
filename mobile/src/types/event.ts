@@ -94,6 +94,8 @@ export interface EventPhotoItem {
   id: string;
   fileHash?: string | null;
   assetId?: string | null;
+  width?: number | null;
+  height?: number | null;
   localUri?: string | null;
   localThumbnailUri?: string | null;
   localCoverUri?: string | null;

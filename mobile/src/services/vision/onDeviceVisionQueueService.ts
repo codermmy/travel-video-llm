@@ -21,6 +21,7 @@ type QueuePhase = 'pending_analysis' | 'analyzing' | 'pending_sync' | 'syncing';
 
 type QueueItem = OnDeviceVisionAnalysisInput & {
   photoId: string;
+  importTaskId?: string | null;
   phase: QueuePhase;
   attempts: number;
   enqueuedAt: string;
@@ -34,6 +35,15 @@ type QueueStorage = {
   items: Record<string, QueueItem>;
 };
 
+export type OnDeviceVisionQueueTaskSnapshot = {
+  totalCount: number;
+  remainingCount: number;
+  pendingAnalysisCount: number;
+  analyzingCount: number;
+  pendingSyncCount: number;
+  syncingCount: number;
+};
+
 export type OnDeviceVisionQueueSnapshot = {
   totalCount: number;
   remainingCount: number;
@@ -42,6 +52,7 @@ export type OnDeviceVisionQueueSnapshot = {
   pendingSyncCount: number;
   syncingCount: number;
   hasPendingWork: boolean;
+  taskSnapshots: Record<string, OnDeviceVisionQueueTaskSnapshot>;
 };
 
 type QueueListener = (snapshot: OnDeviceVisionQueueSnapshot) => void;
@@ -92,7 +103,12 @@ async function readQueueStorage(): Promise<QueueStorage> {
       return { items: {} };
     }
     const parsed = JSON.parse(raw) as Partial<QueueStorage>;
-    if (!parsed || typeof parsed !== 'object' || !parsed.items || typeof parsed.items !== 'object') {
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !parsed.items ||
+      typeof parsed.items !== 'object'
+    ) {
       return { items: {} };
     }
     return {
@@ -126,9 +142,28 @@ function buildSnapshot(): OnDeviceVisionQueueSnapshot {
     pending_sync: 0,
     syncing: 0,
   };
+  const taskCounts = new Map<
+    string,
+    {
+      pending_analysis: number;
+      analyzing: number;
+      pending_sync: number;
+      syncing: number;
+    }
+  >();
 
   for (const item of itemsByPhotoId.values()) {
     counts[item.phase] += 1;
+    if (item.importTaskId) {
+      const currentTaskCounts = taskCounts.get(item.importTaskId) ?? {
+        pending_analysis: 0,
+        analyzing: 0,
+        pending_sync: 0,
+        syncing: 0,
+      };
+      currentTaskCounts[item.phase] += 1;
+      taskCounts.set(item.importTaskId, currentTaskCounts);
+    }
   }
 
   const remainingCount =
@@ -142,6 +177,27 @@ function buildSnapshot(): OnDeviceVisionQueueSnapshot {
     pendingSyncCount: counts.pending_sync,
     syncingCount: counts.syncing,
     hasPendingWork: remainingCount > 0,
+    taskSnapshots: Object.fromEntries(
+      Array.from(taskCounts.entries()).map(([taskId, taskSnapshot]) => {
+        const taskRemainingCount =
+          taskSnapshot.pending_analysis +
+          taskSnapshot.analyzing +
+          taskSnapshot.pending_sync +
+          taskSnapshot.syncing;
+
+        return [
+          taskId,
+          {
+            totalCount: taskRemainingCount,
+            remainingCount: taskRemainingCount,
+            pendingAnalysisCount: taskSnapshot.pending_analysis,
+            analyzingCount: taskSnapshot.analyzing,
+            pendingSyncCount: taskSnapshot.pending_sync,
+            syncingCount: taskSnapshot.syncing,
+          },
+        ];
+      }),
+    ),
   };
 }
 
@@ -163,7 +219,12 @@ async function ensureLoaded(): Promise<void> {
       photoId,
       {
         ...item,
-        phase: item.phase === 'analyzing' ? 'pending_analysis' : item.phase === 'syncing' ? 'pending_sync' : item.phase,
+        phase:
+          item.phase === 'analyzing'
+            ? 'pending_analysis'
+            : item.phase === 'syncing'
+              ? 'pending_sync'
+              : item.phase,
       },
     ]),
   );
@@ -293,8 +354,9 @@ export async function startOnDeviceVisionQueue(): Promise<void> {
 }
 
 export async function enqueueOnDeviceVisionSync(
-  items: Array<{
+  items: {
     photoId: string;
+    importTaskId?: string | null;
     assetId?: string;
     hash?: string;
     localUri: string;
@@ -303,7 +365,7 @@ export async function enqueueOnDeviceVisionSync(
     width?: number;
     height?: number;
     fileSize?: number;
-  }>,
+  }[],
 ): Promise<number> {
   await ensureLoaded();
 
@@ -323,6 +385,7 @@ export async function enqueueOnDeviceVisionSync(
         fileSize: item.fileSize,
       }),
       photoId: item.photoId,
+      importTaskId: item.importTaskId ?? existing?.importTaskId ?? null,
       phase: existing?.phase ?? 'pending_analysis',
       attempts: existing?.attempts ?? 0,
       enqueuedAt: existing?.enqueuedAt ?? now,

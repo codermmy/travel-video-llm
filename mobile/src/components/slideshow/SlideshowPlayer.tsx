@@ -10,6 +10,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Audio, type AVPlaybackSource } from 'expo-av';
@@ -39,6 +40,8 @@ import {
   getAudioVolumeAtPosition,
 } from '@/services/slideshow/slideshowAudioService';
 import { exportSlideshowVideo } from '@/services/slideshow/slideshowExportService';
+import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
+import { getSlideshowPhotoSceneLayout } from '@/services/slideshow/slideshowCompositionLayout';
 import {
   buildSceneTimeline,
   findTimelineSceneAtPosition,
@@ -155,21 +158,6 @@ function getChapterTitle(chapter: EventChapter | null | undefined): string {
     return '旅行片段';
   }
   return chapter.chapterTitle?.trim() || `第 ${chapter.chapterIndex} 章`;
-}
-
-function getPhotoOrientation(
-  aspectRatio?: number,
-): 'landscape' | 'portrait' | 'square' | 'unknown' {
-  if (!aspectRatio) {
-    return 'unknown';
-  }
-  if (aspectRatio > 1.02) {
-    return 'landscape';
-  }
-  if (aspectRatio < 0.98) {
-    return 'portrait';
-  }
-  return 'square';
 }
 
 function getSceneDisplayPhoto(
@@ -476,7 +464,9 @@ function SceneLayer({
   scene,
   eventTitle,
   photoUri,
-  photoOrientation,
+  photoSceneLayout,
+  viewportWidth,
+  viewportHeight,
   motionStyle,
   onPhotoLoad,
   onPhotoError,
@@ -484,49 +474,59 @@ function SceneLayer({
   scene: SlideshowScene;
   eventTitle: string;
   photoUri: string | null;
-  photoOrientation: 'landscape' | 'portrait' | 'square' | 'unknown';
+  photoSceneLayout: {
+    stageLeftRatio: number;
+    stageTopRatio: number;
+    stageWidthRatio: number;
+    stageHeightRatio: number;
+  };
+  viewportWidth: number;
+  viewportHeight: number;
   motionStyle?: object;
   onPhotoLoad?: (event: any) => void;
   onPhotoError?: () => void;
 }) {
   if (scene.type === 'photo') {
+    const photoStageStyle = {
+      position: 'absolute' as const,
+      left: viewportWidth * photoSceneLayout.stageLeftRatio,
+      top: viewportHeight * photoSceneLayout.stageTopRatio,
+      width: viewportWidth * photoSceneLayout.stageWidthRatio,
+      height: viewportHeight * photoSceneLayout.stageHeightRatio,
+    };
+
     return (
       <View style={styles.photoFrame}>
-        {photoUri ? (
-          motionStyle ? (
-            <MotionImage
-              source={{ uri: photoUri }}
-              style={[
-                styles.photo,
-                motionStyle,
-                photoOrientation === 'landscape' && styles.photoLandscape,
-                photoOrientation === 'portrait' && styles.photoPortrait,
-                photoOrientation === 'square' && styles.photoSquare,
-              ]}
-              resizeMode="contain"
-              onLoad={onPhotoLoad}
-              onError={onPhotoError}
-            />
+        <View style={[styles.photoStage, photoStageStyle]}>
+          {photoUri ? (
+            motionStyle ? (
+              <MotionImage
+                source={{ uri: photoUri }}
+                style={[styles.photoStageImage, motionStyle]}
+                resizeMode="contain"
+                onLoad={onPhotoLoad}
+                onError={onPhotoError}
+              />
+            ) : (
+              <Image
+                source={{ uri: photoUri }}
+                style={styles.photoStageImage}
+                resizeMode="contain"
+                onLoad={onPhotoLoad}
+                onError={onPhotoError}
+              />
+            )
           ) : (
-            <Image
-              source={{ uri: photoUri }}
-              style={[
-                styles.photo,
-                photoOrientation === 'landscape' && styles.photoLandscape,
-                photoOrientation === 'portrait' && styles.photoPortrait,
-                photoOrientation === 'square' && styles.photoSquare,
-              ]}
-              resizeMode="contain"
-              onLoad={onPhotoLoad}
-              onError={onPhotoError}
-            />
-          )
-        ) : (
-          <View style={styles.photoMissingState}>
-            <MaterialCommunityIcons name="image-broken-variant" size={34} color="#E7D2BB" />
-            <Text style={styles.photoMissingText}>当前照片暂时不可用</Text>
-          </View>
-        )}
+            <View style={styles.photoMissingState}>
+              <MaterialCommunityIcons name="image-broken-variant" size={34} color="#E7D2BB" />
+              <Text style={styles.photoMissingText}>当前照片暂时不可用</Text>
+            </View>
+          )}
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.08)']}
+            style={styles.photoStageShade}
+          />
+        </View>
       </View>
     );
   }
@@ -575,6 +575,7 @@ function SceneLayer({
 
 export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const scenes = useMemo(() => buildScenes(photos, event.chapters), [event.chapters, photos]);
 
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
@@ -697,14 +698,15 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     }
   }, [currentScene?.type, currentScenePhoto?.shootTime]);
 
-  const currentPhotoAspectRatio = currentScenePhoto?.id
-    ? photoAspectRatios[currentScenePhoto.id]
-    : undefined;
-  const previousPhotoAspectRatio = previousScenePhoto?.id
-    ? photoAspectRatios[previousScenePhoto.id]
-    : undefined;
-  const photoOrientation = getPhotoOrientation(currentPhotoAspectRatio);
-  const previousPhotoOrientation = getPhotoOrientation(previousPhotoAspectRatio);
+  const compositionProfile = useMemo(
+    () => buildSlideshowCompositionProfile(photos, photoAspectRatios),
+    [photoAspectRatios, photos],
+  );
+  const photoSceneLayout = useMemo(
+    () => getSlideshowPhotoSceneLayout(compositionProfile.orientation),
+    [compositionProfile.orientation],
+  );
+  const subtitleTop = viewportHeight * photoSceneLayout.subtitleTopRatio;
 
   const motionStyle = useAnimatedStyle(() => ({
     transform: [
@@ -1419,7 +1421,6 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     return Math.max(0, Math.min(displayedTimelinePositionMs / totalTimelineMs, 1));
   }, [displayedTimelinePositionMs, totalTimelineMs]);
 
-  const storyBottom = controlsVisible ? insets.bottom + footerHeight + 28 : insets.bottom + 38;
   const headerTop = insets.top + 12;
   const footerBottom = insets.bottom + 20;
 
@@ -1477,7 +1478,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
               scene={previousScene}
               eventTitle={event.title}
               photoUri={previousScenePhotoUri}
-              photoOrientation={previousPhotoOrientation}
+              photoSceneLayout={photoSceneLayout}
+              viewportWidth={viewportWidth}
+              viewportHeight={viewportHeight}
             />
           </RNAnimated.View>
         ) : null}
@@ -1488,7 +1491,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
               scene={currentScene}
               eventTitle={event.title}
               photoUri={currentScenePhotoUri}
-              photoOrientation={photoOrientation}
+              photoSceneLayout={photoSceneLayout}
+              viewportWidth={viewportWidth}
+              viewportHeight={viewportHeight}
               motionStyle={currentScene.type === 'photo' ? motionStyle : undefined}
               onPhotoLoad={(imageEvent) => {
                 if (!currentScenePhoto?.id) {
@@ -1521,7 +1526,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       {currentScene?.type === 'photo' && currentSubtitle ? (
         <RNAnimated.View
           pointerEvents="none"
-          style={[styles.subtitleWrap, { bottom: storyBottom }, subtitleAnimatedStyle]}
+          style={[styles.subtitleWrap, { top: subtitleTop }, subtitleAnimatedStyle]}
         >
           <LinearGradient
             colors={['rgba(20,13,9,0)', 'rgba(20,13,9,0.28)', 'rgba(20,13,9,0)']}
@@ -1723,24 +1728,28 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 22,
   },
-  photo: {
+  photoStage: {
+    borderRadius: 28,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,244,230,0.14)',
+    backgroundColor: 'rgba(10,8,7,0.64)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.24,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 18 },
+  },
+  photoStageImage: {
     width: '100%',
     height: '100%',
   },
-  photoLandscape: {
-    width: '100%',
-    height: '78%',
-  },
-  photoPortrait: {
-    width: '94%',
-    height: '100%',
-  },
-  photoSquare: {
-    width: '94%',
-    height: '94%',
+  photoStageShade: {
+    ...StyleSheet.absoluteFillObject,
   },
   photoShade: {
     ...StyleSheet.absoluteFillObject,

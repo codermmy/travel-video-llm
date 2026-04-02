@@ -14,6 +14,8 @@ export type LocalMediaRegistryEntry = {
   photoId?: string | null;
   fileHash?: string | null;
   assetId?: string | null;
+  width?: number | null;
+  height?: number | null;
   shootTime?: string | null;
   gpsLat?: number | null;
   gpsLon?: number | null;
@@ -122,6 +124,8 @@ export async function registerLocalMediaEntries(
     photoId?: string | null;
     fileHash?: string | null;
     assetId?: string | null;
+    width?: number | null;
+    height?: number | null;
     shootTime?: string | null;
     gpsLat?: number | null;
     gpsLon?: number | null;
@@ -140,7 +144,7 @@ export async function registerLocalMediaEntries(
         gpsLat: entry.gpsLat,
         gpsLon: entry.gpsLon,
       }).map((registryKey) => ({
-      ...entry,
+        ...entry,
         registryKey,
       })),
     )
@@ -151,6 +155,8 @@ export async function registerLocalMediaEntries(
         fileHash?: string | null;
         photoId?: string | null;
         assetId?: string | null;
+        width?: number | null;
+        height?: number | null;
         shootTime?: string | null;
         gpsLat?: number | null;
         gpsLon?: number | null;
@@ -174,6 +180,8 @@ export async function registerLocalMediaEntries(
       fileHash: entry.fileHash ?? previous?.fileHash ?? null,
       photoId: entry.photoId ?? previous?.photoId ?? null,
       assetId: entry.assetId ?? previous?.assetId ?? null,
+      width: entry.width ?? previous?.width ?? null,
+      height: entry.height ?? previous?.height ?? null,
       shootTime: entry.shootTime ?? previous?.shootTime ?? null,
       gpsLat: entry.gpsLat ?? previous?.gpsLat ?? null,
       gpsLon: entry.gpsLon ?? previous?.gpsLon ?? null,
@@ -245,7 +253,9 @@ export async function resolveLocalMediaEntriesByAssetIds(
   assetIds: (string | null | undefined)[],
 ): Promise<Map<string, LocalMediaRegistryEntry>> {
   const uniqueAssetIds = Array.from(
-    new Set(assetIds.filter((value): value is string => isNonEmptyString(value)).map((v) => v.trim())),
+    new Set(
+      assetIds.filter((value): value is string => isNonEmptyString(value)).map((v) => v.trim()),
+    ),
   );
   if (uniqueAssetIds.length === 0) {
     logMediaDebug('resolveLocalMediaEntriesByAssetIds skipped', { reason: 'no_asset_ids' });
@@ -276,6 +286,8 @@ export async function resolveLocalMediaEntriesByAssetIds(
 
   const hydratedEntries: {
     assetId: string;
+    width?: number | null;
+    height?: number | null;
     localUri?: string | null;
     localCoverUri?: string | null;
   }[] = [];
@@ -289,6 +301,8 @@ export async function resolveLocalMediaEntriesByAssetIds(
       }
       hydratedEntries.push({
         assetId,
+        width: typeof info.width === 'number' ? info.width : null,
+        height: typeof info.height === 'number' ? info.height : null,
         localUri,
         localCoverUri: localUri,
       });
@@ -304,6 +318,8 @@ export async function resolveLocalMediaEntriesByAssetIds(
         assetId: entry.assetId,
         fileHash: null,
         photoId: null,
+        width: null,
+        height: null,
         shootTime: null,
         gpsLat: null,
         gpsLon: null,

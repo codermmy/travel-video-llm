@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { PaperProvider, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import {
+  dismissImportTask,
+  getImportTaskState,
+  loadImportTasks,
+  subscribeImportTasks,
+  syncImportTasksFromVisionQueue,
+} from '@/services/import/importTaskService';
 import {
   getOnDeviceVisionQueueSnapshot,
   startOnDeviceVisionQueue,
@@ -14,18 +21,37 @@ import {
 } from '@/services/vision/onDeviceVisionQueueService';
 import { useAuthStore } from '@/stores/authStore';
 import { appTheme } from '@/styles/theme';
+import type { ImportTaskRecord, ImportTaskState } from '@/types/importTask';
 import { authDebug } from '@/utils/authDebug';
+
+const IMPORT_TASK_PHASE_ORDER = ['prepare', 'analysis', 'sync', 'story'] as const;
+
+function getTaskBannerTitle(task: ImportTaskRecord): string {
+  const phase = task.phases[task.activePhase];
+  const phaseIndex = IMPORT_TASK_PHASE_ORDER.indexOf(task.activePhase) + 1;
+
+  if (typeof phase?.current === 'number' && typeof phase.total === 'number' && phase.total > 0) {
+    if (phase.key === 'story' && phase.total === 100) {
+      return `第 ${phaseIndex}/4 步 · ${phase.label} ${Math.round(phase.current)}%`;
+    }
+    return `第 ${phaseIndex}/4 步 · ${phase.label} ${phase.current}/${phase.total}`;
+  }
+
+  return `第 ${phaseIndex}/4 步 · ${phase?.label || task.title}`;
+}
 
 /**
  * 根布局 - 自动恢复或初始化单设备会话
  */
 export default function RootLayout() {
+  const router = useRouter();
   const { isAuthenticated, isLoading, error, bootstrapDeviceSession } = useAuthStore();
   const hasBootstrapped = useRef(false);
   const appStateRef = useRef(AppState.currentState);
   const [visionQueueSnapshot, setVisionQueueSnapshot] = useState<OnDeviceVisionQueueSnapshot>(
     getOnDeviceVisionQueueSnapshot(),
   );
+  const [importTaskState, setImportTaskState] = useState<ImportTaskState>(getImportTaskState());
   const [visionNotice, setVisionNotice] = useState('');
 
   useEffect(() => {
@@ -41,12 +67,18 @@ export default function RootLayout() {
       return;
     }
 
+    const unsubscribeImportTasks = subscribeImportTasks((state) => {
+      setImportTaskState(state);
+    });
     const unsubscribe = subscribeOnDeviceVisionQueue((snapshot) => {
       setVisionQueueSnapshot(snapshot);
+      void syncImportTasksFromVisionQueue(snapshot);
     });
 
+    void loadImportTasks();
     void startOnDeviceVisionQueue().then(() => {
       const snapshot = getOnDeviceVisionQueueSnapshot();
+      void syncImportTasksFromVisionQueue(snapshot);
       if (snapshot.hasPendingWork) {
         setVisionNotice('检测到未完成整理，已继续分析照片内容');
       }
@@ -71,16 +103,22 @@ export default function RootLayout() {
         snapshot.hasPendingWork
       ) {
         void startOnDeviceVisionQueue();
+        void syncImportTasksFromVisionQueue(snapshot);
         setVisionNotice('已恢复继续整理照片内容');
       }
     });
 
     return () => {
+      unsubscribeImportTasks();
       unsubscribe();
       subscription.remove();
     };
   }, [isAuthenticated]);
 
+  const latestImportTask = importTaskState.latestVisibleTask;
+  const latestImportTaskPhase = latestImportTask
+    ? latestImportTask.phases[latestImportTask.activePhase]
+    : null;
   const visionBannerText =
     visionQueueSnapshot.syncingCount > 0
       ? `正在同步分析结果，剩余 ${visionQueueSnapshot.remainingCount} 张`
@@ -138,10 +176,38 @@ export default function RootLayout() {
             <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
             <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
             <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
+            <Stack.Screen name="profile/import-tasks" options={{ headerShown: false }} />
           </Stack>
 
-          {visionQueueSnapshot.hasPendingWork ? (
-            <View pointerEvents="none" style={styles.queueBanner}>
+          {latestImportTask ? (
+            <View style={styles.taskBanner}>
+              <Pressable
+                style={styles.taskBannerBody}
+                onPress={() => router.push('/profile/import-tasks')}
+              >
+                <View style={styles.queueBannerIcon}>
+                  <MaterialCommunityIcons name="timeline-outline" size={16} color="#FFFFFF" />
+                </View>
+                <View style={styles.taskBannerCopy}>
+                  <Text numberOfLines={1} style={styles.taskBannerTitle}>
+                    {getTaskBannerTitle(latestImportTask)}
+                  </Text>
+                  <Text numberOfLines={2} style={styles.queueBannerText}>
+                    {latestImportTaskPhase?.detail || latestImportTask.title}
+                  </Text>
+                </View>
+              </Pressable>
+              <Pressable
+                style={styles.taskBannerClose}
+                onPress={() => {
+                  void dismissImportTask(latestImportTask.id);
+                }}
+              >
+                <MaterialCommunityIcons name="close" size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          ) : visionQueueSnapshot.hasPendingWork ? (
+            <View style={styles.queueBanner}>
               <View style={styles.queueBannerIcon}>
                 <MaterialCommunityIcons name="image-search-outline" size={16} color="#FFFFFF" />
               </View>
@@ -248,6 +314,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  taskBanner: {
+    position: 'absolute',
+    top: 54,
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    borderRadius: 18,
+    paddingLeft: 14,
+    paddingRight: 8,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(20, 35, 70, 0.94)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  taskBannerBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   queueBannerIcon: {
     width: 28,
     height: 28,
@@ -256,11 +343,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#2F64D8',
   },
+  taskBannerCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  taskBannerTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   queueBannerText: {
     flex: 1,
     color: '#FFFFFF',
     lineHeight: 18,
     fontSize: 12,
     fontWeight: '600',
+  },
+  taskBannerClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
 });
