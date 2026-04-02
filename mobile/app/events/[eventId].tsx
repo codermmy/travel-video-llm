@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { EventEditSheet } from '@/components/event/EventEditSheet';
+import { EventJourneyChapterCard } from '@/components/event/EventJourneyChapterCard';
 import { EventPhotoManagerSheet } from '@/components/event/EventPhotoManagerSheet';
 import { PhotoGrid } from '@/components/photo/PhotoGrid';
 import { eventApi } from '@/services/api/eventApi';
@@ -61,6 +62,29 @@ function resolveLocation(event: EventDetail): string {
   return '地点待补充';
 }
 
+function normalizeCopy(text?: string | null): string {
+  return (text || '').replace(/\s+/g, ' ').trim();
+}
+
+function takeSentence(text?: string | null, maxChars = 28): string {
+  const normalized = normalizeCopy(text);
+  if (!normalized) {
+    return '';
+  }
+  const firstSentence = normalized.split(/[。！？!?]/)[0]?.trim() || normalized;
+  const result =
+    firstSentence.length > maxChars ? `${firstSentence.slice(0, maxChars).trim()}…` : firstSentence;
+  return result || normalized.slice(0, maxChars);
+}
+
+function takeParagraph(text?: string | null, maxChars = 80): string {
+  const normalized = normalizeCopy(text);
+  if (!normalized) {
+    return '';
+  }
+  return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trim()}…` : normalized;
+}
+
 export default function EventDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ eventId: string }>();
@@ -74,6 +98,8 @@ export default function EventDetailScreen() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPhotoManagerVisible, setIsPhotoManagerVisible] = useState(false);
+  const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
+  const [isFullStoryExpanded, setIsFullStoryExpanded] = useState(false);
 
   const setPhotoViewerSession = usePhotoViewerStore((state) => state.setSession);
   const setSlideshowSession = useSlideshowStore((state) => state.setSession);
@@ -183,6 +209,47 @@ export default function EventDetailScreen() {
   }, [event]);
 
   const fullStory = event?.fullStory || event?.storyText || null;
+  const chapterSections = useMemo(() => {
+    if (!event) {
+      return [];
+    }
+
+    return [...event.chapters]
+      .sort((left, right) => left.photoStartIndex - right.photoStartIndex)
+      .map((chapter) => {
+        const chapterPhotos = event.photos.slice(
+          chapter.photoStartIndex,
+          chapter.photoEndIndex + 1,
+        );
+        return {
+          chapter,
+          chapterPhotos,
+          teaserText:
+            takeSentence(chapter.slideshowCaption, 24) ||
+            takeSentence(chapter.chapterStory, 28) ||
+            takeSentence(chapter.chapterIntro, 28) ||
+            takeSentence(chapter.chapterSummary, 28) ||
+            `这一段旅程由 ${chapterPhotos.length} 张照片慢慢展开。`,
+          descriptionText:
+            takeParagraph(chapter.chapterStory, 96) ||
+            takeParagraph(chapter.chapterIntro, 96) ||
+            takeParagraph(chapter.chapterSummary, 96) ||
+            null,
+        };
+      });
+  }, [event]);
+  const introText = useMemo(() => {
+    if (!event) {
+      return '';
+    }
+    const firstChapter = chapterSections[0]?.chapter;
+    return (
+      takeParagraph(firstChapter?.slideshowCaption, 72) ||
+      takeParagraph(firstChapter?.chapterStory, 84) ||
+      takeParagraph(event.fullStory || event.storyText, 84) ||
+      '这一段旅途先从照片开始，让故事慢一点浮出来。'
+    );
+  }, [chapterSections, event]);
   const automaticCover = useMemo(() => {
     if (!event) {
       return { photoId: null, uri: null };
@@ -452,7 +519,7 @@ export default function EventDetailScreen() {
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>旅行故事</Text>
+            <Text style={styles.sectionTitle}>故事引子</Text>
             {event.storyFreshness === 'stale' ? (
               <View style={styles.staleBadge}>
                 <MaterialCommunityIcons name="update" size={12} color={JourneyPalette.warning} />
@@ -460,32 +527,67 @@ export default function EventDetailScreen() {
               </View>
             ) : null}
           </View>
-          {fullStory ? (
-            <Text style={styles.sectionBody}>{fullStory}</Text>
-          ) : (
-            <Text style={styles.sectionBodyMuted}>
-              {event.aiError ? `生成失败：${event.aiError}` : '故事尚未完成，稍后会自动补齐。'}
-            </Text>
-          )}
+          <Text style={styles.sectionBody}>{introText}</Text>
+          <Text style={styles.sectionBodyMuted}>先看照片片段，再决定要不要读完整故事。</Text>
         </View>
 
-        {event.chapters.length > 0 ? (
+        {chapterSections.length > 0 ? (
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>章节</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>旅程片段</Text>
+              <Text style={styles.sectionHint}>{chapterSections.length} 段</Text>
+            </View>
             <View style={styles.chapterList}>
-              {event.chapters.map((chapter) => (
-                <View key={chapter.id} style={styles.chapterItem}>
-                  <Text style={styles.chapterTitle}>
-                    {chapter.chapterTitle || `第 ${chapter.chapterIndex} 章`}
-                  </Text>
-                  {chapter.chapterStory ? (
-                    <Text style={styles.chapterStory}>{chapter.chapterStory}</Text>
-                  ) : null}
-                </View>
+              {chapterSections.map(({ chapter, chapterPhotos, teaserText, descriptionText }) => (
+                <EventJourneyChapterCard
+                  key={chapter.id}
+                  chapter={chapter}
+                  photos={chapterPhotos}
+                  teaserText={teaserText}
+                  descriptionText={descriptionText}
+                  expanded={expandedChapterId === chapter.id}
+                  onToggle={() => {
+                    setExpandedChapterId((previous) =>
+                      previous === chapter.id ? null : chapter.id,
+                    );
+                  }}
+                  onPhotoPress={(photo, index) => {
+                    onPhotoPress(photo, chapter.photoStartIndex + index);
+                  }}
+                />
               ))}
             </View>
           </View>
         ) : null}
+
+        {fullStory ? (
+          <View style={styles.sectionCard}>
+            <Pressable
+              style={({ pressed }) => [styles.storyReaderToggle, pressed && styles.pressed]}
+              onPress={() => setIsFullStoryExpanded((previous) => !previous)}
+            >
+              <View style={styles.storyReaderCopy}>
+                <Text style={styles.sectionTitle}>完整故事</Text>
+                <Text style={styles.sectionBodyMuted}>
+                  {isFullStoryExpanded ? '收起完整旁白' : '展开阅读全文'}
+                </Text>
+              </View>
+              <MaterialCommunityIcons
+                name={isFullStoryExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color={JourneyPalette.inkSoft}
+              />
+            </Pressable>
+            {isFullStoryExpanded ? <Text style={styles.sectionBody}>{fullStory}</Text> : null}
+          </View>
+        ) : (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>完整故事</Text>
+            <Text style={styles.sectionBodyMuted}>
+              {event.aiError ? `生成失败：${event.aiError}` : '故事尚未完成，稍后会自动补齐。'}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
@@ -889,22 +991,17 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   chapterList: {
-    gap: 10,
+    gap: 12,
   },
-  chapterItem: {
-    borderRadius: 20,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
-    gap: 8,
+  storyReaderToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
-  chapterTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  chapterStory: {
-    color: JourneyPalette.inkSoft,
-    lineHeight: 22,
+  storyReaderCopy: {
+    flex: 1,
+    gap: 4,
   },
   modalBackdrop: {
     flex: 1,
