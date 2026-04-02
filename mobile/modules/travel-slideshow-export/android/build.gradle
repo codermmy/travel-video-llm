@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.maoyuan.travelalbum'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.travelslideshowexport"
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  implementation "androidx.media3:media3-transformer:1.8.0"
+  implementation "androidx.media3:media3-effect:1.8.0"
+  implementation "androidx.media3:media3-common:1.8.0"
+}

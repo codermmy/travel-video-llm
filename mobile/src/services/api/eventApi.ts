@@ -53,6 +53,7 @@ function normalizeEvent(e: EventRecord): EventRecord {
   return {
     ...e,
     coverPhotoUrl: resolveApiUrl(e.coverPhotoUrl),
+    musicUrl: resolveApiUrl(e.musicUrl),
     fullStory: e.fullStory ?? e.storyText ?? null,
   };
 }

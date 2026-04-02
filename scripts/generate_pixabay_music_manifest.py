@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import unquote
 
+from mutagen import File as MutagenFile
+
 
 ROOT = Path(__file__).resolve().parents[1]
 URL_FILE = ROOT / "scripts" / "pixabay-travel-music-urls.txt"
@@ -106,6 +108,7 @@ class ManifestEntry:
     scene_fit: str
     recommended_start_sec: int
     recommended_end_sec: int
+    duration_sec: int
     fade_in_ms: int
     fade_out_ms: int
     status: str
@@ -194,6 +197,15 @@ def iter_track_files(path: Path) -> Iterable[Path]:
     return sorted(item for item in path.iterdir() if item.is_file() and item.suffix.lower() == ".mp3")
 
 
+def probe_duration_sec(path: Path) -> int:
+    audio = MutagenFile(path)
+    info = getattr(audio, "info", None)
+    length = getattr(info, "length", None)
+    if length is None:
+        return 0
+    return max(0, int(round(float(length))))
+
+
 def build_manifest_entries(url_entries: list[UrlEntry], track_files: list[Path]) -> tuple[list[ManifestEntry], list[UrlEntry]]:
     url_by_track_id = {entry.source_track_id: entry for entry in url_entries}
     found_ids: set[str] = set()
@@ -220,6 +232,7 @@ def build_manifest_entries(url_entries: list[UrlEntry], track_files: list[Path])
         )
         recommended_start_sec = 8 if defaults["energy"] >= 3 else 6
         recommended_end_sec = -1
+        duration_sec = probe_duration_sec(track_file)
 
         manifest_entries.append(
             ManifestEntry(
@@ -237,6 +250,7 @@ def build_manifest_entries(url_entries: list[UrlEntry], track_files: list[Path])
                 scene_fit=defaults["scene_fit"],
                 recommended_start_sec=recommended_start_sec,
                 recommended_end_sec=recommended_end_sec,
+                duration_sec=duration_sec,
                 fade_in_ms=1000,
                 fade_out_ms=1400,
                 status="ready",

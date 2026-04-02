@@ -34,15 +34,15 @@ coverage/
 .DS_Store
 
 # Tooling
-# Local uploads/runtime
+# Local uploads/runtime  
 logs/
 uploads/
 backend/uploads/
 mobile/modules/travel-vision/android/build/
-
+mobile/modules/travel-slideshow-export/android/build/
 # Local assistant config
 .claude/
 openspec/
-
+.sisyphus/*
 .codex/
 .opencode/

@@ -17,6 +17,7 @@ numpy>=1.26,<3
 scikit-learn>=1.4,<2
 hdbscan>=0.8.33,<1
 sentence-transformers>=3.0,<4
+mutagen>=1.47,<2
 pytest>=8.0,<9
 
 black>=24.4,<25

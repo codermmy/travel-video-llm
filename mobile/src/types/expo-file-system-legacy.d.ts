@@ -12,4 +12,9 @@ declare module 'expo-file-system/build/legacy/FileSystem' {
   export function deleteAsync(fileUri: string, options?: object): Promise<void>;
   export function readDirectoryAsync(fileUri: string): Promise<string[]>;
   export function moveAsync(options: { from: string; to: string }): Promise<void>;
+  export function downloadAsync(
+    uri: string,
+    fileUri: string,
+    options?: object,
+  ): Promise<{ uri: string; status: number; headers: Record<string, string> }>;
 }

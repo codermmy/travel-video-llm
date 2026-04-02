@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated as RNAnimated,
   AppState,
   Image,
   type LayoutChangeEvent,
-  Platform,
   Pressable,
   StatusBar,
   StyleSheet,
   Text,
-  ToastAndroid,
   View,
 } from 'react-native';
 import { Audio, type AVPlaybackSource } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ProgressBar } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Easing,
@@ -27,9 +25,25 @@ import {
 } from 'react-native-reanimated';
 
 import type { EventChapter } from '@/types/chapter';
-import { PlaybackState, type SlideshowProps } from '@/types/slideshow';
+import {
+  PlaybackState,
+  type SlideshowAudioPlan,
+  type SlideshowAudioSegment,
+  type SlideshowProps,
+} from '@/types/slideshow';
 import { formatDateTime } from '@/utils/dateUtils';
 import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
+import {
+  buildSlideshowAudioPlan,
+  getAudioSegmentAtPosition,
+  getAudioVolumeAtPosition,
+} from '@/services/slideshow/slideshowAudioService';
+import { exportSlideshowVideo } from '@/services/slideshow/slideshowExportService';
+import {
+  buildSceneTimeline,
+  findTimelineSceneAtPosition,
+  getTimelineTotalDurationMs,
+} from '@/services/slideshow/slideshowSceneBuilder';
 
 const MotionImage = createAnimatedComponent(Image);
 
@@ -85,14 +99,6 @@ function isGenericCaption(input?: string | null): boolean {
   return GENERIC_CAPTION_SET.has(normalized);
 }
 
-function notifyMusicError(message: string) {
-  if (Platform.OS === 'android') {
-    ToastAndroid.show(message, ToastAndroid.SHORT);
-    return;
-  }
-  Alert.alert('提示', message);
-}
-
 function getMusicStatusText(status: MusicSourceStatus): string {
   switch (status) {
     case 'remote':
@@ -107,6 +113,13 @@ function getMusicStatusText(status: MusicSourceStatus): string {
     default:
       return '音乐：加载中';
   }
+}
+
+function formatDurationLabel(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function computeReadingDuration(text: string, minMs: number, maxMs: number): number {
@@ -576,11 +589,23 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [footerHeight, setFooterHeight] = useState(144);
   const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
   const [photoAspectRatios, setPhotoAspectRatios] = useState<Record<string, number>>({});
+  const [audioPlan, setAudioPlan] = useState<SlideshowAudioPlan | null>(null);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPreviewMs, setSeekPreviewMs] = useState<number | null>(null);
+  const [progressTrackWidth, setProgressTrackWidth] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const playbackStateRef = useRef(playbackState);
+  const prefetchedSoundRef = useRef<Audio.Sound | null>(null);
+  const loadedAudioSegmentRef = useRef<SlideshowAudioSegment | null>(null);
+  const prefetchedAudioSegmentRef = useRef<SlideshowAudioSegment | null>(null);
+  const audioSyncInFlightRef = useRef(false);
+  const seekShouldResumeRef = useRef(false);
+  const pendingSeekMsRef = useRef<number | null>(null);
+  const currentTimelinePositionRef = useRef(0);
 
   const incomingOpacity = useRef(new RNAnimated.Value(1)).current;
   const incomingTranslateX = useRef(new RNAnimated.Value(0)).current;
@@ -628,6 +653,32 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     }
     return currentScene.minimumDurationMs;
   }, [currentScene, slideDurationMs]);
+  const timeline = useMemo(
+    () => buildSceneTimeline(scenes, slideDurationMs),
+    [scenes, slideDurationMs],
+  );
+  const totalTimelineMs = useMemo(() => getTimelineTotalDurationMs(timeline), [timeline]);
+  const currentTimelinePositionMs = useMemo(() => {
+    const sceneStartMs = timeline[currentSceneIndex]?.startMs ?? 0;
+    return Math.max(0, Math.min(sceneStartMs + elapsedMs, totalTimelineMs));
+  }, [currentSceneIndex, elapsedMs, timeline, totalTimelineMs]);
+  const displayedTimelinePositionMs =
+    isSeeking && seekPreviewMs !== null ? seekPreviewMs : currentTimelinePositionMs;
+  const currentAudioSegment = useMemo(
+    () => getAudioSegmentAtPosition(audioPlan, currentTimelinePositionMs),
+    [audioPlan, currentTimelinePositionMs],
+  );
+  const previewSceneLabel = useMemo(() => {
+    const previewPositionMs = displayedTimelinePositionMs;
+    const target = findTimelineSceneAtPosition(timeline, previewPositionMs);
+    if (!target.scene) {
+      return null;
+    }
+    if (target.scene.type === 'photo') {
+      return `${target.scene.photoIndex + 1} / ${photos.length}`;
+    }
+    return getChapterTitle(target.scene.chapter);
+  }, [displayedTimelinePositionMs, photos.length, timeline]);
 
   const sceneHeaderLabel = useMemo(
     () => getSceneHeaderLabel(currentScene, photos.length),
@@ -698,6 +749,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [playbackState]);
 
   useEffect(() => {
+    currentTimelinePositionRef.current = currentTimelinePositionMs;
+  }, [currentTimelinePositionMs]);
+
+  useEffect(() => {
     if (scenes.length === 0) {
       if (currentSceneIndex !== 0) {
         setCurrentSceneIndex(0);
@@ -748,13 +803,13 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, []);
 
   const animateSceneTransition = useCallback(
-    (nextIndex: number) => {
+    (nextIndex: number, nextElapsedMs = 0) => {
       const nextScene = scenes[nextIndex];
       const config = getTransitionConfig(nextScene?.transitionPreset ?? 'dissolve');
 
       setPreviousSceneIndex(currentSceneIndex);
       setCurrentSceneIndex(nextIndex);
-      setElapsedMs(0);
+      setElapsedMs(nextElapsedMs);
 
       incomingOpacity.setValue(config.incoming.opacity);
       incomingTranslateX.setValue(config.incoming.translateX);
@@ -854,6 +909,120 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const onPreviousByUser = useCallback(() => {
     jumpToScene(currentSceneIndex - 1, { showControls: true });
   }, [currentSceneIndex, jumpToScene]);
+
+  const applyTimelineSeek = useCallback(
+    (targetPositionMs: number, options?: { showControls?: boolean }) => {
+      const target = findTimelineSceneAtPosition(timeline, targetPositionMs);
+      if (!target.scene) {
+        return;
+      }
+      if (target.sceneIndex === currentSceneIndex) {
+        setElapsedMs(target.sceneElapsedMs);
+      } else {
+        animateSceneTransition(target.sceneIndex, target.sceneElapsedMs);
+      }
+      if (options?.showControls) {
+        resetControlAutoHide();
+      }
+    },
+    [animateSceneTransition, currentSceneIndex, resetControlAutoHide, timeline],
+  );
+
+  const updateSeekPreviewFromLocation = useCallback(
+    (locationX: number) => {
+      if (progressTrackWidth <= 0 || totalTimelineMs <= 0) {
+        return;
+      }
+      const ratio = Math.max(0, Math.min(locationX / progressTrackWidth, 1));
+      const targetPositionMs = Math.round(ratio * totalTimelineMs);
+      pendingSeekMsRef.current = targetPositionMs;
+      setSeekPreviewMs(targetPositionMs);
+    },
+    [progressTrackWidth, totalTimelineMs],
+  );
+
+  const beginSeek = useCallback(
+    (locationX: number) => {
+      seekShouldResumeRef.current = playbackStateRef.current === PlaybackState.Playing;
+      if (seekShouldResumeRef.current) {
+        setPlaybackState(PlaybackState.Paused);
+      }
+      setShowResumePrompt(false);
+      setIsSeeking(true);
+      updateSeekPreviewFromLocation(locationX);
+      resetControlAutoHide();
+    },
+    [resetControlAutoHide, updateSeekPreviewFromLocation],
+  );
+
+  const commitSeek = useCallback(() => {
+    const targetPositionMs = pendingSeekMsRef.current;
+    pendingSeekMsRef.current = null;
+    setIsSeeking(false);
+    setSeekPreviewMs(null);
+    if (typeof targetPositionMs === 'number') {
+      applyTimelineSeek(targetPositionMs, { showControls: true });
+    }
+    if (seekShouldResumeRef.current) {
+      setPlaybackState(PlaybackState.Playing);
+    }
+    seekShouldResumeRef.current = false;
+  }, [applyTimelineSeek]);
+
+  const runExport = useCallback(
+    async (includeSubtitles: boolean) => {
+      if (isExporting) {
+        return;
+      }
+
+      setShowResumePrompt(false);
+      setIsExporting(true);
+      resetControlAutoHide();
+
+      try {
+        const result = await exportSlideshowVideo({
+          event,
+          photos,
+          scenes,
+          slideDurationMs,
+          includeSubtitles,
+        });
+        Alert.alert(
+          '导出完成',
+          result.assetId
+            ? '视频已保存到系统相册，并已打开分享面板。'
+            : `视频已生成：${result.fileUri}`,
+        );
+      } catch (error) {
+        Alert.alert('导出失败', error instanceof Error ? error.message : '请稍后再试');
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [event, isExporting, photos, resetControlAutoHide, scenes, slideDurationMs],
+  );
+
+  const openExportOptions = useCallback(() => {
+    if (isExporting) {
+      return;
+    }
+
+    Alert.alert('导出视频', '选择导出版本', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '无字幕',
+        onPress: () => {
+          void runExport(false);
+        },
+      },
+      {
+        text: '含字幕',
+        onPress: () => {
+          void runExport(true);
+        },
+      },
+    ]);
+  }, [isExporting, runExport]);
 
   const togglePlayPause = useCallback(() => {
     setPlaybackState((prev) =>
@@ -989,7 +1158,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [playbackState]);
 
   useEffect(() => {
-    if (playbackState !== PlaybackState.Playing || scenes.length === 0) {
+    if (playbackState !== PlaybackState.Playing || scenes.length === 0 || isSeeking) {
       return;
     }
 
@@ -1005,90 +1174,250 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [activeSlideDurationMs, onNextAuto, playbackState, scenes.length]);
+  }, [activeSlideDurationMs, isSeeking, onNextAuto, playbackState, scenes.length]);
 
   useEffect(() => {
-    const loadMusic = async () => {
+    let cancelled = false;
+
+    const loadAudioPlan = async () => {
+      if (timeline.length === 0) {
+        setAudioPlan(null);
+        setMusicStatus('none');
+        return;
+      }
+
       setMusicStatus('loading');
-
-      const sources: { kind: MusicSourceStatus; source: AVPlaybackSource }[] = [];
-      if (event.musicUrl) {
-        sources.push({ kind: 'remote', source: { uri: event.musicUrl } });
-      }
-      sources.push({ kind: 'fallback', source: DEFAULT_LOCAL_BGM });
-
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-        });
-      } catch (error) {
-        console.warn('Failed to set audio mode:', error);
+      const nextPlan = await buildSlideshowAudioPlan({ event, photos, timeline });
+      if (cancelled) {
+        return;
       }
 
-      for (const candidate of sources) {
-        try {
-          const { sound } = await Audio.Sound.createAsync(candidate.source, {
-            shouldPlay: false,
-            isLooping: true,
-            volume: 1,
-          });
-          soundRef.current = sound;
-          setMusicStatus(candidate.kind);
-          if (playbackStateRef.current === PlaybackState.Playing) {
-            await sound.playAsync();
-          }
-          return;
-        } catch (error) {
-          console.warn('Failed to load slideshow music source:', candidate.kind, error);
-        }
+      setAudioPlan(nextPlan);
+      if (nextPlan.segments.length > 0) {
+        setMusicStatus(nextPlan.strategy === 'legacy-event' ? 'remote' : 'remote');
+        return;
       }
 
-      setMusicStatus(event.musicUrl ? 'error' : 'none');
-      if (event.musicUrl) {
-        notifyMusicError('远程音乐不可用，且本地默认音乐未找到。');
-      }
+      setMusicStatus(nextPlan.strategy === 'fallback' ? 'fallback' : 'none');
     };
 
-    void loadMusic();
+    void loadAudioPlan();
 
     return () => {
-      void (async () => {
-        try {
-          if (soundRef.current) {
-            await soundRef.current.stopAsync();
-            await soundRef.current.unloadAsync();
-            soundRef.current = null;
-          }
-        } catch (error) {
-          console.warn('Failed to cleanup slideshow audio:', error);
-        }
-      })();
+      cancelled = true;
     };
-  }, [event.musicUrl]);
+  }, [event, photos, timeline]);
 
-  useEffect(() => {
-    const sound = soundRef.current;
+  const cleanupSound = useCallback(async (sound: Audio.Sound | null) => {
     if (!sound) {
       return;
     }
+    try {
+      await sound.stopAsync();
+    } catch {}
+    try {
+      await sound.unloadAsync();
+    } catch {}
+  }, []);
 
-    if (playbackState === PlaybackState.Playing) {
-      void sound.playAsync();
+  const preloadAudioSegment = useCallback(
+    async (segment: SlideshowAudioSegment | null) => {
+      if (!segment) {
+        return;
+      }
+      if (
+        prefetchedAudioSegmentRef.current?.id === segment.id ||
+        loadedAudioSegmentRef.current?.id === segment.id
+      ) {
+        return;
+      }
+
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: segment.sourceUrl },
+          {
+            shouldPlay: false,
+            isLooping: false,
+            volume: 0,
+          },
+        );
+        const previousPrefetchedSound = prefetchedSoundRef.current;
+        prefetchedSoundRef.current = sound;
+        prefetchedAudioSegmentRef.current = segment;
+        await cleanupSound(previousPrefetchedSound);
+      } catch (error) {
+        console.warn('Failed to preload slideshow audio segment:', segment.id, error);
+      }
+    },
+    [cleanupSound],
+  );
+
+  const syncAudioToTimeline = useCallback(
+    async (positionMs: number, options?: { force?: boolean }) => {
+      if (audioSyncInFlightRef.current) {
+        return;
+      }
+
+      audioSyncInFlightRef.current = true;
+      try {
+        if (!audioPlan && musicStatus === 'loading') {
+          return;
+        }
+        const activeSegment = getAudioSegmentAtPosition(audioPlan, positionMs);
+        if (!activeSegment) {
+          const sources: { kind: MusicSourceStatus; source: AVPlaybackSource }[] = [];
+          sources.push({ kind: 'fallback', source: DEFAULT_LOCAL_BGM });
+
+          if (!soundRef.current || loadedAudioSegmentRef.current?.id !== 'fallback-loop') {
+            await cleanupSound(soundRef.current);
+            const { sound } = await Audio.Sound.createAsync(sources[0].source, {
+              shouldPlay: false,
+              isLooping: true,
+              volume: 1,
+            });
+            soundRef.current = sound;
+            loadedAudioSegmentRef.current = {
+              id: 'fallback-loop',
+              trackId: 'fallback-loop',
+              title: 'Fallback Track',
+              selectionBucket: 'fallback',
+              sourceUrl: 'fallback',
+              sourceStartMs: 0,
+              sourceEndMs: totalTimelineMs,
+              timelineStartMs: 0,
+              timelineEndMs: totalTimelineMs,
+              fadeInMs: 1000,
+              fadeOutMs: 1400,
+            };
+            setMusicStatus('fallback');
+          }
+
+          if (playbackStateRef.current === PlaybackState.Playing) {
+            await soundRef.current?.playAsync();
+          } else {
+            await soundRef.current?.pauseAsync();
+          }
+          return;
+        }
+
+        const targetPositionMs =
+          activeSegment.sourceStartMs + (positionMs - activeSegment.timelineStartMs);
+        let sound = soundRef.current;
+
+        if (!sound || loadedAudioSegmentRef.current?.id !== activeSegment.id) {
+          const prefetchedSegment = prefetchedAudioSegmentRef.current;
+          const prefetchedSound = prefetchedSoundRef.current;
+          if (prefetchedSegment?.id === activeSegment.id && prefetchedSound) {
+            await cleanupSound(soundRef.current);
+            soundRef.current = prefetchedSound;
+            loadedAudioSegmentRef.current = prefetchedSegment;
+            prefetchedSoundRef.current = null;
+            prefetchedAudioSegmentRef.current = null;
+            sound = prefetchedSound;
+          } else {
+            await cleanupSound(soundRef.current);
+            const { sound: nextSound } = await Audio.Sound.createAsync(
+              { uri: activeSegment.sourceUrl },
+              {
+                shouldPlay: false,
+                isLooping: false,
+                volume: 1,
+              },
+            );
+            soundRef.current = nextSound;
+            loadedAudioSegmentRef.current = activeSegment;
+            sound = nextSound;
+          }
+          setMusicStatus('remote');
+        }
+
+        if (!sound) {
+          return;
+        }
+
+        const status = await sound.getStatusAsync();
+        if (!status.isLoaded) {
+          return;
+        }
+
+        if (options?.force || Math.abs((status.positionMillis || 0) - targetPositionMs) > 500) {
+          await sound.setPositionAsync(targetPositionMs);
+        }
+
+        const volume = getAudioVolumeAtPosition(activeSegment, positionMs);
+        if (Math.abs((status.volume ?? 1) - volume) > 0.05) {
+          await sound.setVolumeAsync(volume);
+        }
+
+        if (playbackStateRef.current === PlaybackState.Playing) {
+          if (!status.isPlaying) {
+            await sound.playAsync();
+          }
+        } else if (status.isPlaying) {
+          await sound.pauseAsync();
+        }
+
+        const nextSegmentIndex =
+          audioPlan?.segments.findIndex((segment) => segment.id === activeSegment.id) ?? -1;
+        const nextSegment =
+          nextSegmentIndex >= 0 ? (audioPlan?.segments[nextSegmentIndex + 1] ?? null) : null;
+        if (nextSegment && activeSegment.timelineEndMs - positionMs <= 2500) {
+          void preloadAudioSegment(nextSegment);
+        }
+      } catch (error) {
+        console.warn('Failed to sync slideshow audio timeline:', error);
+        setMusicStatus('error');
+      } finally {
+        audioSyncInFlightRef.current = false;
+      }
+    },
+    [audioPlan, cleanupSound, musicStatus, preloadAudioSegment, totalTimelineMs],
+  );
+
+  useEffect(() => {
+    void Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+    }).catch((error) => {
+      console.warn('Failed to set audio mode:', error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isSeeking) {
       return;
     }
+    void syncAudioToTimeline(currentTimelinePositionRef.current, { force: true });
+  }, [audioPlan?.strategy, currentAudioSegment?.id, isSeeking, playbackState, syncAudioToTimeline]);
 
-    void sound.pauseAsync();
-  }, [playbackState]);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isSeeking || scenes.length === 0) {
+        return;
+      }
+      void syncAudioToTimeline(currentTimelinePositionRef.current);
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [isSeeking, scenes.length, syncAudioToTimeline]);
+
+  useEffect(() => {
+    return () => {
+      void cleanupSound(soundRef.current);
+      void cleanupSound(prefetchedSoundRef.current);
+      soundRef.current = null;
+      prefetchedSoundRef.current = null;
+      loadedAudioSegmentRef.current = null;
+      prefetchedAudioSegmentRef.current = null;
+    };
+  }, [cleanupSound]);
 
   const progress = useMemo(() => {
-    if (scenes.length === 0) {
+    if (totalTimelineMs <= 0) {
       return 0;
     }
-    const base = currentSceneIndex / scenes.length;
-    const perScene = (elapsedMs / activeSlideDurationMs) * (1 / scenes.length);
-    return Math.max(0, Math.min(1, base + perScene));
-  }, [activeSlideDurationMs, currentSceneIndex, elapsedMs, scenes.length]);
+    return Math.max(0, Math.min(displayedTimelinePositionMs / totalTimelineMs, 1));
+  }, [displayedTimelinePositionMs, totalTimelineMs]);
 
   const storyBottom = controlsVisible ? insets.bottom + footerHeight + 28 : insets.bottom + 38;
   const headerTop = insets.top + 12;
@@ -1218,6 +1547,21 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
                 <MaterialCommunityIcons name="close" size={20} color="#FFF8F0" />
               </Pressable>
               <Text style={styles.counterText}>{sceneHeaderLabel}</Text>
+              <Pressable
+                onPress={openExportOptions}
+                disabled={isExporting}
+                style={({ pressed }) => [
+                  styles.iconBtn,
+                  isExporting && styles.iconBtnDisabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {isExporting ? (
+                  <ActivityIndicator size="small" color="#FFF8F0" />
+                ) : (
+                  <MaterialCommunityIcons name="download-outline" size={20} color="#FFF8F0" />
+                )}
+              </Pressable>
             </View>
           </View>
 
@@ -1227,8 +1571,58 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
               <Text style={styles.metaText}>{getChapterTitle(currentScene.chapter)}</Text>
             ) : null}
             <Text style={styles.metaText}>{getMusicStatusText(musicStatus)}</Text>
+            {currentAudioSegment?.title ? (
+              <Text numberOfLines={1} style={styles.metaText}>
+                配乐片段：{currentAudioSegment.title}
+              </Text>
+            ) : null}
             {progressVisible ? (
-              <ProgressBar progress={progress} style={styles.progressBar} />
+              <View style={styles.progressWrap}>
+                <View
+                  style={styles.progressTouchArea}
+                  onLayout={(layoutEvent) => {
+                    setProgressTrackWidth(layoutEvent.nativeEvent.layout.width);
+                  }}
+                  onStartShouldSetResponder={() => true}
+                  onMoveShouldSetResponder={() => true}
+                  onResponderGrant={(gestureEvent) => {
+                    beginSeek(gestureEvent.nativeEvent.locationX);
+                  }}
+                  onResponderMove={(gestureEvent) => {
+                    updateSeekPreviewFromLocation(gestureEvent.nativeEvent.locationX);
+                  }}
+                  onResponderRelease={commitSeek}
+                  onResponderTerminate={commitSeek}
+                >
+                  <View style={styles.progressTrack} />
+                  <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+                  <View
+                    style={[
+                      styles.progressThumb,
+                      {
+                        left: Math.max(
+                          0,
+                          Math.min(
+                            progressTrackWidth * progress - 8,
+                            Math.max(progressTrackWidth - 16, 0),
+                          ),
+                        ),
+                      },
+                    ]}
+                  />
+                </View>
+                <View style={styles.progressTimeRow}>
+                  <Text style={styles.progressTimeText}>
+                    {formatDurationLabel(displayedTimelinePositionMs)}
+                  </Text>
+                  <Text style={styles.progressTimeText}>
+                    {formatDurationLabel(totalTimelineMs)}
+                  </Text>
+                </View>
+                {isSeeking && previewSceneLabel ? (
+                  <Text style={styles.progressPreviewText}>预览 · {previewSceneLabel}</Text>
+                ) : null}
+              </View>
             ) : null}
 
             <View style={styles.speedRow}>
@@ -1538,6 +1932,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(31,23,18,0.66)',
   },
+  iconBtnDisabled: {
+    opacity: 0.74,
+  },
   subtitleWrap: {
     position: 'absolute',
     left: 24,
@@ -1567,10 +1964,50 @@ const styles = StyleSheet.create({
     color: '#EAD8C5',
     fontSize: 12,
   },
-  progressBar: {
+  progressWrap: {
+    gap: 6,
+  },
+  progressTouchArea: {
+    height: 26,
+    justifyContent: 'center',
+  },
+  progressTrack: {
     height: 6,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  progressFill: {
+    position: 'absolute',
+    left: 0,
+    top: 10,
+    bottom: 10,
+    borderRadius: 999,
+    backgroundColor: '#F3D0B0',
+  },
+  progressThumb: {
+    position: 'absolute',
+    top: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: '#FFF8F0',
+    borderWidth: 2,
+    borderColor: '#B67054',
+  },
+  progressTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressTimeText: {
+    color: '#F0E2D4',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  progressPreviewText: {
+    color: '#E7C5A0',
+    fontSize: 11,
+    fontWeight: '700',
   },
   speedRow: {
     flexDirection: 'row',

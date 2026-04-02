@@ -13,6 +13,7 @@ export default function SlideshowScreen() {
         event={{
           id: 'empty',
           title: '未选择事件',
+          emotionTag: null,
           musicUrl: null,
           storyText: null,
           fullStory: null,

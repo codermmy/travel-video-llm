@@ -150,6 +150,7 @@ export default function EventDetailScreen() {
       {
         id: event.id,
         title: event.title,
+        emotionTag: event.emotionTag ?? null,
         musicUrl: event.musicUrl ?? null,
         storyText: event.storyText ?? null,
         fullStory: event.fullStory ?? null,
