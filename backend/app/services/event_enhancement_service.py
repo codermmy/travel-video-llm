@@ -21,6 +21,7 @@ from app.services.event_ai_service import (
     _save_photo_captions,
     ensure_event_title,
 )
+from app.services.event_service import event_service
 from app.services.storage_service import storage_service
 from app.services.story_signal_service import aggregate_story_signals
 from app.services.vision_analysis_service import vision_analysis_service
@@ -304,12 +305,17 @@ def generate_event_enhanced_story_for_event(
     *,
     user_id: str,
     event_id: str,
+    target_version: Optional[int] = None,
 ) -> tuple[bool, Optional[str]]:
     event = db.scalar(
         select(Event).where(and_(Event.id == event_id, Event.user_id == user_id))
     )
     if not event:
         return False, "event_not_found"
+
+    generation_version = target_version or event.event_version
+    if event.event_version != generation_version:
+        return True, "event_version_outdated"
 
     assets = get_active_event_enhancement_assets(db, user_id=user_id, event_id=event_id)
     if len(assets) < ENHANCEMENT_MIN_IMAGES:
@@ -327,22 +333,32 @@ def generate_event_enhanced_story_for_event(
         ).all()
     )
     if not photos:
-        event.status = "ai_failed"
-        event.ai_error = "event_has_no_photos"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason="event_has_no_photos",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
 
     if not ai_service.is_configured():
         reason = ai_service.configuration_error_code()
-        event.status = "ai_failed"
-        event.ai_error = reason
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason=reason,
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, reason
 
-    event.status = "ai_processing"
-    event.ai_error = None
+    if not event_service.mark_story_processing(
+        event=event,
+        target_version=generation_version,
+    ):
+        db.rollback()
+        return True, "event_version_outdated"
     event.title = ensure_event_title(event)
     db.commit()
 
@@ -358,16 +374,22 @@ def generate_event_enhanced_story_for_event(
 
     enhancement_narrative, dominant_emotion = _build_enhancement_narrative(analyses)
     if not enhancement_narrative:
-        event.status = "ai_failed"
-        event.ai_error = "event_enhancement_analysis_failed"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason="event_enhancement_analysis_failed",
+        )
         db.commit()
         return False, event.ai_error
 
     location, detailed_location, location_tags = _ensure_location_context(event)
     signals = aggregate_story_signals(photos)
     if not event.start_time or not event.end_time:
-        event.status = "ai_failed"
-        event.ai_error = "event_date_range_missing"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason="event_date_range_missing",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
@@ -387,14 +409,22 @@ def generate_event_enhanced_story_for_event(
         enhancement_narrative=enhancement_narrative,
     )
     if not story:
-        event.status = "ai_failed"
-        event.ai_error = ai_service.last_error_code or "event_enhanced_story_generation_failed"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason=ai_service.last_error_code or "event_enhanced_story_generation_failed",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
 
+    db.refresh(event)
+    if event.event_version != generation_version:
+        return True, "event_version_outdated"
+
     full_story = str(story.get("full_story") or story.get("story") or "").strip()
-    event.title = str(story.get("title") or ensure_event_title(event))
+    if not event.title_manually_set:
+        event.title = str(story.get("title") or ensure_event_title(event))
     event.full_story = full_story or None
     event.story_text = full_story or None
     event.emotion_tag = str(
@@ -411,7 +441,6 @@ def generate_event_enhanced_story_for_event(
         narrative_boost=enhancement_narrative,
     )
 
-    event.status = "generated"
-    event.ai_error = None
+    event_service.mark_story_generated(event=event, target_version=generation_version)
     db.commit()
     return True, None

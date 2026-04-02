@@ -6,6 +6,7 @@ from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, Field
 
 PeopleCountBucket = Literal["0", "1", "2-3", "4+"]
+PhotoVisionStatus = Literal["pending", "processing", "completed", "failed", "unsupported"]
 
 
 class PhotoMetadataItem(BaseModel):
@@ -92,6 +93,9 @@ class PhotoOut(BaseModel):
     caption: Optional[str] = None
     visualDesc: Optional[str] = None
     emotionTag: Optional[str] = None
+    visionStatus: PhotoVisionStatus = "pending"
+    visionError: Optional[str] = None
+    visionUpdatedAt: Optional[datetime] = None
     vision: Optional[PhotoVisionResult] = None
 
 
@@ -107,6 +111,21 @@ class PhotoUpdateRequest(BaseModel):
     eventId: Optional[str] = None
     status: Optional[str] = None
     caption: Optional[str] = None
+    visionStatus: Optional[PhotoVisionStatus] = None
+    visionError: Optional[str] = None
+    vision: Optional[PhotoVisionResult] = None
+
+
+class PhotoBatchEventUpdateRequest(BaseModel):
+    photoIds: Annotated[list[str], Field(min_length=1, max_length=200)] = Field(
+        default_factory=list
+    )
+    eventId: Optional[str] = None
+
+
+class PhotoBatchEventUpdateResponse(BaseModel):
+    updated: int
+    impactedEventIds: list[str] = Field(default_factory=list)
 
 
 class PhotoStatsData(BaseModel):

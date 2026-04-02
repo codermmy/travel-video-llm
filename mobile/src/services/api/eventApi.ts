@@ -26,7 +26,10 @@ function logMediaDebug(label: string, payload: Record<string, unknown>): void {
 }
 
 function pickMediaEntry(
-  entries: Map<string, ReturnType<typeof getLocalMediaEntries> extends Promise<Map<string, infer T>> ? T : never>,
+  entries: Map<
+    string,
+    ReturnType<typeof getLocalMediaEntries> extends Promise<Map<string, infer T>> ? T : never
+  >,
   ref: {
     photoId?: string | null;
     assetId?: string | null;
@@ -277,6 +280,47 @@ async function getEventDetail(eventId: string): Promise<EventDetail> {
   return hydrateEventDetailLocalMedia(normalizeEventDetail(response.data.data));
 }
 
+async function createEvent(payload: {
+  title?: string | null;
+  locationName?: string | null;
+  photoIds?: string[];
+}): Promise<EventRecord> {
+  const response = await apiClient.post<ApiResponse<EventRecord>>('/api/v1/events/', {
+    title: payload.title ?? undefined,
+    locationName: payload.locationName ?? undefined,
+    photoIds: payload.photoIds ?? [],
+  });
+  if (!response.data.data) {
+    throw new Error('event_create_empty_response');
+  }
+  const [hydrated] = await hydrateEventLocalCover([normalizeEvent(response.data.data)]);
+  return hydrated;
+}
+
+async function updateEvent(
+  eventId: string,
+  payload: {
+    title?: string | null;
+    locationName?: string | null;
+    detailedLocation?: string | null;
+    locationTags?: string | null;
+  },
+): Promise<EventRecord> {
+  const response = await apiClient.patch<ApiResponse<EventRecord>>(
+    `/api/v1/events/${eventId}`,
+    payload,
+  );
+  if (!response.data.data) {
+    throw new Error('event_update_empty_response');
+  }
+  const [hydrated] = await hydrateEventLocalCover([normalizeEvent(response.data.data)]);
+  return hydrated;
+}
+
+async function deleteEvent(eventId: string): Promise<void> {
+  await apiClient.delete(`/api/v1/events/${eventId}`);
+}
+
 async function regenerateStory(eventId: string): Promise<RegenerateStoryResult> {
   const response = await apiClient.post<ApiResponse<RegenerateStoryResult>>(
     `/api/v1/events/${eventId}/regenerate-story`,
@@ -361,6 +405,9 @@ export const eventApi = {
   listEvents,
   listAllEvents,
   getEventDetail,
+  createEvent,
+  updateEvent,
+  deleteEvent,
   regenerateStory,
   enhanceStory,
   getEnhancementStorageSummary,

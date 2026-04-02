@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
@@ -24,6 +25,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 class TravelVisionModule : Module() {
+  companion object {
+    private const val TAG = "TravelVision"
+  }
+
   private val context: Context
     get() = requireNotNull(appContext.reactContext) { "React context is not available" }
 
@@ -69,6 +74,7 @@ class TravelVisionModule : Module() {
       ?: throw IllegalArgumentException("localUri is required")
 
     return try {
+      Log.d(TAG, "analyze:start cacheKey=$cacheKey uri=$localUri")
       val uri = Uri.parse(localUri)
       val image = InputImage.fromFilePath(context, uri)
       val labels = awaitTask(imageLabeler.process(image))
@@ -79,12 +85,21 @@ class TravelVisionModule : Module() {
       val height = item.int("height") ?: bitmap?.height ?: 0
       val imageStats = analyzeBitmap(bitmap, width, height)
       val result = buildVisionResult(labels, faces, text, imageStats)
+      val objectTags = (result["object_tags"] as? List<*>)?.take(4) ?: emptyList<Any>()
+      val ocrLength = (result["ocr_text"] as? String)?.length ?: 0
+      Log.d(
+        TAG,
+        "analyze:done cacheKey=$cacheKey labels=${labels.size} faces=${faces.size} textBlocks=${text.textBlocks.size} " +
+          "scene=${result["scene_category"]} activity=${result["activity_hint"]} people=${result["people_count_bucket"]} " +
+          "cover=${result["cover_score"]} tags=$objectTags ocrLength=$ocrLength"
+      )
 
       mapOf(
         "cacheKey" to cacheKey,
         "result" to result,
       )
     } catch (error: Throwable) {
+      Log.e(TAG, "analyze:error cacheKey=$cacheKey uri=$localUri", error)
       mapOf(
         "cacheKey" to cacheKey,
         "errorMessage" to (error.message ?: error.javaClass.simpleName),

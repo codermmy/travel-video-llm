@@ -199,6 +199,7 @@ def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
                 file_hash="f" * 64,
                 thumbnail_url="https://example.com/demo.jpg",
                 status="clustered",
+                vision_status="completed",
             )
         )
         db.commit()
@@ -214,10 +215,344 @@ def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured() -> None:
     detail = client.get(f"/api/v1/events/{event.id}", headers=headers)
     assert detail.status_code == 200
     payload = detail.json()["data"]
-    assert payload["status"] in {"ai_failed", "ai_processing", "ai_pending", "generated"}
+    assert payload["status"] in {
+        "waiting_for_vision",
+        "ai_failed",
+        "ai_processing",
+        "ai_pending",
+        "generated",
+    }
     if out["status"] == "processed_inline":
-        assert payload["status"] == "ai_failed"
-        assert payload["aiError"] == "openai_api_key_not_configured"
+        assert payload["status"] in {"waiting_for_vision", "ai_failed"}
+        assert payload["aiError"] in {None, "openai_api_key_not_configured"}
+
+
+def test_create_event_with_photo_ids_rebuilds_summary() -> None:
+    token = _register_and_get_token("events-test-device-008")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-008"))
+        assert user is not None
+
+        photo_ids: list[str] = []
+        base_time = datetime(2024, 6, 1, 8, 0, 0, tzinfo=timezone.utc)
+        for i in range(2):
+            photo = Photo(
+                user_id=user.id,
+                asset_id=f"asset-create-{i}",
+                shoot_time=base_time + timedelta(minutes=i * 15),
+                gps_lat=30.25 + (i * 0.001),
+                gps_lon=120.21 + (i * 0.001),
+                status="uploaded",
+            )
+            db.add(photo)
+            db.flush()
+            photo_ids.append(photo.id)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/events",
+        headers=headers,
+        json={
+            "title": "西湖散步",
+            "locationName": "杭州",
+            "photoIds": photo_ids,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["title"] == "西湖散步"
+    assert payload["photoCount"] == 2
+    assert payload["coverPhotoId"] is not None
+    assert payload["status"] in {
+        "clustered",
+        "waiting_for_vision",
+        "ai_pending",
+        "ai_processing",
+        "generated",
+        "ai_failed",
+    }
+
+    detail = client.get(f"/api/v1/events/{payload['id']}", headers=headers)
+    assert detail.status_code == 200
+    detail_payload = detail.json()["data"]
+    assert len(detail_payload["photos"]) == 2
+
+
+def test_update_photo_reassigns_event_and_refreshes_summaries() -> None:
+    token = _register_and_get_token("events-test-device-009")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-009"))
+        assert user is not None
+
+        base_time = datetime(2024, 6, 2, 8, 0, 0, tzinfo=timezone.utc)
+        event_a = Event(
+            user_id=user.id,
+            title="事件 A",
+            start_time=base_time,
+            end_time=base_time,
+            photo_count=1,
+            status="clustered",
+        )
+        event_b = Event(
+            user_id=user.id,
+            title="事件 B",
+            start_time=base_time + timedelta(hours=1),
+            end_time=base_time + timedelta(hours=1),
+            photo_count=1,
+            status="clustered",
+        )
+        db.add_all([event_a, event_b])
+        db.flush()
+
+        photo_a = Photo(
+            user_id=user.id,
+            event_id=event_a.id,
+            asset_id="asset-reassign-a",
+            shoot_time=base_time,
+            status="clustered",
+        )
+        photo_b = Photo(
+            user_id=user.id,
+            event_id=event_b.id,
+            asset_id="asset-reassign-b",
+            shoot_time=base_time + timedelta(hours=1),
+            status="clustered",
+        )
+        db.add_all([photo_a, photo_b])
+        db.commit()
+        db.refresh(event_a)
+        db.refresh(event_b)
+        photo_a_id = photo_a.id
+        photo_b_id = photo_b.id
+        event_a_id = event_a.id
+        event_b_id = event_b.id
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/v1/photos/{photo_a_id}",
+        headers=headers,
+        json={"eventId": event_b_id},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["eventId"] == event_b_id
+
+    event_a_detail = client.get(f"/api/v1/events/{event_a_id}", headers=headers)
+    event_b_detail = client.get(f"/api/v1/events/{event_b_id}", headers=headers)
+    assert event_a_detail.status_code == 200
+    assert event_b_detail.status_code == 200
+
+    event_a_payload = event_a_detail.json()["data"]
+    event_b_payload = event_b_detail.json()["data"]
+    assert event_a_payload["photoCount"] == 0
+    assert event_a_payload["coverPhotoId"] is None
+    assert event_b_payload["photoCount"] == 2
+    assert {photo["id"] for photo in event_b_payload["photos"]} == {photo_a_id, photo_b_id}
+
+
+def test_update_event_triggers_story_refresh_for_structural_fields() -> None:
+    token = _register_and_get_token("events-test-device-010")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-010"))
+        assert user is not None
+
+        event = Event(
+            user_id=user.id,
+            title="旧标题",
+            location_name="旧地点",
+            start_time=datetime(2024, 6, 3, 8, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 3, 9, 0, 0, tzinfo=timezone.utc),
+            photo_count=1,
+            status="clustered",
+        )
+        db.add(event)
+        db.flush()
+        db.add(
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                asset_id="asset-structural-refresh",
+                shoot_time=datetime(2024, 6, 3, 8, 30, 0, tzinfo=timezone.utc),
+                status="clustered",
+            )
+        )
+        db.commit()
+        event_id = event.id
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/v1/events/{event_id}",
+        headers=headers,
+        json={"title": "新标题", "locationName": "新地点"},
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["title"] == "新标题"
+    assert payload["status"] in {
+        "waiting_for_vision",
+        "ai_pending",
+        "ai_processing",
+        "generated",
+        "ai_failed",
+    }
+
+
+def test_update_event_title_keeps_version_but_marks_manual_override() -> None:
+    token = _register_and_get_token("events-test-device-011")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-011"))
+        assert user is not None
+
+        event = Event(
+            user_id=user.id,
+            title="原始标题",
+            location_name="杭州",
+            start_time=datetime(2024, 6, 4, 8, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 4, 9, 0, 0, tzinfo=timezone.utc),
+            photo_count=1,
+            status="generated",
+            event_version=2,
+            story_generated_from_version=2,
+            story_requested_for_version=2,
+            story_freshness="fresh",
+            slideshow_generated_from_version=2,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+            title_manually_set=False,
+        )
+        db.add(event)
+        db.commit()
+        event_id = event.id
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/v1/events/{event_id}",
+        headers=headers,
+        json={"title": "手动标题"},
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["title"] == "手动标题"
+    assert payload["eventVersion"] == 2
+    assert payload["storyFreshness"] == "fresh"
+    assert payload["titleManuallySet"] is True
+
+
+def test_batch_reassign_event_updates_versions_once() -> None:
+    token = _register_and_get_token("events-test-device-012")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-012"))
+        assert user is not None
+
+        base_time = datetime(2024, 6, 5, 8, 0, 0, tzinfo=timezone.utc)
+        event_a = Event(
+            user_id=user.id,
+            title="事件 A",
+            location_name="杭州",
+            start_time=base_time,
+            end_time=base_time + timedelta(minutes=10),
+            photo_count=2,
+            status="generated",
+            event_version=3,
+            story_generated_from_version=3,
+            story_requested_for_version=3,
+            story_freshness="fresh",
+            slideshow_generated_from_version=3,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        event_b = Event(
+            user_id=user.id,
+            title="事件 B",
+            location_name="上海",
+            start_time=base_time + timedelta(hours=1),
+            end_time=base_time + timedelta(hours=1, minutes=10),
+            photo_count=1,
+            status="generated",
+            event_version=4,
+            story_generated_from_version=4,
+            story_requested_for_version=4,
+            story_freshness="fresh",
+            slideshow_generated_from_version=4,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        db.add_all([event_a, event_b])
+        db.flush()
+
+        photos = [
+            Photo(
+                user_id=user.id,
+                event_id=event_a.id,
+                asset_id="asset-batch-a1",
+                shoot_time=base_time,
+                status="clustered",
+                vision_status="completed",
+            ),
+            Photo(
+                user_id=user.id,
+                event_id=event_a.id,
+                asset_id="asset-batch-a2",
+                shoot_time=base_time + timedelta(minutes=5),
+                status="clustered",
+                vision_status="completed",
+            ),
+            Photo(
+                user_id=user.id,
+                event_id=event_b.id,
+                asset_id="asset-batch-b1",
+                shoot_time=base_time + timedelta(hours=1),
+                status="clustered",
+                vision_status="completed",
+            ),
+        ]
+        db.add_all(photos)
+        db.commit()
+        photo_ids = [photos[0].id, photos[1].id]
+        event_a_id = event_a.id
+        event_b_id = event_b.id
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/photos/batch/reassign-event",
+        headers=headers,
+        json={"photoIds": photo_ids, "eventId": event_b_id},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["updated"] == 2
+
+    event_a_detail = client.get(f"/api/v1/events/{event_a_id}", headers=headers)
+    event_b_detail = client.get(f"/api/v1/events/{event_b_id}", headers=headers)
+    assert event_a_detail.status_code == 200
+    assert event_b_detail.status_code == 200
+
+    event_a_payload = event_a_detail.json()["data"]
+    event_b_payload = event_b_detail.json()["data"]
+    assert event_a_payload["eventVersion"] == 4
+    assert event_b_payload["eventVersion"] == 5
+    assert event_a_payload["storyFreshness"] == "stale"
+    assert event_b_payload["storyFreshness"] == "stale"
+    assert event_b_payload["photoCount"] == 3
 
 
 class _StructuredStoryProviderStub:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -17,7 +19,7 @@ router = APIRouter()
 
 
 def _require_admin_key(
-    x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
+    x_admin_key: Optional[str] = Header(default=None, alias="X-Admin-Key"),
 ) -> None:
     configured = settings.admin_api_key.strip()
     if not configured:

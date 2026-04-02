@@ -1,10 +1,23 @@
-import { useEffect, useRef } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Stack } from 'expo-router';
-import { PaperProvider } from 'react-native-paper';
+import { PaperProvider, Snackbar } from 'react-native-paper';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import {
+  getOnDeviceVisionQueueSnapshot,
+  startOnDeviceVisionQueue,
+  subscribeOnDeviceVisionQueue,
+  type OnDeviceVisionQueueSnapshot,
+} from '@/services/vision/onDeviceVisionQueueService';
 import { useAuthStore } from '@/stores/authStore';
 import { appTheme } from '@/styles/theme';
 import { authDebug } from '@/utils/authDebug';
@@ -15,6 +28,11 @@ import { authDebug } from '@/utils/authDebug';
 export default function RootLayout() {
   const { isAuthenticated, isLoading, error, bootstrapDeviceSession } = useAuthStore();
   const hasBootstrapped = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const [visionQueueSnapshot, setVisionQueueSnapshot] = useState<OnDeviceVisionQueueSnapshot>(
+    getOnDeviceVisionQueueSnapshot(),
+  );
+  const [visionNotice, setVisionNotice] = useState('');
 
   useEffect(() => {
     if (!hasBootstrapped.current) {
@@ -23,6 +41,55 @@ export default function RootLayout() {
       void bootstrapDeviceSession();
     }
   }, [bootstrapDeviceSession]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    const unsubscribe = subscribeOnDeviceVisionQueue((snapshot) => {
+      setVisionQueueSnapshot(snapshot);
+    });
+
+    void startOnDeviceVisionQueue().then(() => {
+      const snapshot = getOnDeviceVisionQueueSnapshot();
+      if (snapshot.hasPendingWork) {
+        setVisionNotice('检测到未完成整理，已继续分析照片内容');
+      }
+    });
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      const snapshot = getOnDeviceVisionQueueSnapshot();
+
+      if (
+        previousState === 'active' &&
+        nextState.match(/inactive|background/) &&
+        snapshot.hasPendingWork
+      ) {
+        setVisionNotice('仍在整理照片内容，保持应用开启可加快完成');
+      }
+
+      if (
+        previousState.match(/inactive|background/) &&
+        nextState === 'active' &&
+        snapshot.hasPendingWork
+      ) {
+        void startOnDeviceVisionQueue();
+        setVisionNotice('已恢复继续整理照片内容');
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      subscription.remove();
+    };
+  }, [isAuthenticated]);
+
+  const visionBannerText = visionQueueSnapshot.syncingCount > 0
+    ? `正在同步分析结果，剩余 ${visionQueueSnapshot.remainingCount} 张`
+    : `正在后台分析照片内容，剩余 ${visionQueueSnapshot.remainingCount} 张，保持应用开启可加快完成`;
 
   if (isLoading || (!isAuthenticated && !error)) {
     return (
@@ -61,25 +128,47 @@ export default function RootLayout() {
 
   return (
     <PaperProvider theme={appTheme}>
-      <Stack initialRouteName="(tabs)" screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="photo-viewer"
-          options={{ headerShown: false, presentation: 'fullScreenModal' }}
-        />
-        <Stack.Screen
-          name="slideshow"
-          options={{ headerShown: false, presentation: 'fullScreenModal' }}
-        />
-        <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
-        <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
-        <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
-      </Stack>
+      <View style={styles.appShell}>
+        <Stack initialRouteName="(tabs)" screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="photo-viewer"
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
+          <Stack.Screen
+            name="slideshow"
+            options={{ headerShown: false, presentation: 'fullScreenModal' }}
+          />
+          <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
+          <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
+          <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
+        </Stack>
+
+        {visionQueueSnapshot.hasPendingWork ? (
+          <View pointerEvents="none" style={styles.queueBanner}>
+            <View style={styles.queueBannerIcon}>
+              <MaterialCommunityIcons name="image-search-outline" size={16} color="#FFFFFF" />
+            </View>
+            <Text style={styles.queueBannerText}>{visionBannerText}</Text>
+          </View>
+        ) : null}
+
+        <Snackbar
+          visible={Boolean(visionNotice)}
+          onDismiss={() => setVisionNotice('')}
+          duration={2800}
+        >
+          {visionNotice}
+        </Snackbar>
+      </View>
     </PaperProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+  },
   centerState: {
     flex: 1,
     alignItems: 'center',
@@ -144,5 +233,34 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
+  },
+  queueBanner: {
+    position: 'absolute',
+    top: 54,
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(20, 35, 70, 0.92)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  queueBannerIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2F64D8',
+  },
+  queueBannerText: {
+    flex: 1,
+    color: '#FFFFFF',
+    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

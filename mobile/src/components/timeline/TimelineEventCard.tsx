@@ -3,6 +3,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from 'react-native-paper';
 
+import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
@@ -30,18 +31,10 @@ function formatDateRange(event: EventRecord): string {
   return '时间未知';
 }
 
-function buildThumbnailUris(event: EventRecord): (string | null)[] {
-  const coverUri = getPreferredEventCoverUri(event);
-  if (!coverUri) {
-    return [null, null, null];
-  }
-  return [coverUri, null, null];
-}
-
 export function TimelineEventCard({ event, isLastInSection, onPress }: TimelineEventCardProps) {
   const title = event.title?.trim() ? event.title : '未命名事件';
   const location = event.locationName || '地点待补充';
-  const thumbnails = buildThumbnailUris(event);
+  const coverUri = getPreferredEventCoverUri(event);
 
   return (
     <Pressable
@@ -58,39 +51,52 @@ export function TimelineEventCard({ event, isLastInSection, onPress }: TimelineE
           <Text numberOfLines={1} style={styles.title}>
             {title}
           </Text>
-          <MaterialCommunityIcons name="chevron-right" size={18} color="#97A3C2" />
+          {event.storyFreshness === 'stale' ? (
+            <View style={styles.staleBadge}>
+              <Text style={styles.staleText}>待更新</Text>
+            </View>
+          ) : null}
+          <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
         </View>
 
         <View style={styles.metaRow}>
-          <MaterialCommunityIcons name="calendar-month-outline" size={14} color="#5D6B8A" />
+          <MaterialCommunityIcons
+            name="calendar-month-outline"
+            size={14}
+            color={JourneyPalette.inkSoft}
+          />
           <Text numberOfLines={1} style={styles.metaText}>
             {formatDateRange(event)}
           </Text>
         </View>
 
         <View style={styles.metaRow}>
-          <MaterialCommunityIcons name="map-marker-outline" size={14} color="#5D6B8A" />
+          <MaterialCommunityIcons
+            name="map-marker-outline"
+            size={14}
+            color={JourneyPalette.inkSoft}
+          />
           <Text numberOfLines={1} style={styles.metaText}>
             {location}
           </Text>
         </View>
 
         <View style={styles.thumbsRow}>
-          {thumbnails.map((uri, index) =>
-            uri ? (
-              <Image key={`${event.id}-thumb-${index}`} source={{ uri }} style={styles.thumb} />
-            ) : (
-              <LinearGradient
-                key={`${event.id}-thumb-${index}`}
-                colors={['#ECF2FF', '#EEF9F6']}
-                style={styles.thumbPlaceholder}
-              >
-                <MaterialCommunityIcons name="image-outline" size={15} color="#7B89A8" />
-              </LinearGradient>
-            ),
+          {coverUri ? (
+            <Image source={{ uri: coverUri }} style={styles.thumb} resizeMode="cover" />
+          ) : (
+            <LinearGradient
+              colors={['#F3EADA', '#E6EFE8']}
+              style={[styles.thumb, styles.thumbPlaceholder]}
+            >
+              <MaterialCommunityIcons name="image-outline" size={18} color={JourneyPalette.muted} />
+            </LinearGradient>
           )}
           <View style={styles.countBadge}>
             <Text style={styles.countText}>共 {event.photoCount} 张</Text>
+          </View>
+          <View style={styles.versionBadge}>
+            <Text style={styles.versionText}>版本 {event.eventVersion}</Text>
           </View>
         </View>
       </View>
@@ -117,7 +123,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 999,
-    backgroundColor: '#2F6AF6',
+    backgroundColor: JourneyPalette.accent,
     borderWidth: 2,
     borderColor: '#DCE7FF',
     zIndex: 2,
@@ -132,21 +138,33 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: JourneyPalette.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E5ECFB',
+    borderColor: JourneyPalette.line,
     padding: 12,
   },
   cardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   title: {
     flex: 1,
     fontSize: 16,
     fontWeight: '800',
-    color: '#1D2846',
+    color: JourneyPalette.ink,
+  },
+  staleBadge: {
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.warningSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  staleText: {
+    color: JourneyPalette.warning,
+    fontSize: 10,
+    fontWeight: '700',
   },
   metaRow: {
     marginTop: 6,
@@ -156,7 +174,7 @@ const styles = StyleSheet.create({
   },
   metaText: {
     flex: 1,
-    color: '#5D6987',
+    color: JourneyPalette.inkSoft,
     fontSize: 12,
     fontWeight: '500',
   },
@@ -164,24 +182,19 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   thumb: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    marginRight: 6,
+    width: 58,
+    height: 58,
+    borderRadius: 12,
     backgroundColor: '#DFE6F5',
   },
   thumbPlaceholder: {
-    width: 46,
-    height: 46,
-    borderRadius: 10,
-    marginRight: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   countBadge: {
-    marginLeft: 'auto',
     backgroundColor: '#EFF3FF',
     borderRadius: 999,
     paddingHorizontal: 8,
@@ -189,6 +202,18 @@ const styles = StyleSheet.create({
   },
   countText: {
     color: '#3A58AF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  versionBadge: {
+    marginLeft: 'auto',
+    backgroundColor: JourneyPalette.cardAlt,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  versionText: {
+    color: JourneyPalette.inkSoft,
     fontSize: 11,
     fontWeight: '700',
   },

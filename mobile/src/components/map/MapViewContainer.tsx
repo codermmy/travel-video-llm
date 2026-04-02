@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BackButton } from '@/components/map/BackButton';
 import { ClusterMarker } from '@/components/map/ClusterMarker';
 import { EventCardList } from '@/components/map/EventCardList';
+import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
 import type { MapViewStack } from '@/types/mapStack';
 import {
@@ -203,7 +204,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
   if (isWeb) {
     return (
       <View style={styles.fallbackContainer}>
-        <Ionicons name="map-outline" size={64} color="#ccc" />
+        <View style={styles.fallbackIconWrap}>
+          <Ionicons name="map-outline" size={40} color={JourneyPalette.accent} />
+        </View>
         <Text style={styles.fallbackTitle}>Web 不支持高德地图</Text>
         <Text style={styles.fallbackText}>
           高德地图依赖原生模块，仅 iOS/Android Development Build 可用。
@@ -215,7 +218,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
   if (isExpoGo) {
     return (
       <View style={styles.fallbackContainer}>
-        <Ionicons name="map-outline" size={64} color="#ccc" />
+        <View style={styles.fallbackIconWrap}>
+          <Ionicons name="map-outline" size={40} color={JourneyPalette.accentWarm} />
+        </View>
         <Text style={styles.fallbackTitle}>Expo Go 无法显示地图</Text>
         <Text style={styles.fallbackText}>高德地图需要原生模块，Expo Go 不支持该类原生模块。</Text>
         <Text style={styles.fallbackText}>请使用 Development Build（自定义客户端）运行。</Text>
@@ -229,7 +234,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         Platform.OS === 'android' ? 'expo.extra.amap.androidKey' : 'expo.extra.amap.iosKey';
       return (
         <View style={styles.fallbackContainer}>
-          <Ionicons name="key-outline" size={64} color="#ccc" />
+          <View style={styles.fallbackIconWrap}>
+            <Ionicons name="key-outline" size={40} color={JourneyPalette.warning} />
+          </View>
           <Text style={styles.fallbackTitle}>未配置高德地图 Key</Text>
           <Text style={styles.fallbackText}>请在 `mobile/app.json` 中配置：</Text>
           <Text style={styles.fallbackText}>{keyPath}</Text>
@@ -241,7 +248,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     if (amapStatus === 'module_error') {
       return (
         <View style={styles.fallbackContainer}>
-          <Ionicons name="warning-outline" size={64} color="#ccc" />
+          <View style={styles.fallbackIconWrap}>
+            <Ionicons name="warning-outline" size={40} color={JourneyPalette.danger} />
+          </View>
           <Text style={styles.fallbackTitle}>地图模块不可用</Text>
           <Text style={styles.fallbackText}>
             请确认你运行的是 Development Build（不是 Expo Go）。
@@ -253,7 +262,9 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
 
     return (
       <View style={styles.fallbackContainer}>
-        <Ionicons name="map-outline" size={64} color="#ccc" />
+        <View style={styles.fallbackIconWrap}>
+          <Ionicons name="map-outline" size={40} color={JourneyPalette.accent} />
+        </View>
         <Text style={styles.fallbackTitle}>地图模块加载中</Text>
       </View>
     );
@@ -339,18 +350,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: JourneyPalette.cardAlt,
+  },
+  fallbackIconWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
   },
   fallbackTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '800',
     marginTop: 16,
     marginBottom: 8,
-    color: '#333',
+    color: JourneyPalette.ink,
   },
   fallbackText: {
     fontSize: 14,
-    color: '#666',
+    color: JourneyPalette.inkSoft,
     textAlign: 'center',
     marginBottom: 4,
   },
@@ -358,23 +379,23 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    top: 18,
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    top: 104,
+    borderRadius: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: JourneyPalette.overlay,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
+    borderColor: 'rgba(37, 93, 88, 0.08)',
   },
   emptyTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111',
-    marginBottom: 2,
+    fontSize: 16,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+    marginBottom: 4,
   },
   emptyText: {
-    fontSize: 12,
-    color: '#555',
-    lineHeight: 16,
+    fontSize: 13,
+    color: JourneyPalette.inkSoft,
+    lineHeight: 18,
   },
 });

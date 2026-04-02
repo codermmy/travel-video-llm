@@ -32,6 +32,9 @@ export interface PhotoRecord {
   shootTime?: string | null;
   eventId?: string | null;
   status?: string | null;
+  visionStatus?: 'pending' | 'processing' | 'completed' | 'failed' | 'unsupported' | null;
+  visionError?: string | null;
+  visionUpdatedAt?: string | null;
   vision?: OnDeviceVisionResult | null;
 }
 

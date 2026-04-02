@@ -3,14 +3,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 
 import type { PhotoMetadata } from '@/types/photo';
-import type { OnDeviceVisionResult } from '@/types/vision';
 import { toSafeIsoDateTime } from '@/utils/dateTimeUtils';
 import { photoApi } from '@/services/api/photoApi';
 import { registerLocalMediaEntries } from '@/services/media/localMediaRegistry';
-import {
-  analyzeOnDeviceVisionNow,
-  buildVisionInput,
-} from '@/services/vision/onDeviceVisionService';
+import { enqueueOnDeviceVisionSync } from '@/services/vision/onDeviceVisionQueueService';
 import type { ImportProgress, ImportStage } from '@/components/import/ImportProgressModal';
 
 type PhotoMetadataItem = {
@@ -36,17 +32,23 @@ type ProcessedPickerItem = ResolvedPickerItem & {
 
 const IMPORT_CACHE_DIR = 'import-cache';
 const IMPORT_CACHE_FILE = 'photo-import-cache.json';
+export const AUTO_IMPORT_LIMIT = 200;
+
+type ImportSource = 'recent' | 'manual';
 
 type ImportCache = {
   lastRunMs?: number;
   lastAttemptMs?: number;
   importedAssetIds?: string[];
+  lastMode?: ImportSource;
 };
 
 export type ImportResult = {
   selected: number;
   dedupedNew: number;
+  dedupedExisting: number;
   uploaded: number;
+  queuedVision: number;
   failed: number;
   taskId?: string | null;
 };
@@ -55,6 +57,7 @@ export type ImportCacheSummary = {
   assetCount: number;
   lastRunAt: string | null;
   lastAttemptAt: string | null;
+  lastMode: ImportSource | null;
 };
 
 type ProgressCb = (progress: ImportProgress) => void;
@@ -284,40 +287,10 @@ async function resolvePickerAssets(
   return resolved;
 }
 
-async function resolveOnDeviceVisionResults(
+function mergeImportedAssetIds(
+  existing: string[] | undefined,
   items: ResolvedPickerItem[],
-  onProgress?: (current: number, total: number) => void,
-): Promise<Map<string, OnDeviceVisionResult>> {
-  if (items.length === 0) {
-    return new Map();
-  }
-
-  const inputs = items.map((item) =>
-    buildVisionInput({
-      assetId: item.assetId,
-      localUri: item.uri,
-      localCoverUri: item.uri,
-      width: item.width,
-      height: item.height,
-      fileSize: item.fileSize,
-    }),
-  );
-
-  const records = await analyzeOnDeviceVisionNow(inputs, onProgress);
-  const results = new Map<string, OnDeviceVisionResult>();
-
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
-    const record = records[index];
-    if (record?.result) {
-      results.set(item.assetId || item.uri, record.result);
-    }
-  }
-
-  return results;
-}
-
-function mergeImportedAssetIds(existing: string[] | undefined, items: ResolvedPickerItem[]): string[] {
+): string[] {
   const next = new Set(existing ?? []);
 
   for (const item of items) {
@@ -329,51 +302,78 @@ function mergeImportedAssetIds(existing: string[] | undefined, items: ResolvedPi
   return Array.from(next);
 }
 
-export async function manualImportFromPicker(params: {
-  selectionLimit?: number;
+async function resolveRecentAssets(
+  limit: number,
+  onProgress?: ProgressCb,
+): Promise<ProcessedPickerItem[]> {
+  const page = await MediaLibrary.getAssetsAsync({
+    first: limit,
+    mediaType: [MediaLibrary.MediaType.photo],
+    sortBy: [['creationTime', false]],
+  });
+  const assets = page.assets ?? [];
+  const resolved: ProcessedPickerItem[] = [];
+
+  setProgress(onProgress, 'scanning', 0, assets.length, `正在读取最近 ${limit} 张照片...`);
+  for (let index = 0; index < assets.length; index += 1) {
+    const asset = assets[index];
+    let uri = asset.uri;
+    let location: { latitude: number; longitude: number } | null = null;
+
+    try {
+      const info = await MediaLibrary.getAssetInfoAsync(asset.id);
+      uri = info.localUri ?? info.uri ?? uri;
+      location = info.location ?? null;
+    } catch (error) {
+      console.warn('Failed to resolve recent media asset info:', asset.id, error);
+    }
+
+    resolved.push({
+      assetId: asset.id,
+      uri,
+      width: asset.width ?? 0,
+      height: asset.height ?? 0,
+      fileSize: undefined,
+      creationTime: asset.creationTime,
+      location,
+      hasUsableUri: isUsableUri(uri),
+    });
+    setProgress(onProgress, 'scanning', index + 1, assets.length);
+  }
+
+  return resolved;
+}
+
+async function finalizeImportCache(params: {
+  source: ImportSource;
+  importedItems?: ResolvedPickerItem[];
+}): Promise<void> {
+  await updateImportCache((cache) => {
+    cache.lastRunMs = Date.now();
+    cache.lastMode = params.source;
+    if (params.importedItems) {
+      cache.importedAssetIds = mergeImportedAssetIds(cache.importedAssetIds, params.importedItems);
+    }
+  });
+}
+
+async function runMetadataOnlyImport(params: {
+  selectedCount: number;
+  source: ImportSource;
+  resolved: ProcessedPickerItem[];
   onProgress?: ProgressCb;
 }): Promise<ImportResult> {
-  const selectionLimit = params.selectionLimit ?? 200;
-
-  await updateImportCache((cache) => {
-    cache.lastAttemptMs = Date.now();
-  });
-
-  setProgress(params.onProgress, 'scanning', undefined, undefined, '正在请求权限...');
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    throw new Error('photo_library_permission_denied');
-  }
-
-  const pickerResult = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsMultipleSelection: true,
-    selectionLimit,
-    exif: true,
-    quality: 1,
-  });
-
-  if (pickerResult.canceled) {
-    return { selected: 0, dedupedNew: 0, uploaded: 0, failed: 0, taskId: null };
-  }
-
-  const assets = pickerResult.assets ?? [];
-  if (assets.length === 0) {
-    return { selected: 0, dedupedNew: 0, uploaded: 0, failed: 0, taskId: null };
-  }
-
-  const resolved = await resolvePickerAssets(assets, params.onProgress);
-  const processingFailed = resolved.filter((item) => !item.hasUsableUri).length;
-  const importableItems = resolved.filter((item) => item.hasUsableUri);
+  const processingFailed = params.resolved.filter((item) => !item.hasUsableUri).length;
+  const importableItems = params.resolved.filter((item) => item.hasUsableUri);
 
   if (importableItems.length === 0) {
-    await updateImportCache((cache) => {
-      cache.lastRunMs = Date.now();
-    });
+    await finalizeImportCache({ source: params.source });
     return {
-      selected: assets.length,
+      selected: params.selectedCount,
       dedupedNew: 0,
+      dedupedExisting: 0,
       uploaded: 0,
+      queuedVision: 0,
       failed: processingFailed,
       taskId: null,
     };
@@ -392,42 +392,38 @@ export async function manualImportFromPicker(params: {
   const newItems = newItemIndices
     .map((index) => importableItems[index])
     .filter((item): item is ProcessedPickerItem => Boolean(item));
+  const dedupedExisting = Math.max(importableItems.length - newItems.length, 0);
 
   if (newItems.length === 0) {
-    await updateImportCache((cache) => {
-      cache.lastRunMs = Date.now();
-    });
+    await finalizeImportCache({ source: params.source });
     return {
-      selected: assets.length,
+      selected: params.selectedCount,
       dedupedNew: 0,
+      dedupedExisting,
       uploaded: 0,
+      queuedVision: 0,
       failed: processingFailed,
       taskId: null,
     };
   }
 
-  await registerLocalMediaEntries(
-    newItems.map((item) => toRegistryEntry(item)),
-  );
-
-  setProgress(params.onProgress, 'vision', 0, newItems.length, '正在获取端侧结构化结果...');
-  const visionResults = await resolveOnDeviceVisionResults(newItems, (current, total) =>
-    setProgress(params.onProgress, 'vision', current, total, '正在获取端侧结构化结果...'),
-  );
+  await registerLocalMediaEntries(newItems.map((item) => toRegistryEntry(item)));
 
   const metadataList = newItems.map((item) => buildMetadataFromMediaAsset(item));
 
-  setProgress(params.onProgress, 'uploading', 0, newItems.length, '正在上传 metadata...');
+  setProgress(params.onProgress, 'uploading', 0, newItems.length, '正在同步 metadata...');
   const uploadResult = await photoApi.uploadPhotos(
     newItems.map((item, index) => ({
       metadata: metadataList[index],
-      vision: visionResults.get(item.assetId || item.uri) ?? null,
     })),
     (current, total) => setProgress(params.onProgress, 'uploading', current, total),
   );
 
+  let queuedVision = 0;
   if (uploadResult.items && uploadResult.items.length > 0) {
-    const localItemByClientRef = new Map(newItems.map((item, index) => [String(index), item] as const));
+    const localItemByClientRef = new Map(
+      newItems.map((item, index) => [String(index), item] as const),
+    );
     const registryEntries = uploadResult.items
       .map((uploadedItem) => {
         const localItem = localItemByClientRef.get(uploadedItem.clientRef ?? '');
@@ -445,34 +441,146 @@ export async function manualImportFromPicker(params: {
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-    logMediaDebug('manualImport uploadResult', {
+    logMediaDebug(`${params.source}Import uploadResult`, {
       uploaded: uploadResult.uploaded,
       failed: uploadResult.failed,
       returnedItems: uploadResult.items.length,
       sampleItems: uploadResult.items.slice(0, 8),
     });
 
-    await registerLocalMediaEntries(
-      registryEntries,
+    await registerLocalMediaEntries(registryEntries);
+    queuedVision = await enqueueOnDeviceVisionSync(
+      uploadResult.items
+        .map((uploadedItem) => {
+          const localItem = localItemByClientRef.get(uploadedItem.clientRef ?? '');
+          if (!localItem) {
+            return null;
+          }
+          return {
+            photoId: uploadedItem.id,
+            assetId: uploadedItem.assetId ?? localItem.assetId,
+            localUri: localItem.uri,
+            localCoverUri: localItem.uri,
+            width: localItem.width,
+            height: localItem.height,
+            fileSize: localItem.fileSize,
+          };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item)),
     );
-    logMediaDebug('manualImport registeredPhotoIds', {
+    logMediaDebug(`${params.source}Import registeredPhotoIds`, {
       count: registryEntries.length,
       photoKeys: registryEntries.slice(0, 8).map((entry) => entry.photoId),
+      queuedVision,
     });
   }
 
-  await updateImportCache((cache) => {
-    cache.lastRunMs = Date.now();
-    cache.importedAssetIds = mergeImportedAssetIds(cache.importedAssetIds, newItems);
-  });
+  setProgress(
+    params.onProgress,
+    'clustering',
+    undefined,
+    undefined,
+    queuedVision > 0
+      ? 'metadata 已同步，事件正在聚合，照片内容会在后台继续分析...'
+      : 'metadata 已同步，正在聚合事件...',
+  );
+
+  await finalizeImportCache({ source: params.source, importedItems: newItems });
 
   return {
-    selected: assets.length,
+    selected: params.selectedCount,
     dedupedNew: newItems.length,
+    dedupedExisting,
     uploaded: uploadResult.uploaded,
+    queuedVision,
     failed: uploadResult.failed + processingFailed,
     taskId: uploadResult.taskId ?? null,
   };
+}
+
+export async function importRecentPhotos(params?: {
+  limit?: number;
+  onProgress?: ProgressCb;
+}): Promise<ImportResult> {
+  const limit = params?.limit ?? AUTO_IMPORT_LIMIT;
+
+  await updateImportCache((cache) => {
+    cache.lastAttemptMs = Date.now();
+    cache.lastMode = 'recent';
+  });
+
+  setProgress(params?.onProgress, 'scanning', undefined, undefined, '正在请求相册权限...');
+  const permission = await MediaLibrary.requestPermissionsAsync();
+  if (!permission.granted) {
+    throw new Error('photo_library_permission_denied');
+  }
+
+  const resolved = await resolveRecentAssets(limit, params?.onProgress);
+  return runMetadataOnlyImport({
+    selectedCount: resolved.length,
+    source: 'recent',
+    resolved,
+    onProgress: params?.onProgress,
+  });
+}
+
+export async function manualImportFromPicker(params: {
+  selectionLimit?: number;
+  onProgress?: ProgressCb;
+}): Promise<ImportResult> {
+  const selectionLimit = params.selectionLimit ?? AUTO_IMPORT_LIMIT;
+
+  await updateImportCache((cache) => {
+    cache.lastAttemptMs = Date.now();
+    cache.lastMode = 'manual';
+  });
+
+  setProgress(params.onProgress, 'scanning', undefined, undefined, '正在请求权限...');
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) {
+    throw new Error('photo_library_permission_denied');
+  }
+
+  const pickerResult = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsMultipleSelection: true,
+    selectionLimit,
+    exif: true,
+    quality: 1,
+  });
+
+  if (pickerResult.canceled) {
+    return {
+      selected: 0,
+      dedupedNew: 0,
+      dedupedExisting: 0,
+      uploaded: 0,
+      queuedVision: 0,
+      failed: 0,
+      taskId: null,
+    };
+  }
+
+  const assets = pickerResult.assets ?? [];
+  if (assets.length === 0) {
+    return {
+      selected: 0,
+      dedupedNew: 0,
+      dedupedExisting: 0,
+      uploaded: 0,
+      queuedVision: 0,
+      failed: 0,
+      taskId: null,
+    };
+  }
+
+  const resolved = await resolvePickerAssets(assets, params.onProgress);
+  return runMetadataOnlyImport({
+    selectedCount: assets.length,
+    source: 'manual',
+    resolved,
+    onProgress: params.onProgress,
+  });
 }
 
 export async function getImportCacheSummary(): Promise<ImportCacheSummary> {
@@ -481,6 +589,7 @@ export async function getImportCacheSummary(): Promise<ImportCacheSummary> {
     assetCount: cache.importedAssetIds?.length ?? 0,
     lastRunAt: toSafeIsoDateTime(cache.lastRunMs) ?? null,
     lastAttemptAt: toSafeIsoDateTime(cache.lastAttemptMs) ?? null,
+    lastMode: cache.lastMode === 'manual' || cache.lastMode === 'recent' ? cache.lastMode : null,
   };
 }
 

@@ -1,38 +1,80 @@
-import { useCallback, useMemo, useState } from 'react';
-import { SectionList, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ActivityIndicator, Button, Snackbar, Text } from 'react-native-paper';
 import { useFocusEffect } from '@react-navigation/native';
+import { ActivityIndicator, Button, Snackbar, Text } from 'react-native-paper';
 
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import { MonthHeader } from '@/components/timeline/MonthHeader';
 import { TimelineEventCard } from '@/components/timeline/TimelineEventCard';
-import { openAppSettings } from '@/utils/permissionUtils';
-import { manualImportFromPicker } from '@/services/album/photoImportService';
 import { eventApi } from '@/services/api/eventApi';
+import {
+  AUTO_IMPORT_LIMIT,
+  getImportCacheSummary,
+  importRecentPhotos,
+  manualImportFromPicker,
+  type ImportCacheSummary,
+  type ImportResult,
+} from '@/services/album/photoImportService';
+import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
 import { groupEventsByMonth, type MonthSection } from '@/utils/eventGrouping';
+import { openAppSettings } from '@/utils/permissionUtils';
 
-const PAGE_SIZE = 50;
+function buildImportSummaryText(
+  result: ImportResult,
+  mode: 'recent' | 'manual',
+  queued: boolean,
+): string {
+  const sourceLabel = mode === 'recent' ? `最近 ${AUTO_IMPORT_LIMIT} 张` : '手动补导入';
+  const parts = [`${sourceLabel}已读取 ${result.selected} 张`, `新增 ${result.dedupedNew} 张`];
+
+  if (result.dedupedExisting > 0) {
+    parts.push(`去重 ${result.dedupedExisting} 张`);
+  }
+  if (result.failed > 0) {
+    parts.push(`失败 ${result.failed} 张`);
+  }
+  if (result.queuedVision > 0) {
+    parts.push(`后台分析 ${result.queuedVision} 张`);
+  }
+
+  return queued ? `${parts.join('，')}，正在聚合事件和生成故事...` : parts.join('，');
+}
+
+function formatDateLabel(value: string | null | undefined): string {
+  if (!value) {
+    return '尚未整理';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '尚未整理';
+  }
+
+  return date.toLocaleDateString('zh-CN', {
+    month: 'long',
+    day: 'numeric',
+  });
+}
 
 export default function EventsScreen() {
   const router = useRouter();
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [importVisible, setImportVisible] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
+  const [importSummary, setImportSummary] = useState<ImportCacheSummary | null>(null);
   const [snackbar, setSnackbar] = useState<string>('');
   const [showSettings, setShowSettings] = useState(false);
   const [taskProgressVisible, setTaskProgressVisible] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
+  const autoImportTriggeredRef = useRef(false);
 
   const dismissSnackbar = useCallback(() => setSnackbar(''), []);
 
@@ -41,49 +83,41 @@ export default function EventsScreen() {
     [importProgress.stage, importVisible],
   );
   const monthSections = useMemo(() => groupEventsByMonth(events), [events]);
+  const totalPhotoCount = useMemo(
+    () => events.reduce((sum, event) => sum + event.photoCount, 0),
+    [events],
+  );
+  const staleEventCount = useMemo(
+    () => events.filter((event) => event.storyFreshness === 'stale').length,
+    [events],
+  );
+  const showImportActionCard = !importSummary?.lastRunAt;
 
-  const loadPage = useCallback(async (nextPage: number, mode: 'replace' | 'append') => {
+  const loadImportSummary = useCallback(async () => {
+    const summary = await getImportCacheSummary();
+    setImportSummary(summary);
+    return summary;
+  }, []);
+
+  const loadEvents = useCallback(async () => {
     try {
-      if (mode === 'replace') {
-        setError(null);
-      }
-      const result = await eventApi.listEvents({ page: nextPage, pageSize: PAGE_SIZE });
-      setTotalPages(result.totalPages);
-      setPage(result.page);
-
-      if (mode === 'append') {
-        setEvents((prev) => {
-          const seen = new Set(prev.map((p) => p.id));
-          const merged = [...prev];
-          for (const item of result.items) {
-            if (!seen.has(item.id)) {
-              merged.push(item);
-              seen.add(item.id);
-            }
-          }
-          return merged;
-        });
-      } else {
-        setEvents(result.items);
-      }
-    } catch (e) {
-      console.warn('Failed to load events:', e);
-      if (mode === 'append') {
-        setSnackbar('加载更多失败');
-      } else {
-        setError('加载事件失败');
-      }
+      setError(null);
+      const result = await eventApi.listAllEvents();
+      setEvents(result);
+    } catch (loadError) {
+      console.warn('Failed to load events:', loadError);
+      setError('加载事件失败');
     }
   }, []);
 
   const loadInitial = useCallback(async () => {
     setLoading(true);
     try {
-      await loadPage(1, 'replace');
+      await Promise.all([loadEvents(), loadImportSummary()]);
     } finally {
       setLoading(false);
     }
-  }, [loadPage]);
+  }, [loadEvents, loadImportSummary]);
 
   useFocusEffect(
     useCallback(() => {
@@ -94,72 +128,114 @@ export default function EventsScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadPage(1, 'replace');
+      await Promise.all([loadEvents(), loadImportSummary()]);
     } finally {
       setRefreshing(false);
     }
-  }, [loadPage]);
+  }, [loadEvents, loadImportSummary]);
 
-  const loadMore = useCallback(async () => {
-    if (loading || refreshing || loadingMore || page >= totalPages) {
+  const runImport = useCallback(
+    async (mode: 'recent' | 'manual') => {
+      setShowSettings(false);
+      setImportVisible(true);
+      setImportProgress({
+        stage: 'scanning',
+        detail:
+          mode === 'recent'
+            ? `正在准备导入最近 ${AUTO_IMPORT_LIMIT} 张照片...`
+            : '正在选择照片并准备手动补导入...',
+      });
+
+      try {
+        const result =
+          mode === 'recent'
+            ? await importRecentPhotos({
+                limit: AUTO_IMPORT_LIMIT,
+                onProgress: (progress) => setImportProgress(progress),
+              })
+            : await manualImportFromPicker({
+                selectionLimit: AUTO_IMPORT_LIMIT,
+                onProgress: (progress) => setImportProgress(progress),
+              });
+
+        if (result.selected === 0) {
+          setSnackbar(mode === 'recent' ? '最近没有可导入的照片' : '你取消了本次导入');
+          return;
+        }
+
+        if (result.dedupedNew === 0) {
+          if (result.failed > 0) {
+            setSnackbar(
+              mode === 'recent'
+                ? `最近 ${AUTO_IMPORT_LIMIT} 张里没有可处理的新照片`
+                : '导入失败：所选照片无法处理',
+            );
+            return;
+          }
+
+          setSnackbar(
+            result.dedupedExisting > 0
+              ? `没有发现可新增的照片，已去重 ${result.dedupedExisting} 张`
+              : '没有发现可新增的照片',
+          );
+          return;
+        }
+
+        if (result.taskId) {
+          setTaskId(result.taskId);
+          setTaskProgressVisible(true);
+          setSnackbar(buildImportSummaryText(result, mode, true));
+        } else {
+          setSnackbar(buildImportSummaryText(result, mode, false));
+          await refresh();
+        }
+      } catch (importError) {
+        const message = String(importError);
+        if (message.includes('permission_denied')) {
+          setSnackbar('没有相册权限，请到系统设置中开启');
+          setShowSettings(true);
+        } else {
+          setSnackbar('导入失败，请稍后重试');
+          console.warn(`${mode} import failed:`, importError);
+        }
+      } finally {
+        setImportVisible(false);
+        setImportProgress({ stage: 'idle' });
+        try {
+          await loadImportSummary();
+        } catch (summaryError) {
+          console.warn('Failed to refresh import summary:', summaryError);
+        }
+      }
+    },
+    [loadImportSummary, refresh],
+  );
+
+  const handleRecentImport = useCallback(() => {
+    void runImport('recent');
+  }, [runImport]);
+
+  const handleManualImport = useCallback(() => {
+    void runImport('manual');
+  }, [runImport]);
+
+  useEffect(() => {
+    if (loading || refreshing || importVisible) {
+      return;
+    }
+    if (events.length > 0) {
+      return;
+    }
+    if (!importSummary || importSummary.lastRunAt) {
+      return;
+    }
+    if (autoImportTriggeredRef.current) {
       return;
     }
 
-    setLoadingMore(true);
-    try {
-      await loadPage(page + 1, 'append');
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loading, refreshing, loadingMore, page, totalPages, loadPage]);
-
-  const handleManualImport = useCallback(async () => {
-    setShowSettings(false);
-    setImportVisible(true);
-    setImportProgress({ stage: 'scanning', detail: '正在选择照片并准备导入...' });
-
-    try {
-      const result = await manualImportFromPicker({
-        selectionLimit: 200,
-        onProgress: (p) => setImportProgress(p),
-      });
-
-      if (result.selected === 0) {
-        setSnackbar('你取消了本次导入');
-        return;
-      }
-
-      if (result.dedupedNew === 0) {
-        if (result.failed > 0) {
-          setSnackbar('导入失败：所选照片无法处理');
-          return;
-        }
-        setSnackbar('没有发现可新增的照片');
-        return;
-      }
-
-      if (result.taskId) {
-        setTaskId(result.taskId);
-        setTaskProgressVisible(true);
-        setSnackbar(`上传完成：新增 ${result.dedupedNew} 张，正在生成事件...`);
-      } else {
-        setSnackbar(`导入完成：新增 ${result.dedupedNew} 张，上传 ${result.uploaded} 张`);
-        await refresh();
-      }
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes('permission_denied')) {
-        setSnackbar('没有相册权限，请到系统设置中开启');
-        setShowSettings(true);
-      } else {
-        setSnackbar('导入失败，请稍后重试');
-        console.warn('manual import failed:', e);
-      }
-    } finally {
-      setImportVisible(false);
-      setImportProgress({ stage: 'idle' });
-    }
-  }, [refresh]);
+    autoImportTriggeredRef.current = true;
+    void runImport('recent');
+  }, [events.length, importSummary, importVisible, loading, refreshing, runImport]);
 
   const goToEventDetail = useCallback(
     (id: string) => {
@@ -184,11 +260,87 @@ export default function EventsScreen() {
     [goToEventDetail],
   );
 
+  const header = (
+    <View style={styles.headerBlock}>
+      <LinearGradient colors={['#FFF8F0', '#F0EADD']} style={styles.heroCard}>
+        <Text style={styles.eyebrow}>TRAVEL MEMORY</Text>
+        <View style={styles.heroRow}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroTitle}>旅程</Text>
+            <Text style={styles.heroSubtitle}>
+              系统会自动把最近导入的照片整理为事件，让回看更像翻一本安静的旅行手帐。
+            </Text>
+          </View>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeValue}>{events.length}</Text>
+            <Text style={styles.heroBadgeLabel}>事件</Text>
+          </View>
+        </View>
+
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{totalPhotoCount}</Text>
+            <Text style={styles.metricLabel}>已整理照片</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{formatDateLabel(importSummary?.lastRunAt)}</Text>
+            <Text style={styles.metricLabel}>最近整理</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{staleEventCount}</Text>
+            <Text style={styles.metricLabel}>待更新故事</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
+      {showImportActionCard ? (
+        <View style={styles.actionCard}>
+          <View style={styles.actionCopy}>
+            <Text style={styles.actionTitle}>继续整理照片</Text>
+            <Text style={styles.actionSubtitle}>
+              主入口仍然是最近 {AUTO_IMPORT_LIMIT} 张，手动补导入只作为补充能力保留。
+            </Text>
+          </View>
+
+          <View style={styles.actionRow}>
+            <Pressable
+              style={({ pressed }) => [styles.primaryAction, pressed && styles.actionPressed]}
+              onPress={handleRecentImport}
+            >
+              <MaterialCommunityIcons name="image-multiple" size={16} color="#FFF9F2" />
+              <Text style={styles.primaryActionText}>导入最近 200 张</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryAction, pressed && styles.actionPressed]}
+              onPress={handleManualImport}
+            >
+              <MaterialCommunityIcons name="image-plus" size={16} color={JourneyPalette.ink} />
+              <Text style={styles.secondaryActionText}>手动补导入</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.privacyRow}>
+            <MaterialCommunityIcons
+              name="shield-lock-outline"
+              size={16}
+              color={JourneyPalette.inkSoft}
+            />
+            <Text style={styles.privacyText}>默认不上图，只同步 metadata 与端侧结构化结果。</Text>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2F6AF6" />
-        <Text style={styles.loadingText}>正在整理你的旅行事件...</Text>
+        <LinearGradient colors={['#F8F1E7', '#ECF0E8']} style={styles.loadingOrb}>
+          <MaterialCommunityIcons name="image-filter-hdr" size={28} color={JourneyPalette.accent} />
+        </LinearGradient>
+        <ActivityIndicator size="large" color={JourneyPalette.accent} />
+        <Text style={styles.loadingTitle}>正在整理你的旅程</Text>
+        <Text style={styles.loadingText}>导入、聚类和故事状态会在这里汇总展示。</Text>
       </View>
     );
   }
@@ -196,7 +348,13 @@ export default function EventsScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <MaterialCommunityIcons name="alert-circle-outline" size={36} color="#E04646" />
+        <LinearGradient colors={['#FAECE9', '#F8F1E8']} style={styles.loadingOrb}>
+          <MaterialCommunityIcons
+            name="alert-circle-outline"
+            size={28}
+            color={JourneyPalette.danger}
+          />
+        </LinearGradient>
         <Text style={styles.errorText}>{error}</Text>
         <Button mode="contained" onPress={refresh} style={styles.retryButton}>
           重新加载
@@ -207,39 +365,28 @@ export default function EventsScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#1E3D8F', '#2867D8', '#37A2FF']} style={styles.hero}>
-        <View>
-          <Text style={styles.heroTitle}>旅行事件</Text>
-          <Text style={styles.heroSubtitle}>按时间线梳理每一段回忆</Text>
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [styles.importBtn, pressed && styles.importBtnPressed]}
-          onPress={handleManualImport}
-        >
-          <MaterialCommunityIcons name="image-plus" size={18} color="#1F4AA8" />
-          <Text style={styles.importBtnText}>手动导入</Text>
-        </Pressable>
-      </LinearGradient>
-
       {events.length === 0 ? (
         <View style={styles.emptyState}>
-          <LinearGradient colors={['#EEF4FF', '#F4FBF8']} style={styles.emptyIconWrap}>
-            <MaterialCommunityIcons name="image-off-outline" size={44} color="#6C82BE" />
+          {header}
+          <LinearGradient colors={['#F4ECDF', '#EAF1EB']} style={styles.emptyIconWrap}>
+            <MaterialCommunityIcons
+              name="image-filter-center-focus"
+              size={44}
+              color={JourneyPalette.accent}
+            />
           </LinearGradient>
-          <Text style={styles.emptyTitle}>还没有旅行事件</Text>
+          <Text style={styles.emptyTitle}>还没有生成旅程卡片</Text>
           <Text style={styles.emptyDescription}>
-            默认不会自动扫描或上传相册。请手动选择需要整理的照片，系统只上传 metadata 和端侧结构化结果。
+            首次整理后，系统会自动聚合事件、补全故事并把它们陈列在这里。你不需要再从手动选图开始。
           </Text>
 
-          <Button mode="contained" onPress={handleManualImport} style={styles.emptyActionBtn}>
-            立即导入
-          </Button>
-
           {showSettings ? (
-            <Button mode="text" onPress={openAppSettings} style={styles.settingsButton}>
-              打开系统设置授权
-            </Button>
+            <Pressable
+              style={({ pressed }) => [styles.settingsAction, pressed && styles.actionPressed]}
+              onPress={openAppSettings}
+            >
+              <Text style={styles.settingsActionText}>打开系统设置授权</Text>
+            </Pressable>
           ) : null}
         </View>
       ) : (
@@ -248,23 +395,15 @@ export default function EventsScreen() {
           contentContainerStyle={styles.listContent}
           sections={monthSections}
           keyExtractor={(item) => item.id}
+          ListHeaderComponent={header}
           renderSectionHeader={renderMonthHeader}
           renderItem={renderTimelineCard}
           refreshing={refreshing}
           onRefresh={refresh}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.55}
           stickySectionHeadersEnabled={false}
           initialNumToRender={8}
           maxToRenderPerBatch={10}
           windowSize={7}
-          ListFooterComponent={
-            loadingMore ? (
-              <View style={styles.footer}>
-                <ActivityIndicator size="small" color="#2F6AF6" />
-              </View>
-            ) : null
-          }
         />
       )}
 
@@ -296,112 +435,231 @@ export default function EventsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F6FC',
+    backgroundColor: JourneyPalette.cardAlt,
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-    backgroundColor: '#F3F6FC',
+    backgroundColor: JourneyPalette.cardAlt,
+  },
+  loadingOrb: {
+    width: 76,
+    height: 76,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  loadingTitle: {
+    marginTop: 14,
+    fontSize: 22,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
   },
   loadingText: {
-    marginTop: 10,
-    color: '#4F5E82',
+    marginTop: 8,
+    color: JourneyPalette.inkSoft,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   errorText: {
-    color: '#BC2D2D',
+    color: JourneyPalette.danger,
     marginVertical: 12,
+    textAlign: 'center',
   },
   retryButton: {
     borderRadius: 999,
-    backgroundColor: '#2F6AF6',
+    backgroundColor: JourneyPalette.accent,
   },
-  hero: {
+  headerBlock: {
+    gap: 14,
+    paddingTop: 16,
+  },
+  heroCard: {
     marginHorizontal: 14,
-    marginTop: 12,
-    marginBottom: 10,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    borderRadius: 30,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: JourneyPalette.muted,
+  },
+  heroRow: {
+    marginTop: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#17316B',
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    gap: 14,
+    alignItems: 'flex-start',
+  },
+  heroCopy: {
+    flex: 1,
   },
   heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 34,
     fontWeight: '800',
-    letterSpacing: 0.2,
+    color: JourneyPalette.ink,
   },
   heroSubtitle: {
-    marginTop: 4,
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 13,
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 21,
+    color: JourneyPalette.inkSoft,
   },
-  importBtn: {
+  heroBadge: {
+    minWidth: 76,
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.card,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroBadgeValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  heroBadgeLabel: {
+    marginTop: 3,
+    fontSize: 11,
+    color: JourneyPalette.muted,
+  },
+  metricsRow: {
+    marginTop: 16,
+    gap: 10,
+  },
+  metricCard: {
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,252,247,0.74)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  metricValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  metricLabel: {
+    marginTop: 4,
+    fontSize: 12,
+    color: JourneyPalette.muted,
+  },
+  actionCard: {
+    marginHorizontal: 14,
+    borderRadius: 26,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    padding: 18,
+    gap: 14,
+  },
+  actionCopy: {
+    gap: 6,
+  },
+  actionTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  actionSubtitle: {
+    lineHeight: 20,
+    color: JourneyPalette.inkSoft,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  primaryAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  primaryActionText: {
+    color: '#FFF9F2',
+    fontWeight: '800',
+  },
+  secondaryAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.cardAlt,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryActionText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  actionPressed: {
+    transform: [{ scale: 0.985 }],
+    opacity: 0.92,
+  },
+  privacyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
+    gap: 8,
   },
-  importBtnPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  importBtnText: {
-    color: '#1F4AA8',
-    fontWeight: '700',
-    fontSize: 13,
+  privacyText: {
+    flex: 1,
+    color: JourneyPalette.muted,
+    fontSize: 12,
   },
   emptyState: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
+    paddingBottom: 40,
   },
   emptyIconWrap: {
     width: 92,
     height: 92,
-    borderRadius: 26,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 28,
   },
   emptyTitle: {
     marginTop: 18,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#243054',
+    color: JourneyPalette.ink,
   },
   emptyDescription: {
     marginTop: 10,
-    color: '#5E6887',
+    paddingHorizontal: 28,
     textAlign: 'center',
-    lineHeight: 22,
+    color: JourneyPalette.inkSoft,
+    lineHeight: 21,
   },
-  emptyActionBtn: {
-    marginTop: 20,
+  settingsAction: {
+    marginTop: 18,
     borderRadius: 999,
-    backgroundColor: '#2F6AF6',
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
-  settingsButton: {
-    marginTop: 8,
+  settingsActionText: {
+    color: JourneyPalette.ink,
+    fontWeight: '700',
   },
   list: {
     flex: 1,
   },
   listContent: {
-    paddingBottom: 14,
-  },
-  footer: {
-    paddingVertical: 14,
-    alignItems: 'center',
+    paddingBottom: 110,
   },
 });

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,27 +11,68 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUserIdDep
 from app.db.session import get_db
+from app.models.event import Event
 from app.models.photo import Photo
 from app.schemas.common import ApiResponse
 from app.schemas.photo import (
     CheckDuplicatesByMetadataData,
     CheckDuplicatesByMetadataRequest,
+    PhotoBatchEventUpdateRequest,
+    PhotoBatchEventUpdateResponse,
     PhotoListData,
     PhotoMetadataItem,
     PhotoOut,
     PhotoStatsData,
     PhotoUploadItem,
     PhotoVisionResult,
+    PhotoVisionStatus,
     PhotoUploadResultItem,
     PhotoUpdateRequest,
     PhotoUploadData,
     PhotoUploadRequest,
 )
+from app.services.event_service import event_service
 from app.services.storage_service import storage_service
-from app.tasks.clustering_tasks import trigger_clustering_task
+from app.tasks.clustering_tasks import trigger_clustering_task, trigger_event_story_task
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _refresh_impacted_events(
+    *,
+    db: Session,
+    user_id: str,
+    event_ids: set[str | None],
+    structure_changed: bool = False,
+) -> None:
+    normalized_event_ids = {event_id for event_id in event_ids if event_id}
+    if structure_changed:
+        event_service.mark_events_structure_changed(
+            event_ids=normalized_event_ids,
+            user_id=user_id,
+            db=db,
+        )
+
+    for event_id in normalized_event_ids:
+        event = event_service.refresh_event_summary(event_id=event_id, user_id=user_id, db=db)
+        if not event:
+            continue
+
+        queued = event_service.mark_event_pending_story_refresh(
+            event_id=event_id,
+            user_id=user_id,
+            db=db,
+        )
+        if not queued or queued.story_requested_for_version != queued.event_version:
+            continue
+
+        trigger_event_story_task(
+            user_id=user_id,
+            event_id=event_id,
+            event_version=queued.event_version,
+            db=db,
+        )
 
 
 def _build_visual_desc(vision: PhotoVisionResult | None) -> str | None:
@@ -69,6 +110,9 @@ def _photo_to_out(photo: Photo) -> PhotoOut:
         caption=photo.caption,
         visualDesc=photo.visual_desc,
         emotionTag=photo.emotion_tag,
+        visionStatus=photo.vision_status,
+        visionError=photo.vision_error,
+        visionUpdatedAt=photo.vision_updated_at,
         vision=photo.vision_result,
     )
 
@@ -222,8 +266,13 @@ def upload_metadata(
                 status="uploaded",
                 visual_desc=_build_visual_desc(item.vision),
                 emotion_tag=(item.vision.emotion_hint if item.vision is not None else None),
+                vision_status="completed" if item.vision is not None else "pending",
+                vision_error=None,
                 vision_result=(
                     item.vision.model_dump(mode="json") if item.vision is not None else None
+                ),
+                vision_updated_at=(
+                    datetime.now(tz=timezone.utc) if item.vision is not None else None
                 ),
             )
             db.add(photo)
@@ -392,14 +441,122 @@ def update_photo(
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
 
+    previous_event_id = photo.event_id
+    fields_set = request.model_fields_set
+    vision_updated = False
+
     if request.eventId is not None:
+        if request.eventId:
+            target_event = db.scalar(
+                select(Event).where(
+                    and_(Event.id == request.eventId, Event.user_id == current_user_id)
+                )
+            )
+            if not target_event:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="目标事件不存在"
+                )
         photo.event_id = request.eventId
+        if request.eventId:
+            photo.status = "clustered"
+        elif request.status is None:
+            photo.status = "uploaded"
     if request.status is not None:
         photo.status = request.status
+    if request.caption is not None:
+        photo.caption = request.caption
+    if "vision" in fields_set:
+        if request.vision is None:
+            photo.vision_result = None
+            photo.visual_desc = None
+            photo.emotion_tag = None
+        else:
+            photo.vision_result = request.vision.model_dump(mode="json")
+            photo.visual_desc = _build_visual_desc(request.vision)
+            photo.emotion_tag = request.vision.emotion_hint
+            if request.visionStatus is None:
+                photo.vision_status = "completed"
+            if "visionError" not in fields_set:
+                photo.vision_error = None
+        vision_updated = True
+    if request.visionStatus is not None:
+        photo.vision_status = request.visionStatus
+        vision_updated = True
+    if "visionError" in fields_set:
+        photo.vision_error = request.visionError
+        vision_updated = True
+    if photo.vision_status == "completed" and "visionError" not in fields_set:
+        photo.vision_error = None
+    if vision_updated:
+        photo.vision_updated_at = datetime.now(tz=timezone.utc)
 
     db.commit()
     db.refresh(photo)
+    if request.eventId is not None or vision_updated:
+        _refresh_impacted_events(
+            db=db,
+            user_id=current_user_id,
+            event_ids={previous_event_id, photo.event_id},
+            structure_changed=request.eventId is not None,
+        )
+        db.refresh(photo)
     return ApiResponse.ok(_photo_to_out(photo))
+
+
+@router.post("/batch/reassign-event", response_model=ApiResponse[PhotoBatchEventUpdateResponse])
+def batch_reassign_photos_to_event(
+    request: PhotoBatchEventUpdateRequest,
+    current_user_id: CurrentUserIdDep,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhotoBatchEventUpdateResponse]:
+    if request.eventId:
+        target_event = db.scalar(
+            select(Event).where(
+                and_(Event.id == request.eventId, Event.user_id == current_user_id)
+            )
+        )
+        if not target_event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="目标事件不存在",
+            )
+
+    photos = list(
+        db.scalars(
+            select(Photo).where(
+                and_(Photo.user_id == current_user_id, Photo.id.in_(request.photoIds))
+            )
+        ).all()
+    )
+    if len(photos) != len(set(request.photoIds)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片")
+
+    impacted_event_ids = {photo.event_id for photo in photos}
+    if request.eventId:
+        impacted_event_ids.add(request.eventId)
+
+    for photo in photos:
+        photo.event_id = request.eventId
+        if request.eventId:
+            photo.status = "clustered"
+        else:
+            photo.status = "uploaded"
+
+    db.commit()
+
+    _refresh_impacted_events(
+        db=db,
+        user_id=current_user_id,
+        event_ids=impacted_event_ids,
+        structure_changed=True,
+    )
+
+    return ApiResponse.ok(
+        PhotoBatchEventUpdateResponse(
+            updated=len(photos),
+            impactedEventIds=sorted(str(event_id) for event_id in impacted_event_ids if event_id),
+        )
+    )
 
 
 @router.delete("/{photo_id}", response_model=ApiResponse[dict])

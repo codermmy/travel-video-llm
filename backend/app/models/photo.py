@@ -45,6 +45,11 @@ class Photo(Base):
     micro_story: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     emotion_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     vision_result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    vision_status: Mapped[str] = mapped_column(String(20), default="pending")
+    vision_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    vision_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

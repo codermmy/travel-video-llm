@@ -20,6 +20,7 @@ from app.services.event_enhancement_service import (
     generate_event_enhanced_story_for_event,
 )
 from app.services.event_enrichment import ensure_event_title, format_coordinate_location
+from app.services.event_service import event_service
 from app.services.geocoding_service import geocoding_service
 from app.tasks.celery_app import celery_app
 
@@ -83,19 +84,33 @@ def _is_in_memory_bind(db: Session) -> bool:
     return ":memory:" in bind_url
 
 
-def _mark_new_events_pending_ai(db: Session, events: list[Event]) -> None:
-    changed = False
+def _prepare_new_events_for_story(db: Session, user_id: str, events: list[Event]) -> int:
+    scheduled = 0
     for event in events:
         if not event.location_name and event.gps_lat is not None and event.gps_lon is not None:
             event.location_name = format_coordinate_location(
                 float(event.gps_lat), float(event.gps_lon)
             )
         event.title = ensure_event_title(event)
-        event.status = "ai_pending"
-        event.ai_error = None
-        changed = True
-    if changed:
         db.commit()
+        refreshed = event_service.refresh_event_summary(event_id=event.id, user_id=user_id, db=db)
+        if not refreshed:
+            continue
+        queued = event_service.mark_event_pending_story_refresh(
+            event_id=event.id,
+            user_id=user_id,
+            db=db,
+        )
+        if not queued or queued.story_requested_for_version != queued.event_version:
+            continue
+        trigger_event_story_task(
+            user_id=user_id,
+            event_id=event.id,
+            event_version=queued.event_version,
+            db=db,
+        )
+        scheduled += 1
+    return scheduled
 
 
 def _ai_debug_info() -> str:
@@ -125,13 +140,13 @@ def cluster_user_photos_task(user_id: str, task_record_id: str) -> str:
         )
 
         created = cluster_user_photos(user_id=user_id, db=db)
-        _mark_new_events_pending_ai(db, created)
         _update_task(db, task, progress=70)
 
         geocoding_service.update_event_locations(user_id=user_id, db=db)
         _update_task(db, task, stage="geocoding", progress=90)
+        scheduled_story_count = _prepare_new_events_for_story(db, user_id, created)
 
-        msg = f"创建了 {len(created)} 个事件"
+        msg = f"创建了 {len(created)} 个事件，已安排 {scheduled_story_count} 个事件生成故事"
         _update_task(
             db,
             task,
@@ -196,33 +211,23 @@ def process_new_photos_task(user_id: str, photo_ids: list[str], task_record_id: 
         )
 
         created = cluster_user_photos(user_id=user_id, db=db)
-        _mark_new_events_pending_ai(db, created)
         _update_task(db, task, stage="clustering", progress=65)
 
         updated_locations = geocoding_service.update_event_locations(user_id=user_id, db=db)
         _update_task(db, task, stage="geocoding", progress=80)
 
-        ai_success_count = 0
-        ai_failed_count = 0
+        scheduled_story_count = 0
         if created:
-            _update_task(db, task, stage="ai", progress=85)
-            total_events = len(created)
-            for idx, event in enumerate(created, start=1):
-                ok, _ = generate_event_story_for_event(db=db, user_id=user_id, event_id=event.id)
-                if ok:
-                    ai_success_count += 1
-                else:
-                    ai_failed_count += 1
-                progress = 85 + int((idx / total_events) * 14)
-                _update_task(db, task, stage="ai", progress=min(progress, 99))
+            _update_task(db, task, stage="ai", progress=90)
+            scheduled_story_count = _prepare_new_events_for_story(db, user_id, created)
+            _update_task(db, task, stage="ai", progress=99)
 
         debug_info = _ai_debug_info()
         result = {
             "photos": len(photo_ids),
             "events": len(created),
             "updatedLocations": updated_locations,
-            "aiGenerated": ai_success_count,
-            "aiFailed": ai_failed_count,
+            "queuedStories": scheduled_story_count,
             "provider": ai_service.provider_name(),
             "models": ai_service.current_models(),
         }
@@ -234,7 +239,7 @@ def process_new_photos_task(user_id: str, photo_ids: list[str], task_record_id: 
             stage="ai" if created else "geocoding",
             progress=100,
             result=(
-                f"创建了 {len(created)} 个事件，AI 生成成功 {ai_success_count} 个，失败 {ai_failed_count} 个 ({debug_info})"
+                f"创建了 {len(created)} 个事件，已安排 {scheduled_story_count} 个事件后台生成故事 ({debug_info})"
             ),
             completed_at=_now_utc(),
         )
@@ -252,7 +257,12 @@ def process_new_photos_task(user_id: str, photo_ids: list[str], task_record_id: 
 
 
 @celery_app.task(name="generate_event_story_task")
-def generate_event_story_task(user_id: str, event_id: str, task_record_id: str) -> dict:
+def generate_event_story_task(
+    user_id: str,
+    event_id: str,
+    event_version: int,
+    task_record_id: str,
+) -> dict:
     """Generate AI story for one event."""
 
     db: Session = SessionLocal()
@@ -271,7 +281,12 @@ def generate_event_story_task(user_id: str, event_id: str, task_record_id: str) 
             started_at=_now_utc(),
         )
 
-        ok, reason = generate_event_story_for_event(db=db, user_id=user_id, event_id=event_id)
+        ok, reason = generate_event_story_for_event(
+            db=db,
+            user_id=user_id,
+            event_id=event_id,
+            target_version=event_version,
+        )
 
         debug_info = _ai_debug_info()
 
@@ -309,7 +324,10 @@ def generate_event_story_task(user_id: str, event_id: str, task_record_id: str) 
 
 @celery_app.task(name="generate_event_enhancement_story_task")
 def generate_event_enhancement_story_task(
-    user_id: str, event_id: str, task_record_id: str
+    user_id: str,
+    event_id: str,
+    event_version: int,
+    task_record_id: str,
 ) -> dict:
     """Generate enhanced AI story for one event using uploaded representative images."""
 
@@ -330,7 +348,10 @@ def generate_event_enhancement_story_task(
         )
 
         ok, reason = generate_event_enhanced_story_for_event(
-            db=db, user_id=user_id, event_id=event_id
+            db=db,
+            user_id=user_id,
+            event_id=event_id,
+            target_version=event_version,
         )
         debug_info = _ai_debug_info()
 
@@ -437,7 +458,12 @@ def trigger_clustering_task(user_id: str, db: Session) -> Optional[str]:
     return async_result.id
 
 
-def trigger_event_story_task(user_id: str, event_id: str, db: Session) -> Optional[str]:
+def trigger_event_story_task(
+    user_id: str,
+    event_id: str,
+    event_version: int,
+    db: Session,
+) -> Optional[str]:
     """Create async task for regenerating event AI story."""
 
     task = AsyncTask(
@@ -456,7 +482,12 @@ def trigger_event_story_task(user_id: str, event_id: str, db: Session) -> Option
     db.refresh(task)
 
     if _is_in_memory_bind(db):
-        ok, reason = generate_event_story_for_event(db=db, user_id=user_id, event_id=event_id)
+        ok, reason = generate_event_story_for_event(
+            db=db,
+            user_id=user_id,
+            event_id=event_id,
+            target_version=event_version,
+        )
         debug_info = _ai_debug_info()
         task.status = "success" if ok else "failure"
         task.stage = "ai"
@@ -474,6 +505,7 @@ def trigger_event_story_task(user_id: str, event_id: str, db: Session) -> Option
             kwargs={
                 "user_id": user_id,
                 "event_id": event_id,
+                "event_version": event_version,
                 "task_record_id": task.id,
             },
         )
@@ -489,7 +521,12 @@ def trigger_event_story_task(user_id: str, event_id: str, db: Session) -> Option
     return async_result.id
 
 
-def trigger_event_enhancement_task(user_id: str, event_id: str, db: Session) -> Optional[str]:
+def trigger_event_enhancement_task(
+    user_id: str,
+    event_id: str,
+    event_version: int,
+    db: Session,
+) -> Optional[str]:
     """Create async task for enhanced event story generation."""
 
     task = AsyncTask(
@@ -509,7 +546,10 @@ def trigger_event_enhancement_task(user_id: str, event_id: str, db: Session) -> 
 
     if _is_in_memory_bind(db):
         ok, reason = generate_event_enhanced_story_for_event(
-            db=db, user_id=user_id, event_id=event_id
+            db=db,
+            user_id=user_id,
+            event_id=event_id,
+            target_version=event_version,
         )
         debug_info = _ai_debug_info()
         task.status = "success" if ok else "failure"
@@ -528,6 +568,7 @@ def trigger_event_enhancement_task(user_id: str, event_id: str, db: Session) -> 
             kwargs={
                 "user_id": user_id,
                 "event_id": event_id,
+                "event_version": event_version,
                 "task_record_id": task.id,
             },
         )

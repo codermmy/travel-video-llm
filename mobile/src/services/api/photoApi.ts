@@ -209,9 +209,29 @@ export const photoApi = {
 
   updatePhoto: async (
     id: string,
-    data: { eventId?: string | null; status?: string | null },
+    data: {
+      eventId?: string | null;
+      status?: string | null;
+      caption?: string | null;
+      visionStatus?: 'pending' | 'processing' | 'completed' | 'failed' | 'unsupported' | null;
+      visionError?: string | null;
+      vision?: OnDeviceVisionResult | null;
+    },
   ): Promise<PhotoRecord> => {
     const response = await apiClient.patch<ApiResponse<PhotoRecord>>(`/api/v1/photos/${id}`, data);
+    return response.data.data;
+  },
+
+  reassignPhotosToEvent: async (
+    photoIds: string[],
+    eventId?: string | null,
+  ): Promise<{ updated: number; impactedEventIds: string[] }> => {
+    const response = await apiClient.post<
+      ApiResponse<{ updated: number; impactedEventIds: string[] }>
+    >('/api/v1/photos/batch/reassign-event', {
+      photoIds,
+      eventId: eventId ?? null,
+    });
     return response.data.data;
   },
 

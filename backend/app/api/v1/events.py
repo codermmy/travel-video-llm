@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUserIdDep
@@ -18,10 +19,12 @@ from app.schemas.common import ApiResponse
 from app.schemas.event import (
     EnhancementStorageSummary,
     EnhanceStoryResponse,
+    EventCreateRequest,
     EventDetailResponse,
     EventEnhancementSummary,
     EventListResponse,
     EventPhotoItem,
+    EventVisionSummary,
     EventStatus,
     EventResponse,
     EventUpdateRequest,
@@ -46,11 +49,75 @@ from app.tasks.clustering_tasks import trigger_event_enhancement_task, trigger_e
 
 router = APIRouter()
 
+STRUCTURE_EDIT_FIELDS = {
+    "location_name",
+    "detailed_location",
+    "location_tags",
+}
 
-def _event_to_response(event: Event, cover_photo: Photo | None = None) -> EventResponse:
+
+def _build_event_vision_summary_lookup(
+    db: Session,
+    *,
+    user_id: str,
+    event_ids: list[str],
+) -> dict[str, EventVisionSummary]:
+    if not event_ids:
+        return {}
+
+    grouped_counts: dict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
+    total_by_event: defaultdict[str, int] = defaultdict(int)
+
+    for event_id, vision_status, count in db.execute(
+        select(Photo.event_id, Photo.vision_status, func.count())
+        .where(and_(Photo.user_id == user_id, Photo.event_id.in_(event_ids)))
+        .group_by(Photo.event_id, Photo.vision_status)
+    ).all():
+        if not event_id:
+            continue
+        grouped_counts[str(event_id)][str(vision_status or "pending")] = int(count)
+        total_by_event[str(event_id)] += int(count)
+
+    return {
+        event_id: EventVisionSummary(
+            **event_service.build_event_vision_summary_from_counts(
+                total=total_by_event.get(event_id, 0),
+                counts=grouped_counts.get(event_id, defaultdict(int)),
+            )
+        )
+        for event_id in event_ids
+    }
+
+
+def _event_to_response(
+    event: Event,
+    cover_photo: Photo | None = None,
+    *,
+    vision_summary: EventVisionSummary | None = None,
+) -> EventResponse:
     location_text = get_event_location_text(event)
     title_text = ensure_event_title(event)
     full_story = event.full_story or event.story_text
+    resolved_vision_summary = vision_summary or EventVisionSummary()
+    resolved_status = cast(
+        EventStatus,
+        event_service.resolve_event_runtime_status(
+            event=event,
+            vision_summary={
+                "status": resolved_vision_summary.status,
+                "total": resolved_vision_summary.total,
+                "pending": resolved_vision_summary.pending,
+                "processing": resolved_vision_summary.processing,
+                "completed": resolved_vision_summary.completed,
+                "failed": resolved_vision_summary.failed,
+                "unsupported": resolved_vision_summary.unsupported,
+                "story_ready": resolved_vision_summary.total > 0
+                and resolved_vision_summary.pending == 0
+                and resolved_vision_summary.processing == 0
+                and resolved_vision_summary.completed > 0,
+            },
+        ),
+    )
 
     return EventResponse(
         id=event.id,
@@ -73,7 +140,21 @@ def _event_to_response(event: Event, cover_photo: Photo | None = None) -> EventR
         locationTags=event.location_tags,
         emotionTag=event.emotion_tag,
         musicUrl=event.music_url,
-        status=cast(EventStatus, event.status),
+        status=resolved_status,
+        eventVersion=event.event_version,
+        storyGeneratedFromVersion=event.story_generated_from_version,
+        storyFreshness=event.story_freshness,
+        slideshowGeneratedFromVersion=event.slideshow_generated_from_version,
+        slideshowFreshness=event.slideshow_freshness,
+        hasPendingStructureChanges=event.has_pending_structure_changes,
+        titleManuallySet=event.title_manually_set,
+        storyReady=bool(
+            resolved_vision_summary.total > 0
+            and resolved_vision_summary.pending == 0
+            and resolved_vision_summary.processing == 0
+            and resolved_vision_summary.completed > 0
+        ),
+        visionSummary=resolved_vision_summary,
         aiError=event.ai_error,
         updatedAt=event.updated_at,
     )
@@ -95,6 +176,9 @@ def _photo_to_event_item(photo: Photo) -> EventPhotoItem:
         visualDesc=photo.visual_desc,
         microStory=photo.micro_story,
         emotionTag=photo.emotion_tag,
+        visionStatus=photo.vision_status,
+        visionError=photo.vision_error,
+        visionUpdatedAt=photo.vision_updated_at,
         vision=photo.vision_result,
     )
 
@@ -135,6 +219,82 @@ def _get_event_enhancement_summary(
     return build_event_enhancement_summary(assets)
 
 
+def _maybe_trigger_story_refresh(
+    *,
+    db: Session,
+    user_id: str,
+    event_id: str,
+) -> None:
+    event = event_service.refresh_event_summary(event_id=event_id, user_id=user_id, db=db)
+    if not event:
+        return
+
+    queued = event_service.mark_event_pending_story_refresh(
+        event_id=event_id,
+        user_id=user_id,
+        db=db,
+    )
+    if not queued or queued.story_requested_for_version != queued.event_version:
+        return
+
+    trigger_event_story_task(
+        user_id=user_id,
+        event_id=event_id,
+        event_version=queued.event_version,
+        db=db,
+    )
+
+
+@router.post("/", response_model=ApiResponse[EventResponse])
+def create_event(
+    payload: EventCreateRequest,
+    current_user_id: CurrentUserIdDep,
+    db: Session = Depends(get_db),
+) -> ApiResponse[EventResponse]:
+    impacted_event_ids = set(
+        db.scalars(
+            select(Photo.event_id).where(
+                and_(
+                    Photo.user_id == current_user_id,
+                    Photo.id.in_(payload.photoIds),
+                    Photo.event_id.isnot(None),
+                )
+            )
+        ).all()
+    )
+    event = event_service.create_event(
+        user_id=current_user_id,
+        db=db,
+        title=payload.title,
+        location_name=payload.locationName,
+        photo_ids=payload.photoIds,
+    )
+    changed_event_ids = event_service.mark_events_structure_changed(
+        event_ids=impacted_event_ids,
+        user_id=current_user_id,
+        db=db,
+    )
+    for impacted_event_id in changed_event_ids:
+        _maybe_trigger_story_refresh(
+            db=db,
+            user_id=current_user_id,
+            event_id=impacted_event_id,
+        )
+    _maybe_trigger_story_refresh(db=db, user_id=current_user_id, event_id=event.id)
+    refreshed = event_service.get_event_detail(event_id=event.id, user_id=current_user_id, db=db)
+    vision_summary_lookup = _build_event_vision_summary_lookup(
+        db,
+        user_id=current_user_id,
+        event_ids=[event.id],
+    )
+    return ApiResponse.ok(
+        _event_to_response(
+            refreshed or event,
+            vision_summary=vision_summary_lookup.get(event.id),
+        )
+    )
+
+
 @router.get("/", response_model=ApiResponse[EventListResponse])
 def list_events(
     current_user_id: CurrentUserIdDep,
@@ -156,11 +316,20 @@ def list_events(
                 )
             ).all()
         }
+    vision_summary_by_event = _build_event_vision_summary_lookup(
+        db,
+        user_id=current_user_id,
+        event_ids=[event.id for event in events],
+    )
     total_pages = max(1, math.ceil(total / pageSize))
     return ApiResponse.ok(
         EventListResponse(
             items=[
-                _event_to_response(e, cover_photo_by_id.get(e.cover_photo_id))
+                _event_to_response(
+                    e,
+                    cover_photo_by_id.get(e.cover_photo_id),
+                    vision_summary=vision_summary_by_event.get(e.id),
+                )
                 for e in events
             ],
             total=total,
@@ -225,7 +394,11 @@ def get_event_detail(
         event_id=event_id, user_id=current_user_id, db=db
     )
     cover_photo = next((photo for photo in photos if photo.id == event.cover_photo_id), None)
-    base = _event_to_response(event, cover_photo)
+    base = _event_to_response(
+        event,
+        cover_photo,
+        vision_summary=EventVisionSummary(**event_service.build_event_vision_summary(photos)),
+    )
     detail = EventDetailResponse(
         **base.model_dump(),
         photos=[_photo_to_event_item(p) for p in photos],
@@ -246,18 +419,31 @@ def regenerate_story(
     current_user_id: CurrentUserIdDep,
     db: Session = Depends(get_db),
 ) -> ApiResponse[RegenerateStoryResponse]:
-    event = event_service.get_event_detail(
-        event_id=event_id, user_id=current_user_id, db=db
+    event = event_service.refresh_event_summary(
+        event_id=event_id,
+        user_id=current_user_id,
+        db=db,
     )
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="事件不存在")
 
-    event.status = "ai_pending"
-    event.ai_error = None
-    db.commit()
+    queued = event_service.mark_event_pending_story_refresh(
+        event_id=event_id,
+        user_id=current_user_id,
+        db=db,
+        force=True,
+    )
+    if not queued or not event_service.can_generate_story(queued):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="事件当前仍有照片在端侧识别中，完成后会自动更新故事",
+        )
 
     task_id = trigger_event_story_task(
-        user_id=current_user_id, event_id=event_id, db=db
+        user_id=current_user_id,
+        event_id=event_id,
+        event_version=queued.event_version,
+        db=db,
     )
     return ApiResponse.ok(
         RegenerateStoryResponse(
@@ -345,12 +531,20 @@ def enhance_story(
             detail="请上传代表图或选择复用 7 天内的增强素材",
         )
 
-    event.status = "ai_pending"
-    event.ai_error = None
-    db.commit()
+    queued = event_service.mark_event_pending_story_refresh(
+        event_id=event_id,
+        user_id=current_user_id,
+        db=db,
+        force=True,
+    )
+    if not queued:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="事件不存在")
 
     task_id = trigger_event_enhancement_task(
-        user_id=current_user_id, event_id=event_id, db=db
+        user_id=current_user_id,
+        event_id=event_id,
+        event_version=queued.event_version,
+        db=db,
     )
     return ApiResponse.ok(
         EnhanceStoryResponse(
@@ -368,24 +562,62 @@ def update_event(
     current_user_id: CurrentUserIdDep,
     db: Session = Depends(get_db),
 ) -> ApiResponse[EventResponse]:
+    payload_fields: dict[str, object] = {}
+    if "title" in payload.model_fields_set:
+        payload_fields["title"] = payload.title
+        payload_fields["title_manually_set"] = True
+    if "locationName" in payload.model_fields_set:
+        payload_fields["location_name"] = payload.locationName
+    if "coverPhotoUrl" in payload.model_fields_set:
+        payload_fields["cover_photo_url"] = payload.coverPhotoUrl
+    if "storyText" in payload.model_fields_set:
+        payload_fields["story_text"] = payload.storyText
+    if "fullStory" in payload.model_fields_set:
+        payload_fields["full_story"] = payload.fullStory
+    if "detailedLocation" in payload.model_fields_set:
+        payload_fields["detailed_location"] = payload.detailedLocation
+    if "locationTags" in payload.model_fields_set:
+        payload_fields["location_tags"] = payload.locationTags
+    if "emotionTag" in payload.model_fields_set:
+        payload_fields["emotion_tag"] = payload.emotionTag
+    if "musicUrl" in payload.model_fields_set:
+        payload_fields["music_url"] = payload.musicUrl
+    if "status" in payload.model_fields_set:
+        payload_fields["status"] = payload.status
+
     event = event_service.update_event(
         event_id=event_id,
         user_id=current_user_id,
         db=db,
-        title=payload.title,
-        location_name=payload.locationName,
-        cover_photo_url=payload.coverPhotoUrl,
-        story_text=payload.storyText,
-        full_story=payload.fullStory,
-        detailed_location=payload.detailedLocation,
-        location_tags=payload.locationTags,
-        emotion_tag=payload.emotionTag,
-        music_url=payload.musicUrl,
-        status=payload.status,
+        **payload_fields,
     )
     if not event:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="事件不存在")
-    return ApiResponse.ok(_event_to_response(event))
+
+    should_refresh_story = bool(STRUCTURE_EDIT_FIELDS.intersection(payload_fields.keys()))
+    if should_refresh_story:
+        event_service.mark_events_structure_changed(
+            event_ids=[event_id],
+            user_id=current_user_id,
+            db=db,
+        )
+        _maybe_trigger_story_refresh(db=db, user_id=current_user_id, event_id=event_id)
+        event = (
+            event_service.get_event_detail(event_id=event_id, user_id=current_user_id, db=db)
+            or event
+        )
+
+    vision_summary_lookup = _build_event_vision_summary_lookup(
+        db,
+        user_id=current_user_id,
+        event_ids=[event.id],
+    )
+    return ApiResponse.ok(
+        _event_to_response(
+            event,
+            vision_summary=vision_summary_lookup.get(event.id),
+        )
+    )
 
 
 @router.delete("/{event_id}", response_model=ApiResponse[dict])

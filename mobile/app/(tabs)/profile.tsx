@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import {
@@ -20,17 +21,18 @@ import {
 } from '@/services/album/photoImportService';
 import { eventApi } from '@/services/api/eventApi';
 import { userApi, type UserProfile } from '@/services/api/userApi';
+import { JourneyPalette } from '@/styles/colors';
 import { formatFileSize } from '@/utils/imageUtils';
 
 function formatDate(value?: string | null): string {
   if (!value) {
-    return '-';
+    return '暂无';
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return '-';
+    return '暂无';
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 function maskValue(value?: string | null): string {
@@ -73,9 +75,9 @@ export default function ProfileScreen() {
       setLocalData(importSummary);
       setEnhancementData(enhancementSummary);
       setError(null);
-    } catch (e) {
-      console.warn('load settings failed', e);
-      setError(e instanceof Error ? e.message : '加载失败');
+    } catch (loadError) {
+      console.warn('load settings failed', loadError);
+      setError(loadError instanceof Error ? loadError.message : '加载失败');
     } finally {
       setLoading(false);
     }
@@ -105,8 +107,11 @@ export default function ProfileScreen() {
               const removedImportAssets = await clearImportCache();
               await loadSettings();
               Alert.alert('清理完成', `已移除 ${removedImportAssets} 条导入记录。`);
-            } catch (e) {
-              Alert.alert('清理失败', e instanceof Error ? e.message : '请稍后重试');
+            } catch (clearError) {
+              Alert.alert(
+                '清理失败',
+                clearError instanceof Error ? clearError.message : '请稍后重试',
+              );
             } finally {
               setCleaning(false);
             }
@@ -139,8 +144,11 @@ export default function ProfileScreen() {
                 await eventApi.clearEnhancementStorage();
                 await loadSettings();
                 Alert.alert('清理完成', '增强素材已清空。');
-              } catch (e) {
-                Alert.alert('清理失败', e instanceof Error ? e.message : '请稍后重试');
+              } catch (clearError) {
+                Alert.alert(
+                  '清理失败',
+                  clearError instanceof Error ? clearError.message : '请稍后重试',
+                );
               } finally {
                 setCleaning(false);
               }
@@ -154,7 +162,14 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <View style={styles.centerState}>
-        <ActivityIndicator size="large" color="#3659A8" />
+        <LinearGradient colors={['#F8F1E7', '#ECF0E8']} style={styles.loadingOrb}>
+          <MaterialCommunityIcons
+            name="account-circle-outline"
+            size={28}
+            color={JourneyPalette.accent}
+          />
+        </LinearGradient>
+        <ActivityIndicator size="large" color={JourneyPalette.accent} />
       </View>
     );
   }
@@ -172,20 +187,22 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.heroCard}>
+      <LinearGradient colors={['#FFF6EC', '#EEE6D8']} style={styles.heroCard}>
+        <Text style={styles.eyebrow}>LOCAL & PRIVATE</Text>
         <View style={styles.heroTopRow}>
           {user.avatar_url ? (
             <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
           ) : (
-            <View style={styles.avatarFallback}>
+            <LinearGradient colors={['#255D58', '#5B7E78']} style={styles.avatarFallback}>
               <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
-            </View>
+            </LinearGradient>
           )}
 
           <View style={styles.heroTextWrap}>
-            <Text style={styles.heroEyebrow}>单设备模式</Text>
             <Text style={styles.heroTitle}>{user.nickname || '这台设备'}</Text>
-            <Text style={styles.heroSubtitle}>默认不上图，旅行整理和缓存管理都以本机为主。</Text>
+            <Text style={styles.heroSubtitle}>
+              当前应用按单设备、默认不上图的方式运行，设置页更像一张本机数据与隐私面板。
+            </Text>
           </View>
         </View>
 
@@ -200,20 +217,35 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>使用方式</Text>
-            <Text style={styles.metaValue}>本机使用</Text>
+            <Text style={styles.metaValue}>单设备闭环</Text>
           </View>
+        </View>
+      </LinearGradient>
+
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{localData.assetCount}</Text>
+          <Text style={styles.statLabel}>导入记录</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{enhancementData.assetCount}</Text>
+          <Text style={styles.statLabel}>增强素材</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>默认关闭</Text>
+          <Text style={styles.statLabel}>云端上图</Text>
         </View>
       </View>
 
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>产品说明</Text>
-          <Text style={styles.sectionHint}>对齐单设备总契约</Text>
+          <Text style={styles.sectionTitle}>产品原则</Text>
+          <Text style={styles.sectionHint}>当前口径</Text>
         </View>
 
         <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: '#E9F4EE' }]}>
-            <MaterialCommunityIcons name="cellphone-lock" size={18} color="#2D8A57" />
+          <View style={[styles.infoIconWrap, { backgroundColor: JourneyPalette.accentSoft }]}>
+            <MaterialCommunityIcons name="cellphone-lock" size={18} color={JourneyPalette.accent} />
           </View>
           <View style={styles.infoBody}>
             <Text style={styles.infoTitle}>本机身份</Text>
@@ -224,8 +256,8 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: '#EEF3FF' }]}>
-            <MaterialCommunityIcons name="cloud-off-outline" size={18} color="#355CB0" />
+          <View style={[styles.infoIconWrap, { backgroundColor: '#EEE7DB' }]}>
+            <MaterialCommunityIcons name="cloud-off-outline" size={18} color={JourneyPalette.ink} />
           </View>
           <View style={styles.infoBody}>
             <Text style={styles.infoTitle}>默认不上图</Text>
@@ -236,11 +268,15 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: '#FFF2E8' }]}>
-            <MaterialCommunityIcons name="shield-check-outline" size={18} color="#C0692C" />
+          <View style={[styles.infoIconWrap, { backgroundColor: JourneyPalette.accentWarmSoft }]}>
+            <MaterialCommunityIcons
+              name="shield-check-outline"
+              size={18}
+              color={JourneyPalette.accentWarm}
+            />
           </View>
           <View style={styles.infoBody}>
-            <Text style={styles.infoTitle}>隐私与增强</Text>
+            <Text style={styles.infoTitle}>增强是显式行为</Text>
             <Text style={styles.infoText}>
               只有你主动触发云端增强时，才会上传少量代表图，并单独管理其保留与清理。
             </Text>
@@ -250,24 +286,23 @@ export default function ProfileScreen() {
 
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>本地数据管理</Text>
-          <Text style={styles.sectionHint}>导入记录与时间</Text>
+          <Text style={styles.sectionTitle}>本地数据</Text>
+          <Text style={styles.sectionHint}>导入与缓存</Text>
         </View>
 
-        <View style={styles.storageGrid}>
-          <View style={styles.storageItem}>
-            <Text style={styles.storageValue}>{localData.assetCount}</Text>
-            <Text style={styles.storageLabel}>导入记录</Text>
-          </View>
+        <View style={styles.dataRow}>
+          <Text style={styles.dataLabel}>最近导入</Text>
+          <Text style={styles.dataValue}>{formatDate(localData.lastRunAt)}</Text>
         </View>
-
-        <View style={styles.dataNote}>
-          <Text style={styles.dataNoteLabel}>最近导入</Text>
-          <Text style={styles.dataNoteValue}>{formatDate(localData.lastRunAt)}</Text>
+        <View style={styles.dataRow}>
+          <Text style={styles.dataLabel}>最近尝试</Text>
+          <Text style={styles.dataValue}>{formatDate(localData.lastAttemptAt)}</Text>
         </View>
-        <View style={styles.dataNote}>
-          <Text style={styles.dataNoteLabel}>最近尝试</Text>
-          <Text style={styles.dataNoteValue}>{formatDate(localData.lastAttemptAt)}</Text>
+        <View style={styles.dataRow}>
+          <Text style={styles.dataLabel}>入口方式</Text>
+          <Text style={styles.dataValue}>
+            {localData.lastMode === 'manual' ? '手动补导入' : '最近 200 张'}
+          </Text>
         </View>
 
         <Pressable
@@ -276,7 +311,7 @@ export default function ProfileScreen() {
           disabled={cleaning}
         >
           {cleaning ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color="#FFF9F2" size="small" />
           ) : (
             <Text style={styles.primaryButtonText}>清理导入记录</Text>
           )}
@@ -285,29 +320,25 @@ export default function ProfileScreen() {
 
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>增强与播放</Text>
-          <Text style={styles.sectionHint}>按事件显式上传与清理</Text>
+          <Text style={styles.sectionTitle}>增强与管理</Text>
+          <Text style={styles.sectionHint}>代表图缓存</Text>
         </View>
 
         <Pressable style={styles.menuItem} onPress={handleEnhancedUploadInfo}>
-          <MaterialCommunityIcons name="cloud-upload-outline" size={20} color="#3A518A" />
+          <MaterialCommunityIcons
+            name="cloud-upload-outline"
+            size={20}
+            color={JourneyPalette.accent}
+          />
           <View style={styles.menuTextWrap}>
             <Text style={styles.menuText}>增强上传说明</Text>
             <Text style={styles.menuSubtext}>默认不上图，只有显式触发时才上传代表图。</Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color="#8EA0C8" />
+          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
         </Pressable>
 
-        <View style={styles.menuItemStatic}>
-          <MaterialCommunityIcons name="play-circle-outline" size={20} color="#3A518A" />
-          <View style={styles.menuTextWrap}>
-            <Text style={styles.menuText}>播放与导出设置</Text>
-            <Text style={styles.menuSubtext}>当前沿用系统与页面默认配置，后续统一收口到这里。</Text>
-          </View>
-        </View>
-
-        <View style={styles.enhancementSummaryCard}>
-          <View style={styles.enhancementSummaryHead}>
+        <View style={styles.storageCard}>
+          <View style={styles.storageHeader}>
             <View style={styles.menuTextWrap}>
               <Text style={styles.menuText}>增强素材保留</Text>
               <Text style={styles.menuSubtext}>
@@ -315,16 +346,20 @@ export default function ProfileScreen() {
                 个事件。
               </Text>
             </View>
-            <MaterialCommunityIcons name="cloud-clock-outline" size={18} color="#3A518A" />
+            <MaterialCommunityIcons
+              name="cloud-clock-outline"
+              size={18}
+              color={JourneyPalette.accent}
+            />
           </View>
 
-          <View style={styles.dataNote}>
-            <Text style={styles.dataNoteLabel}>素材体积</Text>
-            <Text style={styles.dataNoteValue}>{formatFileSize(enhancementData.totalBytes)}</Text>
+          <View style={styles.dataRow}>
+            <Text style={styles.dataLabel}>素材体积</Text>
+            <Text style={styles.dataValue}>{formatFileSize(enhancementData.totalBytes)}</Text>
           </View>
-          <View style={styles.dataNote}>
-            <Text style={styles.dataNoteLabel}>最近到期</Text>
-            <Text style={styles.dataNoteValue}>{formatDate(enhancementData.nextExpiresAt)}</Text>
+          <View style={styles.dataRow}>
+            <Text style={styles.dataLabel}>最近到期</Text>
+            <Text style={styles.dataValue}>{formatDate(enhancementData.nextExpiresAt)}</Text>
           </View>
 
           <Pressable
@@ -337,12 +372,16 @@ export default function ProfileScreen() {
         </View>
 
         <Pressable style={styles.menuItem} onPress={() => router.push('/profile/edit')}>
-          <MaterialCommunityIcons name="account-edit-outline" size={20} color="#3A518A" />
+          <MaterialCommunityIcons
+            name="account-edit-outline"
+            size={20}
+            color={JourneyPalette.accent}
+          />
           <View style={styles.menuTextWrap}>
             <Text style={styles.menuText}>编辑本机资料</Text>
             <Text style={styles.menuSubtext}>可调整昵称等轻量本机展示信息。</Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color="#8EA0C8" />
+          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
         </Pressable>
       </View>
     </ScrollView>
@@ -352,111 +391,141 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#EEF3FF',
+    backgroundColor: JourneyPalette.cardAlt,
   },
   content: {
     padding: 16,
+    paddingBottom: 112,
     gap: 14,
   },
   centerState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#EEF3FF',
+    backgroundColor: JourneyPalette.cardAlt,
     padding: 16,
   },
+  loadingOrb: {
+    width: 76,
+    height: 76,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
   errorText: {
-    color: '#9A3B50',
+    color: JourneyPalette.danger,
     marginBottom: 10,
   },
   retryButton: {
     borderRadius: 999,
-    backgroundColor: '#3659A8',
+    backgroundColor: JourneyPalette.accent,
     paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingVertical: 10,
   },
   retryButtonText: {
-    color: '#FFFFFF',
+    color: '#FFF9F2',
     fontWeight: '700',
   },
   heroCard: {
-    borderRadius: 24,
+    borderRadius: 30,
+    padding: 20,
     borderWidth: 1,
-    borderColor: '#D9E3FB',
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-    gap: 18,
+    borderColor: JourneyPalette.line,
+  },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: JourneyPalette.muted,
   },
   heroTopRow: {
     flexDirection: 'row',
     gap: 14,
     alignItems: 'center',
+    marginTop: 10,
   },
   avatarImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
   },
   avatarFallback: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#3159AE',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarFallbackText: {
-    color: '#FFFFFF',
-    fontSize: 26,
+    color: '#FFF9F2',
+    fontSize: 28,
     fontWeight: '800',
   },
   heroTextWrap: {
     flex: 1,
-    gap: 4,
-  },
-  heroEyebrow: {
-    color: '#3159AE',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.4,
+    gap: 6,
   },
   heroTitle: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '800',
-    color: '#22335C',
+    color: JourneyPalette.ink,
   },
   heroSubtitle: {
-    color: '#607297',
+    color: JourneyPalette.inkSoft,
     lineHeight: 20,
   },
   metaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    marginTop: 18,
     gap: 10,
   },
   metaItem: {
-    minWidth: '30%',
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#F6F9FF',
-    padding: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,252,247,0.76)',
+    padding: 14,
     gap: 6,
   },
   metaLabel: {
     fontSize: 11,
-    color: '#7B8FB7',
+    color: JourneyPalette.muted,
   },
   metaValue: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#25365F',
+    color: JourneyPalette.ink,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+    textAlign: 'center',
+  },
+  statLabel: {
+    marginTop: 4,
+    color: JourneyPalette.muted,
+    fontSize: 11,
+    textAlign: 'center',
   },
   card: {
-    borderRadius: 22,
+    borderRadius: 26,
     borderWidth: 1,
-    borderColor: '#D9E3FB',
-    backgroundColor: '#FFFFFF',
-    padding: 16,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+    padding: 18,
     gap: 14,
   },
   sectionHeader: {
@@ -466,13 +535,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#24355E',
+    color: JourneyPalette.ink,
   },
   sectionHint: {
     fontSize: 12,
-    color: '#7B8FB7',
+    color: JourneyPalette.muted,
   },
   infoRow: {
     flexDirection: 'row',
@@ -480,9 +549,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   infoIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -491,125 +560,86 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   infoTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
-    color: '#26385F',
+    color: JourneyPalette.ink,
   },
   infoText: {
-    color: '#617498',
+    color: JourneyPalette.inkSoft,
     lineHeight: 20,
   },
-  storageGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  storageItem: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#F6F9FF',
-    padding: 14,
-    gap: 6,
-  },
-  storageValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#22335C',
-  },
-  storageLabel: {
-    color: '#7286AF',
-    fontSize: 12,
-  },
-  dataNote: {
+  dataRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 14,
-    backgroundColor: '#F9FBFF',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    gap: 10,
   },
-  dataNoteLabel: {
-    color: '#6C80A9',
+  dataLabel: {
+    color: JourneyPalette.muted,
     fontSize: 13,
   },
-  dataNoteValue: {
-    color: '#29406E',
+  dataValue: {
+    color: JourneyPalette.ink,
     fontSize: 13,
     fontWeight: '700',
+    textAlign: 'right',
+    flex: 1,
   },
   primaryButton: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#3659A8',
+    marginTop: 6,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accent,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
+    color: '#FFF9F2',
     fontWeight: '800',
-  },
-  secondaryButton: {
-    height: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#C8D6F5',
-    backgroundColor: '#F8FAFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonText: {
-    color: '#355CB0',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  buttonDisabled: {
-    opacity: 0.7,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFF',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  menuItemStatic: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: 16,
-    backgroundColor: '#F8FAFF',
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  enhancementSummaryCard: {
-    gap: 10,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#DCE6FB',
-    backgroundColor: '#F7FAFF',
-    padding: 14,
-  },
-  enhancementSummaryHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
+    paddingVertical: 4,
   },
   menuTextWrap: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   menuText: {
-    color: '#25365F',
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
   },
   menuSubtext: {
-    color: '#7386AE',
-    fontSize: 12,
-    lineHeight: 18,
+    color: JourneyPalette.inkSoft,
+    lineHeight: 19,
+  },
+  storageCard: {
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.cardAlt,
+    padding: 14,
+    gap: 10,
+  },
+  storageHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  secondaryButton: {
+    marginTop: 6,
+    borderRadius: 999,
+    backgroundColor: '#EDE5D8',
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryButtonText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
   },
 });

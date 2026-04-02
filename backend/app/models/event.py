@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -34,6 +34,16 @@ class Event(Base):
     music_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     music_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="clustered")
+    event_version: Mapped[int] = mapped_column(Integer, default=1)
+    story_generated_from_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    story_requested_for_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    story_freshness: Mapped[str] = mapped_column(String(20), default="stale")
+    slideshow_generated_from_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    slideshow_freshness: Mapped[str] = mapped_column(String(20), default="stale")
+    has_pending_structure_changes: Mapped[bool] = mapped_column(Boolean, default=True)
+    title_manually_set: Mapped[bool] = mapped_column(Boolean, default=False)
     ai_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

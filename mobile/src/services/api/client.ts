@@ -1,6 +1,11 @@
 import axios, { AxiosHeaders } from 'axios';
 
-import { API_BASE_URL_CANDIDATES, getApiBaseUrl, getApiConnectionDebugInfo, setApiBaseUrl } from '@/constants/api';
+import {
+  API_BASE_URL_CANDIDATES,
+  getApiBaseUrl,
+  getApiConnectionDebugInfo,
+  setApiBaseUrl,
+} from '@/constants/api';
 import { tokenStorage } from '@/services/storage/tokenStorage';
 import { authDebug, authWarn } from '@/utils/authDebug';
 import { getDeviceId } from '@/utils/deviceUtils';
@@ -145,6 +150,20 @@ apiClient.interceptors.response.use(
 
         return apiClient.request(config);
       }
+
+      authWarn('apiClient exhausted base URL candidates', {
+        currentBaseUrl: config?.baseURL ?? getApiBaseUrl(),
+        request: `${String(error?.config?.method ?? 'GET').toUpperCase()} ${String(config?.url ?? '')}`,
+        ...getApiConnectionDebugInfo(),
+      });
+
+      return Promise.reject(
+        new Error(
+          `无法连接后端服务，请确认当前 API 地址可达：${String(
+            config?.baseURL ?? getApiBaseUrl(),
+          )}`,
+        ),
+      );
     }
 
     if (error?.response?.status === 401) {

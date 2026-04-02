@@ -23,15 +23,15 @@ function getStageLabel(stage: ImportStage): string {
     case 'scanning':
       return '正在扫描相册';
     case 'dedup':
-      return '正在查重';
+      return '正在按 metadata 查重';
     case 'vision':
-      return '正在启动端侧识别';
+      return '正在分析照片内容';
     case 'uploading':
-      return '正在上传';
+      return '正在同步 metadata';
     case 'clustering':
-      return '正在生成事件';
+      return '正在聚合事件';
     case 'done':
-      return '完成';
+      return '整理完成';
     default:
       return '准备中';
   }

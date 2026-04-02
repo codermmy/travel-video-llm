@@ -4,7 +4,7 @@ import { ActivityIndicator, Button, Modal, Portal, ProgressBar, Text } from 'rea
 
 import { taskApi, type TaskStatus } from '@/services/api/taskApi';
 
-type UploadPhase = 'uploading' | 'processing' | 'completed' | 'failed';
+type UploadPhase = 'pending' | 'clustering' | 'geocoding' | 'ai' | 'completed' | 'failed';
 
 type UploadProgressProps = {
   visible: boolean;
@@ -18,7 +18,7 @@ const POLL_INTERVAL = 2000;
 
 function toPhase(status?: TaskStatus | null): UploadPhase {
   if (!status) {
-    return 'uploading';
+    return 'pending';
   }
 
   const raw = status.status.toLowerCase();
@@ -29,33 +29,40 @@ function toPhase(status?: TaskStatus | null): UploadPhase {
     return 'failed';
   }
 
-  if ((status.progress ?? 0) < 50) {
-    return 'uploading';
+  if (status.stage === 'ai') {
+    return 'ai';
   }
-  return 'processing';
+  if (status.stage === 'geocoding') {
+    return 'geocoding';
+  }
+  if (status.stage === 'clustering') {
+    return 'clustering';
+  }
+  return 'pending';
 }
 
 function getProgressPercent(status?: TaskStatus | null): number {
   if (!status) {
     return 0;
   }
-  if (status.total > 0) {
-    return Math.max(0, Math.min(100, Math.round((status.progress / status.total) * 100)));
-  }
   return Math.max(0, Math.min(100, Math.round(status.progress)));
 }
 
 function getPhaseMessage(phase: UploadPhase): string {
   switch (phase) {
-    case 'processing':
-      return 'Generating events...';
+    case 'clustering':
+      return '正在聚合事件';
+    case 'geocoding':
+      return '正在补充地点信息';
+    case 'ai':
+      return '正在生成故事';
     case 'completed':
-      return 'Upload completed';
+      return '整理完成';
     case 'failed':
-      return 'Upload failed';
-    case 'uploading':
+      return '整理失败';
+    case 'pending':
     default:
-      return 'Uploading photos...';
+      return '正在准备整理任务';
   }
 }
 
@@ -84,7 +91,7 @@ export function UploadProgress({
       setPollError(null);
     } catch (error) {
       console.warn('Upload status polling failed:', error);
-      setPollError('Network unstable, still trying...');
+      setPollError('网络波动，仍在继续获取任务状态...');
     }
   }, [taskId]);
 
@@ -114,16 +121,22 @@ export function UploadProgress({
   }, [onComplete, phase]);
 
   const hintText = useMemo(() => {
-    if (phase === 'processing') {
-      return 'This may take a few minutes.';
+    if (phase === 'clustering') {
+      return '系统会按时间和地点自动整理最近导入的照片。';
+    }
+    if (phase === 'geocoding') {
+      return '正在补充地点展示信息，不会上传原图。';
+    }
+    if (phase === 'ai') {
+      return '照片结构化结果已就绪，系统正在按事件分批生成故事。';
     }
     if (phase === 'failed') {
-      return status?.error || 'Please retry the upload later.';
+      return status?.error || '可稍后重新生成该事件故事。';
     }
     if (pollError) {
       return pollError;
     }
-    return status?.result || null;
+    return status?.result || '默认链路只同步 metadata 与端侧结构化结果。';
   }, [phase, pollError, status?.error, status?.result]);
 
   if (!visible || !taskId) {
@@ -162,11 +175,11 @@ export function UploadProgress({
 
         {phase === 'failed' ? (
           <Button mode="contained" onPress={onDismissFailed} style={styles.primaryAction}>
-            Dismiss
+            关闭
           </Button>
         ) : (
           <Button mode="outlined" onPress={onContinueInBackground} style={styles.primaryAction}>
-            Continue in Background
+            后台继续
           </Button>
         )}
       </Modal>

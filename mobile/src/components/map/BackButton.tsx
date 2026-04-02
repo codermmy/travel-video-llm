@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { JourneyPalette } from '@/styles/colors';
+
 type BackButtonProps = {
   levelName: string;
   onPress: () => void;
@@ -28,18 +30,18 @@ export function BackButton({ levelName, onPress }: BackButtonProps) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 16,
+    top: 20,
     right: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 16,
+    backgroundColor: JourneyPalette.overlay,
+    borderRadius: 18,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(28, 47, 84, 0.12)',
-    shadowColor: '#101D38',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.14,
-    shadowRadius: 6,
+    borderColor: 'rgba(41, 57, 54, 0.08)',
+    shadowColor: JourneyPalette.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
     elevation: 4,
   },
   touchable: {
@@ -50,9 +52,9 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   text: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2B3A5E',
+    fontSize: 13,
+    fontWeight: '700',
+    color: JourneyPalette.ink,
   },
   pressed: {
     transform: [{ scale: 0.96 }],

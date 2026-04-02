@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { JourneyPalette } from '@/styles/colors';
+
 type ClusterMarkerProps = {
   coverUrl: string | null;
   clusterCount: number;
@@ -76,36 +78,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   markerWrapper: {
-    padding: 3,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    shadowColor: '#14274D',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    padding: 4,
+    backgroundColor: JourneyPalette.card,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 93, 88, 0.14)',
+    shadowColor: JourneyPalette.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
     elevation: 5,
   },
   markerWrapperSelected: {
-    transform: [{ scale: 1.2 }],
-    shadowOpacity: 0.3,
+    transform: [{ scale: 1.16 }],
+    shadowOpacity: 0.28,
   },
   markerWrapperPressed: {
     transform: [{ scale: 0.96 }],
   },
   image: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#E9EEFA',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#E9EEEA',
   },
   placeholder: {
-    backgroundColor: '#CAD7EF',
+    backgroundColor: '#D4DDD8',
   },
   badgeContainer: {
     position: 'absolute',
     top: -6,
     right: -6,
-    backgroundColor: '#1E2E53',
+    backgroundColor: JourneyPalette.accentWarm,
     borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -128,9 +132,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 8,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#FFFFFF',
+    borderTopColor: JourneyPalette.card,
     marginTop: -1,
-    shadowColor: '#000',
+    shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,

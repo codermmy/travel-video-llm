@@ -19,6 +19,7 @@ from app.services.event_enrichment import (
     format_coordinate_location,
     split_into_chapters,
 )
+from app.services.event_service import event_service
 from app.services.photo_group_service import photo_group_service
 from app.services.photo_ai_service import generate_photo_caption
 from app.services.story_signal_service import aggregate_story_signals, build_photo_story_seed
@@ -146,6 +147,7 @@ def generate_event_story_for_event(
     user_id: str,
     event_id: str,
     *,
+    target_version: Optional[int] = None,
     strict_ai: bool = True,
 ) -> Tuple[bool, Optional[str]]:
     event = db.scalar(
@@ -153,6 +155,10 @@ def generate_event_story_for_event(
     )
     if not event:
         return False, "event_not_found"
+
+    generation_version = target_version or event.event_version
+    if event.event_version != generation_version:
+        return True, "event_version_outdated"
 
     photos = list(
         db.scalars(
@@ -162,8 +168,11 @@ def generate_event_story_for_event(
         ).all()
     )
     if not photos:
-        event.status = "ai_failed"
-        event.ai_error = "event_has_no_photos"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason="event_has_no_photos",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
@@ -171,15 +180,22 @@ def generate_event_story_for_event(
     if not ai_service.is_configured():
         reason = ai_service.configuration_error_code()
         if strict_ai:
-            event.status = "ai_failed"
-            event.ai_error = reason
+            event_service.mark_story_failed(
+                event=event,
+                target_version=generation_version,
+                reason=reason,
+            )
             event.title = ensure_event_title(event)
             db.commit()
             return False, reason
         return False, reason
 
-    event.status = "ai_processing"
-    event.ai_error = None
+    if not event_service.mark_story_processing(
+        event=event,
+        target_version=generation_version,
+    ):
+        db.rollback()
+        return True, "event_version_outdated"
     event.title = ensure_event_title(event)
     db.commit()
 
@@ -188,8 +204,11 @@ def generate_event_story_for_event(
     descriptions = [str(d) for d in signals.get("photo_descriptions", []) if d]
 
     if not event.start_time or not event.end_time:
-        event.status = "ai_failed"
-        event.ai_error = "event_date_range_missing"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason="event_date_range_missing",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
@@ -210,13 +229,21 @@ def generate_event_story_for_event(
         ],
     )
     if not story:
-        event.status = "ai_failed"
-        event.ai_error = ai_service.last_error_code or "story_generation_failed"
+        event_service.mark_story_failed(
+            event=event,
+            target_version=generation_version,
+            reason=ai_service.last_error_code or "story_generation_failed",
+        )
         event.title = ensure_event_title(event)
         db.commit()
         return False, event.ai_error
 
-    event.title = str(story.get("title") or ensure_event_title(event))
+    db.refresh(event)
+    if event.event_version != generation_version:
+        return True, "event_version_outdated"
+
+    if not event.title_manually_set:
+        event.title = str(story.get("title") or ensure_event_title(event))
     full_story = str(story.get("full_story") or story.get("story") or "").strip()
     event.full_story = full_story or None
     event.story_text = full_story or None
@@ -235,7 +262,6 @@ def generate_event_story_for_event(
         narrative_boost="",
     )
 
-    event.status = "generated"
-    event.ai_error = None
+    event_service.mark_story_generated(event=event, target_version=generation_version)
     db.commit()
     return True, None

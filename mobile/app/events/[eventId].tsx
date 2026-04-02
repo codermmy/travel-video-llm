@@ -10,6 +10,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,6 +25,7 @@ import {
   prepareEnhancementUploads,
 } from '@/services/album/eventEnhancementService';
 import { eventApi } from '@/services/api/eventApi';
+import { photoApi } from '@/services/api/photoApi';
 import {
   clearEventCoverOverride,
   saveEventCoverOverride,
@@ -31,18 +33,12 @@ import {
 import { taskApi } from '@/services/api/taskApi';
 import { usePhotoViewerStore } from '@/stores/photoViewerStore';
 import { useSlideshowStore } from '@/stores/slideshowStore';
-import type { EventDetail, EventStatus } from '@/types/event';
+import { JourneyPalette } from '@/styles/colors';
+import type { EventDetail, EventRecord } from '@/types/event';
 import { formatDateRange } from '@/utils/dateUtils';
+import { getEventDetailStatusMeta } from '@/utils/eventStatus';
 import { formatFileSize } from '@/utils/imageUtils';
 import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
-
-const STATUS_META: Record<EventStatus, { label: string; color: string }> = {
-  clustered: { label: '已聚类（待AI）', color: '#6A7BA4' },
-  ai_pending: { label: '待生成', color: '#7C87AA' },
-  ai_processing: { label: 'AI 生成中', color: '#2D6EF5' },
-  generated: { label: '已完成', color: '#0C9C7E' },
-  ai_failed: { label: '生成失败', color: '#C34A5F' },
-};
 
 function getFallbackDateRange(event: EventDetail): string {
   if (!event.startTime && !event.endTime) {
@@ -74,13 +70,13 @@ function resolveLocation(event: EventDetail): string {
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
-    return '-';
+    return '暂无';
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return '-';
+    return '暂无';
   }
-  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
+  return `${date.toLocaleDateString('zh-CN')} ${date.toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   })}`;
@@ -100,9 +96,19 @@ export default function EventDetailScreen() {
   const [isEnhancementPickerVisible, setIsEnhancementPickerVisible] = useState(false);
   const [selectedEnhancementIds, setSelectedEnhancementIds] = useState<string[]>([]);
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editLocationName, setEditLocationName] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [isPhotoManagerVisible, setIsPhotoManagerVisible] = useState(false);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
+  const [availableEvents, setAvailableEvents] = useState<EventRecord[]>([]);
+  const [isPhotoActionLoading, setIsPhotoActionLoading] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventLocation, setNewEventLocation] = useState('');
 
-  const setPhotoViewerSession = usePhotoViewerStore((s) => s.setSession);
-  const setSlideshowSession = useSlideshowStore((s) => s.setSession);
+  const setPhotoViewerSession = usePhotoViewerStore((state) => state.setSession);
+  const setSlideshowSession = useSlideshowStore((state) => state.setSession);
 
   const loadDetail = useCallback(async () => {
     if (!eventId) {
@@ -117,9 +123,9 @@ export default function EventDetailScreen() {
       const data = await eventApi.getEventDetail(eventId);
       setEvent(data);
       setCoverFailed(false);
-    } catch (err) {
-      console.error('[event-detail] failed to load detail', err);
-      setError(err instanceof Error ? err.message : '加载失败');
+    } catch (loadError) {
+      console.error('[event-detail] failed to load detail', loadError);
+      setError(loadError instanceof Error ? loadError.message : '加载失败');
     } finally {
       setLoading(false);
     }
@@ -185,13 +191,11 @@ export default function EventDetailScreen() {
     try {
       setIsRegenerating(true);
       const result = await eventApi.regenerateStory(event.id);
-
       await pollTaskUntilSettled(result.taskId);
-
       await loadDetail();
       Alert.alert('已提交', '故事生成任务已刷新。');
-    } catch (err) {
-      Alert.alert('重试失败', err instanceof Error ? err.message : '请稍后再试');
+    } catch (retryError) {
+      Alert.alert('重试失败', retryError instanceof Error ? retryError.message : '请稍后再试');
     } finally {
       setIsRegenerating(false);
     }
@@ -220,9 +224,16 @@ export default function EventDetailScreen() {
     if (!event) {
       return [];
     }
-    const idSet = new Set(selectedEnhancementIds);
-    return event.photos.filter((photo) => idSet.has(photo.id));
+    const selectedIdSet = new Set(selectedEnhancementIds);
+    return event.photos.filter((photo) => selectedIdSet.has(photo.id));
   }, [event, selectedEnhancementIds]);
+  const selectedManagedPhotos = useMemo(() => {
+    if (!event) {
+      return [];
+    }
+    const selectedIdSet = new Set(selectedPhotoIds);
+    return event.photos.filter((photo) => selectedIdSet.has(photo.id));
+  }, [event, selectedPhotoIds]);
   const enhancementSummary = event?.enhancement ?? {
     status: 'none' as const,
     assetCount: 0,
@@ -241,15 +252,137 @@ export default function EventDetailScreen() {
     setIsEnhancementPickerVisible(true);
   }, [event]);
 
+  const openEditModal = useCallback(() => {
+    if (!event) {
+      return;
+    }
+    setEditTitle(event.title ?? '');
+    setEditLocationName(event.locationName ?? '');
+    setIsEditModalVisible(true);
+  }, [event]);
+
+  const openPhotoManager = useCallback(async () => {
+    if (!event) {
+      return;
+    }
+    setSelectedPhotoIds([]);
+    setNewEventTitle('');
+    setNewEventLocation('');
+    setIsPhotoManagerVisible(true);
+    try {
+      const allEvents = await eventApi.listAllEvents();
+      setAvailableEvents(allEvents.filter((item) => item.id !== event.id));
+    } catch (loadError) {
+      console.warn('[event-detail] failed to load available events', loadError);
+      setAvailableEvents([]);
+    }
+  }, [event]);
+
+  const toggleManagedPhoto = useCallback((photoId: string) => {
+    setSelectedPhotoIds((previous) =>
+      previous.includes(photoId) ? previous.filter((id) => id !== photoId) : [...previous, photoId],
+    );
+  }, []);
+
+  const saveEventBasics = useCallback(async () => {
+    if (!event) {
+      return;
+    }
+
+    try {
+      setIsSavingEdit(true);
+      await eventApi.updateEvent(event.id, {
+        title: editTitle.trim(),
+        locationName: editLocationName.trim(),
+      });
+      setIsEditModalVisible(false);
+      await loadDetail();
+      Alert.alert('已保存', '事件基础信息已更新。');
+    } catch (saveError) {
+      Alert.alert('保存失败', saveError instanceof Error ? saveError.message : '请稍后再试');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }, [editLocationName, editTitle, event, loadDetail]);
+
+  const deleteCurrentEvent = useCallback(() => {
+    if (!event) {
+      return;
+    }
+
+    Alert.alert('删除事件', '删除后，本事件照片会回到“无事件”状态，现有故事也会移除。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await eventApi.deleteEvent(event.id);
+              router.back();
+            } catch (deleteError) {
+              Alert.alert(
+                '删除失败',
+                deleteError instanceof Error ? deleteError.message : '请稍后再试',
+              );
+            }
+          })();
+        },
+      },
+    ]);
+  }, [event, router]);
+
+  const applyPhotoSelection = useCallback(
+    async (mode: 'remove' | 'move' | 'create', targetEventId?: string) => {
+      if (!event || selectedPhotoIds.length === 0) {
+        Alert.alert('未选择照片', '请先选择至少一张照片。');
+        return;
+      }
+
+      try {
+        setIsPhotoActionLoading(true);
+        if (mode === 'remove') {
+          await photoApi.reassignPhotosToEvent(selectedPhotoIds, null);
+        } else if (mode === 'move') {
+          if (!targetEventId) {
+            Alert.alert('缺少目标事件', '请选择一个目标事件。');
+            return;
+          }
+          await photoApi.reassignPhotosToEvent(selectedPhotoIds, targetEventId);
+        } else {
+          await eventApi.createEvent({
+            title: newEventTitle.trim() || undefined,
+            locationName: newEventLocation.trim() || undefined,
+            photoIds: selectedPhotoIds,
+          });
+        }
+
+        setIsPhotoManagerVisible(false);
+        setSelectedPhotoIds([]);
+        setNewEventTitle('');
+        setNewEventLocation('');
+        await loadDetail();
+      } catch (photoActionError) {
+        Alert.alert(
+          '操作失败',
+          photoActionError instanceof Error ? photoActionError.message : '请稍后再试',
+        );
+      } finally {
+        setIsPhotoActionLoading(false);
+      }
+    },
+    [event, loadDetail, newEventLocation, newEventTitle, selectedPhotoIds],
+  );
+
   const toggleEnhancementPhoto = useCallback((photoId: string) => {
-    setSelectedEnhancementIds((prev) => {
-      if (prev.includes(photoId)) {
-        return prev.filter((id) => id !== photoId);
+    setSelectedEnhancementIds((previous) => {
+      if (previous.includes(photoId)) {
+        return previous.filter((id) => id !== photoId);
       }
-      if (prev.length >= 5) {
-        return prev;
+      if (previous.length >= 5) {
+        return previous;
       }
-      return [...prev, photoId];
+      return [...previous, photoId];
     });
   }, []);
 
@@ -271,8 +404,8 @@ export default function EventDetailScreen() {
       await loadDetail();
       setIsEnhancementPickerVisible(false);
       Alert.alert('增强完成', '已使用代表图重新生成更强故事。');
-    } catch (err) {
-      Alert.alert('增强失败', err instanceof Error ? err.message : '请稍后再试');
+    } catch (enhanceError) {
+      Alert.alert('增强失败', enhanceError instanceof Error ? enhanceError.message : '请稍后再试');
     } finally {
       await cleanupPreparedEnhancementUploads(preparedUploads);
       setIsEnhancing(false);
@@ -290,8 +423,8 @@ export default function EventDetailScreen() {
       await pollTaskUntilSettled(result.taskId);
       await loadDetail();
       Alert.alert('已提交', '已复用 7 天内的增强素材重新生成故事。');
-    } catch (err) {
-      Alert.alert('增强重试失败', err instanceof Error ? err.message : '请稍后再试');
+    } catch (retryError) {
+      Alert.alert('增强重试失败', retryError instanceof Error ? retryError.message : '请稍后再试');
     } finally {
       setIsEnhancing(false);
     }
@@ -310,19 +443,22 @@ export default function EventDetailScreen() {
           photoId: photo.id,
           localCoverUri: nextCoverUri,
         });
-        setEvent((prev) =>
-          prev
+        setEvent((previous) =>
+          previous
             ? {
-                ...prev,
+                ...previous,
                 localCoverUri: nextCoverUri,
                 selectedCoverPhotoId: photo.id,
               }
-            : prev,
+            : previous,
         );
         setCoverFailed(false);
         setIsCoverPickerVisible(false);
-      } catch (err) {
-        Alert.alert('封面更新失败', err instanceof Error ? err.message : '请稍后再试');
+      } catch (coverError) {
+        Alert.alert(
+          '封面更新失败',
+          coverError instanceof Error ? coverError.message : '请稍后再试',
+        );
       }
     },
     [event],
@@ -335,19 +471,19 @@ export default function EventDetailScreen() {
 
     try {
       await clearEventCoverOverride(event.id);
-      setEvent((prev) =>
-        prev
+      setEvent((previous) =>
+        previous
           ? {
-              ...prev,
+              ...previous,
               localCoverUri: automaticCover.uri,
               selectedCoverPhotoId: automaticCover.photoId,
             }
-          : prev,
+          : previous,
       );
       setCoverFailed(false);
       setIsCoverPickerVisible(false);
-    } catch (err) {
-      Alert.alert('恢复默认失败', err instanceof Error ? err.message : '请稍后再试');
+    } catch (coverError) {
+      Alert.alert('恢复默认失败', coverError instanceof Error ? coverError.message : '请稍后再试');
     }
   }, [automaticCover.photoId, automaticCover.uri, event]);
 
@@ -355,7 +491,10 @@ export default function EventDetailScreen() {
     return (
       <SafeAreaView style={styles.centerScreen}>
         <StatusBar barStyle="dark-content" />
-        <ActivityIndicator size="large" color="#2F6AF6" />
+        <LinearGradient colors={['#F8F1E7', '#ECF0E8']} style={styles.loadingOrb}>
+          <MaterialCommunityIcons name="image-filter-hdr" size={28} color={JourneyPalette.accent} />
+        </LinearGradient>
+        <ActivityIndicator size="large" color={JourneyPalette.accent} />
         <Text style={styles.centerText}>正在加载事件详情...</Text>
       </SafeAreaView>
     );
@@ -365,7 +504,13 @@ export default function EventDetailScreen() {
     return (
       <SafeAreaView style={styles.centerScreen}>
         <StatusBar barStyle="dark-content" />
-        <MaterialCommunityIcons name="cloud-alert-outline" size={42} color="#D55D5D" />
+        <LinearGradient colors={['#FAECE9', '#F8F1E8']} style={styles.loadingOrb}>
+          <MaterialCommunityIcons
+            name="cloud-alert-outline"
+            size={30}
+            color={JourneyPalette.danger}
+          />
+        </LinearGradient>
         <Text style={styles.errorText}>{error || '未找到事件'}</Text>
         <Pressable
           style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
@@ -383,11 +528,11 @@ export default function EventDetailScreen() {
     );
   }
 
-  const statusMeta = STATUS_META[event.status] ?? STATUS_META.clustered;
+  const statusMeta = getEventDetailStatusMeta(event.status);
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="light-content" />
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.heroCard}>
           {coverUri && !coverFailed ? (
@@ -398,120 +543,192 @@ export default function EventDetailScreen() {
               onError={() => setCoverFailed(true)}
             />
           ) : (
-            <LinearGradient colors={['#DDE8FF', '#E9F8F2']} style={styles.heroFallback}>
-              <MaterialCommunityIcons name="image-filter-hdr" size={38} color="#4C66A8" />
+            <LinearGradient colors={['#DADFD4', '#E7DCCD']} style={styles.heroFallback}>
+              <MaterialCommunityIcons
+                name="image-filter-hdr"
+                size={40}
+                color={JourneyPalette.accent}
+              />
               <Text style={styles.heroFallbackText}>暂无封面图片</Text>
             </LinearGradient>
           )}
 
           <LinearGradient
-            colors={['transparent', 'rgba(18,33,63,0.22)', 'rgba(18,33,63,0.7)']}
+            colors={['rgba(21,32,31,0.1)', 'rgba(21,32,31,0.38)', 'rgba(21,32,31,0.76)']}
             style={styles.heroShade}
           />
 
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
-            <MaterialCommunityIcons name="arrow-left" size={18} color="#10204A" />
-            <Text style={styles.backBtnText}>返回</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.coverActionBtn}
-            onPress={() => setIsCoverPickerVisible(true)}
-            disabled={event.photos.length === 0}
-          >
-            <MaterialCommunityIcons name="image-edit-outline" size={16} color="#10204A" />
-            <Text style={styles.coverActionBtnText}>更换封面</Text>
-          </Pressable>
-
-          <View style={styles.heroMeta}>
-            <Text style={styles.heroTitle}>{event.title || '未命名事件'}</Text>
-            <Text style={styles.heroSub}>{resolveLocation(event)}</Text>
-            <Text style={styles.heroSub}>{dateRangeText}</Text>
-            <Text style={styles.heroHint}>
-              {event.selectedCoverPhotoId ? '当前使用本地优先封面' : '封面将优先使用本地图片'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.quickStats}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{event.photoCount}</Text>
-            <Text style={styles.statLabel}>照片</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{event.emotionTag || '未标注'}</Text>
-            <Text style={styles.statLabel}>心情</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: statusMeta.color }]}>{statusMeta.label}</Text>
-            <Text style={styles.statLabel}>状态</Text>
-          </View>
-        </View>
-
-        {fullStory ? (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>旅行故事</Text>
-            <Text style={styles.sectionBody}>{fullStory}</Text>
-          </View>
-        ) : (
-          <View style={styles.warningCard}>
-            <View style={styles.warningHeader}>
-              <MaterialCommunityIcons name="robot-outline" size={18} color="#9A5A37" />
-              <Text style={styles.warningTitle}>故事尚未完成</Text>
-            </View>
-            <Text style={styles.warningText}>
-              {event.aiError ? `原因：${event.aiError}` : 'AI 正在生成中，或尚未开始。'}
-            </Text>
+          <View style={styles.heroTopBar}>
+            <Pressable style={styles.topBarButton} onPress={() => router.back()}>
+              <MaterialCommunityIcons name="arrow-left" size={18} color="#FFF9F2" />
+            </Pressable>
             <Pressable
-              style={({ pressed }) => [
-                styles.retryAiBtn,
-                pressed && styles.pressed,
-                isRegenerating && styles.retryAiBtnDisabled,
-              ]}
-              disabled={isRegenerating}
-              onPress={retryAiStory}
+              style={styles.topBarPill}
+              onPress={() => setIsCoverPickerVisible(true)}
+              disabled={event.photos.length === 0}
             >
-              {isRegenerating ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.retryAiBtnText}>重试生成故事</Text>
-              )}
+              <MaterialCommunityIcons name="image-edit-outline" size={15} color="#FFF9F2" />
+              <Text style={styles.topBarPillText}>更换封面</Text>
             </Pressable>
           </View>
-        )}
+
+          <View style={styles.heroMeta}>
+            <Text style={styles.heroEyebrow}>TRAVEL STORY</Text>
+            <Text style={styles.heroTitle}>{event.title || '未命名事件'}</Text>
+            <View style={styles.heroChipRow}>
+              <View style={styles.heroChip}>
+                <MaterialCommunityIcons name="map-marker-outline" size={13} color="#FFF9F2" />
+                <Text style={styles.heroChipText}>{resolveLocation(event)}</Text>
+              </View>
+              <View style={styles.heroChip}>
+                <MaterialCommunityIcons name="calendar-month-outline" size={13} color="#FFF9F2" />
+                <Text style={styles.heroChipText}>{dateRangeText}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{event.photoCount}</Text>
+            <Text style={styles.summaryLabel}>照片</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{event.emotionTag || '未标注'}</Text>
+            <Text style={styles.summaryLabel}>心情</Text>
+          </View>
+          <View style={styles.summaryCard}>
+            <Text style={[styles.summaryValue, { color: statusMeta.color }]}>
+              {statusMeta.label}
+            </Text>
+            <Text style={styles.summaryLabel}>状态</Text>
+          </View>
+        </View>
+
+        <View style={styles.quickActions}>
+          <Pressable style={[styles.primaryAction, styles.flexAction]} onPress={onPlaySlideshow}>
+            <MaterialCommunityIcons name="play-circle-outline" size={16} color="#FFF9F2" />
+            <Text style={styles.primaryActionText}>播放幻灯片</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.secondaryAction,
+              styles.flexAction,
+              isRegenerating && styles.disabledAction,
+            ]}
+            onPress={retryAiStory}
+            disabled={isRegenerating}
+          >
+            {isRegenerating ? (
+              <ActivityIndicator size="small" color={JourneyPalette.ink} />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="robot-outline" size={16} color={JourneyPalette.ink} />
+                <Text style={styles.secondaryActionText}>刷新故事</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        <View style={styles.quickActions}>
+          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openEditModal}>
+            <MaterialCommunityIcons name="pencil-outline" size={16} color={JourneyPalette.ink} />
+            <Text style={styles.secondaryActionText}>编辑事件</Text>
+          </Pressable>
+          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openPhotoManager}>
+            <MaterialCommunityIcons
+              name="image-multiple-outline"
+              size={16}
+              color={JourneyPalette.ink}
+            />
+            <Text style={styles.secondaryActionText}>调整照片归属</Text>
+          </Pressable>
+        </View>
+
+        {event.status === 'waiting_for_vision' ? (
+          <View style={styles.noticeCard}>
+            <MaterialCommunityIcons
+              name="progress-clock"
+              size={18}
+              color={JourneyPalette.inkSoft}
+            />
+            <View style={styles.noticeCopy}>
+              <Text style={styles.noticeTitle}>照片仍在整理</Text>
+              <Text style={styles.noticeText}>端侧识别完成后，系统会自动更新故事。</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {event.status === 'ai_failed' ? (
+          <View style={styles.noticeCard}>
+            <MaterialCommunityIcons
+              name="alert-circle-outline"
+              size={18}
+              color={JourneyPalette.danger}
+            />
+            <View style={styles.noticeCopy}>
+              <Text style={styles.noticeTitle}>最近一次生成失败</Text>
+              <Text style={styles.noticeText}>
+                {event.aiError || '可以稍后自动重试，或手动点击“刷新故事”重试。'}
+              </Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.sectionCard}>
-          <View style={styles.enhancementHeader}>
-            <View style={styles.enhancementTitleWrap}>
-              <MaterialCommunityIcons name="cloud-upload-outline" size={18} color="#355CB0" />
-              <Text style={styles.sectionTitle}>云端增强</Text>
-            </View>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>旅行故事</Text>
+            {event.storyFreshness === 'stale' ? (
+              <View style={styles.staleBadge}>
+                <MaterialCommunityIcons name="update" size={12} color={JourneyPalette.warning} />
+                <Text style={styles.staleBadgeText}>内容待更新</Text>
+              </View>
+            ) : null}
+          </View>
+          {fullStory ? (
+            <Text style={styles.sectionBody}>{fullStory}</Text>
+          ) : (
+            <Text style={styles.sectionBodyMuted}>
+              {event.aiError ? `生成失败：${event.aiError}` : '故事尚未完成，稍后会自动补齐。'}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>云端增强</Text>
             {enhancementSummary.canRetry ? (
-              <View style={styles.enhancementBadge}>
-                <Text style={styles.enhancementBadgeText}>7 天内可直重试</Text>
+              <View style={styles.retryBadge}>
+                <Text style={styles.retryBadgeText}>7 天内可直接重试</Text>
               </View>
             ) : null}
           </View>
 
-          <Text style={styles.sectionBody}>
+          <Text style={styles.sectionBodyMuted}>
             只会上传你手动勾选的 3-5
             张压缩代表图，用于本事件更强故事重生成；默认路径不会上传整组照片。
           </Text>
 
-          <View style={styles.enhancementInfoCard}>
-            <View style={styles.enhancementInfoRow}>
-              <Text style={styles.enhancementInfoLabel}>上传内容</Text>
-              <Text style={styles.enhancementInfoValue}>3-5 张压缩代表图</Text>
+          <View style={styles.infoPanel}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>上传内容</Text>
+              <Text style={styles.infoValue}>3-5 张压缩代表图</Text>
             </View>
-            <View style={styles.enhancementInfoRow}>
-              <Text style={styles.enhancementInfoLabel}>当前保留</Text>
-              <Text style={styles.enhancementInfoValue}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>当前保留</Text>
+              <Text style={styles.infoValue}>
                 {enhancementSummary.assetCount} 张 · {formatFileSize(enhancementSummary.totalBytes)}
               </Text>
             </View>
-            <View style={styles.enhancementInfoRow}>
-              <Text style={styles.enhancementInfoLabel}>最近到期</Text>
-              <Text style={styles.enhancementInfoValue}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>最近上传</Text>
+              <Text style={styles.infoValue}>
+                {formatDateTime(enhancementSummary.lastUploadedAt)}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>最近到期</Text>
+              <Text style={styles.infoValue}>
                 {formatDateTime(enhancementSummary.retainedUntil)}
               </Text>
             </View>
@@ -522,33 +739,36 @@ export default function EventDetailScreen() {
             {enhancementEligiblePhotos.length} 张。
           </Text>
 
-          <View style={styles.enhancementActions}>
+          <View style={styles.quickActions}>
             <Pressable
-              style={({ pressed }) => [
-                styles.enhancementPrimaryBtn,
-                pressed && styles.pressed,
-                (isEnhancing || enhancementEligiblePhotos.length < 3) && styles.retryAiBtnDisabled,
+              style={[
+                styles.primaryAction,
+                styles.flexAction,
+                (isEnhancing || enhancementEligiblePhotos.length < 3) && styles.disabledAction,
               ]}
               disabled={isEnhancing || enhancementEligiblePhotos.length < 3}
               onPress={openEnhancementPicker}
             >
               {isEnhancing ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator size="small" color="#FFF9F2" />
               ) : (
-                <Text style={styles.enhancementPrimaryBtnText}>选择代表图并增强</Text>
+                <>
+                  <MaterialCommunityIcons name="creation-outline" size={16} color="#FFF9F2" />
+                  <Text style={styles.primaryActionText}>选择代表图并增强</Text>
+                </>
               )}
             </Pressable>
-
             <Pressable
-              style={({ pressed }) => [
-                styles.enhancementGhostBtn,
-                pressed && styles.pressed,
-                (!enhancementSummary.canRetry || isEnhancing) && styles.retryAiBtnDisabled,
+              style={[
+                styles.secondaryAction,
+                styles.flexAction,
+                (!enhancementSummary.canRetry || isEnhancing) && styles.disabledAction,
               ]}
               disabled={!enhancementSummary.canRetry || isEnhancing}
               onPress={retryEnhancement}
             >
-              <Text style={styles.enhancementGhostBtnText}>直接重试增强</Text>
+              <MaterialCommunityIcons name="refresh" size={16} color={JourneyPalette.ink} />
+              <Text style={styles.secondaryActionText}>直接重试增强</Text>
             </Pressable>
           </View>
         </View>
@@ -560,7 +780,7 @@ export default function EventDetailScreen() {
               {event.chapters.map((chapter) => (
                 <View key={chapter.id} style={styles.chapterItem}>
                   <Text style={styles.chapterTitle}>
-                    {chapter.chapterTitle || `第${chapter.chapterIndex}章`}
+                    {chapter.chapterTitle || `第 ${chapter.chapterIndex} 章`}
                   </Text>
                   {chapter.chapterStory ? (
                     <Text style={styles.chapterStory}>{chapter.chapterStory}</Text>
@@ -571,30 +791,14 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
 
-        {event.musicUrl ? (
-          <View style={styles.sectionCard}>
-            <View style={styles.musicHeader}>
-              <View style={styles.musicTitleWrap}>
-                <MaterialCommunityIcons name="music-circle-outline" size={18} color="#3D57A7" />
-                <Text style={styles.sectionTitle}>背景音乐</Text>
-              </View>
-            </View>
-            <Text style={styles.sectionHint}>已关联音乐资源，幻灯片播放时将自动加载。</Text>
-          </View>
-        ) : null}
-
         <View style={styles.sectionCard}>
-          <View style={styles.albumHeader}>
-            <Text style={styles.sectionTitle}>相册 · {event.photos.length} 张</Text>
-            <Pressable
-              style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
-              onPress={onPlaySlideshow}
-            >
-              <MaterialCommunityIcons name="play-circle-outline" size={16} color="#FFFFFF" />
-              <Text style={styles.playBtnText}>播放幻灯片</Text>
-            </Pressable>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>相册</Text>
+            <Text style={styles.sectionHint}>{event.photos.length} 张</Text>
           </View>
-
+          <Text style={styles.sectionBodyMuted}>
+            支持批量移出当前事件、移动到其他事件，或选中若干照片新建事件。
+          </Text>
           <PhotoGrid
             photos={event.photos}
             onPhotoPress={onPhotoPress}
@@ -602,6 +806,244 @@ export default function EventDetailScreen() {
           />
         </View>
       </ScrollView>
+
+      <Modal
+        visible={isEditModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEditModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View style={styles.modalCopy}>
+                <Text style={styles.modalTitle}>编辑事件</Text>
+                <Text style={styles.modalHint}>
+                  标题不会再被后续 AI 自动覆盖；地点修改会触发故事刷新。
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setIsEditModalVisible(false)}
+                style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
+              </Pressable>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>事件标题</Text>
+              <TextInput
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="给这段旅程起个名字"
+                placeholderTextColor={JourneyPalette.muted}
+                style={styles.fieldInput}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>地点</Text>
+              <TextInput
+                value={editLocationName}
+                onChangeText={setEditLocationName}
+                placeholder="例如：杭州西湖"
+                placeholderTextColor={JourneyPalette.muted}
+                style={styles.fieldInput}
+              />
+            </View>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={deleteCurrentEvent}
+                style={({ pressed }) => [styles.modalDangerBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalDangerBtnText}>删除事件</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  void saveEventBasics();
+                }}
+                style={({ pressed }) => [
+                  styles.modalPrimaryBtn,
+                  pressed && styles.pressed,
+                  isSavingEdit && styles.disabledAction,
+                ]}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? (
+                  <ActivityIndicator color="#FFF9F2" />
+                ) : (
+                  <Text style={styles.modalPrimaryBtnText}>保存修改</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isPhotoManagerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsPhotoManagerVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View style={styles.modalCopy}>
+                <Text style={styles.modalTitle}>调整照片归属</Text>
+                <Text style={styles.modalHint}>
+                  先选照片，再移出、移动到其他事件，或直接新建事件。
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => setIsPhotoManagerVisible(false)}
+                style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalContent}>
+              <View style={styles.selectionStats}>
+                <Text style={styles.selectionStatsText}>
+                  已选择 {selectedPhotoIds.length} / {event.photos.length}
+                </Text>
+                <Text style={styles.selectionStatsHint}>
+                  批量改归属后，故事会按最新版本自动刷新。
+                </Text>
+              </View>
+
+              <View style={styles.selectionGrid}>
+                {event.photos.map((photo) => {
+                  const coverCandidate = getPreferredPhotoThumbnailUri(photo);
+                  const selectedIndex = selectedPhotoIds.indexOf(photo.id);
+                  const isSelected = selectedIndex >= 0;
+                  return (
+                    <Pressable
+                      key={photo.id}
+                      onPress={() => toggleManagedPhoto(photo.id)}
+                      style={({ pressed }) => [
+                        styles.selectionItem,
+                        isSelected && styles.selectionItemSelected,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      {coverCandidate ? (
+                        <Image source={{ uri: coverCandidate }} style={styles.selectionImage} />
+                      ) : (
+                        <View style={styles.selectionPlaceholder}>
+                          <MaterialCommunityIcons
+                            name="image-off-outline"
+                            size={18}
+                            color={JourneyPalette.muted}
+                          />
+                        </View>
+                      )}
+                      <View style={styles.selectionShade} />
+                      {isSelected ? (
+                        <View style={styles.selectionTopRow}>
+                          <View style={styles.selectionIndexBadge}>
+                            <Text style={styles.selectionIndexText}>{selectedIndex + 1}</Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.formCard}>
+                <Text style={styles.fieldLabel}>移动到已有事件</Text>
+                {availableEvents.length > 0 ? (
+                  <View style={styles.targetEventList}>
+                    {availableEvents.map((targetEvent) => (
+                      <Pressable
+                        key={targetEvent.id}
+                        onPress={() => {
+                          void applyPhotoSelection('move', targetEvent.id);
+                        }}
+                        style={({ pressed }) => [
+                          styles.targetEventItem,
+                          pressed && styles.pressed,
+                          isPhotoActionLoading && styles.disabledAction,
+                        ]}
+                        disabled={isPhotoActionLoading}
+                      >
+                        <Text style={styles.targetEventTitle} numberOfLines={1}>
+                          {targetEvent.title || '未命名事件'}
+                        </Text>
+                        <Text style={styles.targetEventMeta} numberOfLines={1}>
+                          {targetEvent.locationName || '地点待补充'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.sectionBodyMuted}>暂时没有其他可移动到的事件。</Text>
+                )}
+              </View>
+
+              <View style={styles.formCard}>
+                <Text style={styles.fieldLabel}>选中照片新建事件</Text>
+                <TextInput
+                  value={newEventTitle}
+                  onChangeText={setNewEventTitle}
+                  placeholder="新事件标题（可选）"
+                  placeholderTextColor={JourneyPalette.muted}
+                  style={styles.fieldInput}
+                />
+                <TextInput
+                  value={newEventLocation}
+                  onChangeText={setNewEventLocation}
+                  placeholder="地点（可选）"
+                  placeholderTextColor={JourneyPalette.muted}
+                  style={styles.fieldInput}
+                />
+                <Pressable
+                  onPress={() => {
+                    void applyPhotoSelection('create');
+                  }}
+                  style={({ pressed }) => [
+                    styles.modalPrimaryBtn,
+                    pressed && styles.pressed,
+                    (selectedManagedPhotos.length === 0 || isPhotoActionLoading) &&
+                      styles.disabledAction,
+                  ]}
+                  disabled={selectedManagedPhotos.length === 0 || isPhotoActionLoading}
+                >
+                  <Text style={styles.modalPrimaryBtnText}>新建事件并转移选中照片</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => {
+                  void applyPhotoSelection('remove');
+                }}
+                style={({ pressed }) => [
+                  styles.modalGhostBtn,
+                  pressed && styles.pressed,
+                  (selectedManagedPhotos.length === 0 || isPhotoActionLoading) &&
+                    styles.disabledAction,
+                ]}
+                disabled={selectedManagedPhotos.length === 0 || isPhotoActionLoading}
+              >
+                <Text style={styles.modalGhostBtnText}>移出当前事件</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setIsPhotoManagerVisible(false)}
+                style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.modalPrimaryBtnText}>完成</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={isEnhancementPickerVisible}
@@ -613,7 +1055,7 @@ export default function EventDetailScreen() {
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <View>
+              <View style={styles.modalCopy}>
                 <Text style={styles.modalTitle}>选择代表图</Text>
                 <Text style={styles.modalHint}>
                   勾选 3-5 张本地照片。系统已按代表性预选，上传后保留 7 天用于直接重试。
@@ -623,7 +1065,7 @@ export default function EventDetailScreen() {
                 onPress={() => setIsEnhancementPickerVisible(false)}
                 style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
               >
-                <MaterialCommunityIcons name="close" size={18} color="#5C6C90" />
+                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
               </Pressable>
             </View>
 
@@ -659,7 +1101,7 @@ export default function EventDetailScreen() {
                           <MaterialCommunityIcons
                             name="image-off-outline"
                             size={18}
-                            color="#8090B2"
+                            color={JourneyPalette.muted}
                           />
                         </View>
                       )}
@@ -699,12 +1141,12 @@ export default function EventDetailScreen() {
                 style={({ pressed }) => [
                   styles.modalPrimaryBtn,
                   pressed && styles.pressed,
-                  (selectedEnhancementIds.length < 3 || isEnhancing) && styles.retryAiBtnDisabled,
+                  (selectedEnhancementIds.length < 3 || isEnhancing) && styles.disabledAction,
                 ]}
                 disabled={selectedEnhancementIds.length < 3 || isEnhancing}
               >
                 {isEnhancing ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color="#FFF9F2" />
                 ) : (
                   <Text style={styles.modalPrimaryBtnText}>上传并增强</Text>
                 )}
@@ -724,7 +1166,7 @@ export default function EventDetailScreen() {
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <View>
+              <View style={styles.modalCopy}>
                 <Text style={styles.modalTitle}>选择事件封面</Text>
                 <Text style={styles.modalHint}>优先使用本地缩略图，无图时回退到远端图片。</Text>
               </View>
@@ -732,7 +1174,7 @@ export default function EventDetailScreen() {
                 onPress={() => setIsCoverPickerVisible(false)}
                 style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
               >
-                <MaterialCommunityIcons name="close" size={18} color="#5C6C90" />
+                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
               </Pressable>
             </View>
 
@@ -773,35 +1215,44 @@ export default function EventDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F6FB',
+    backgroundColor: JourneyPalette.cardAlt,
   },
   content: {
     padding: 16,
-    paddingBottom: 30,
+    paddingBottom: 32,
     gap: 14,
   },
   centerScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3F6FB',
+    backgroundColor: JourneyPalette.cardAlt,
     padding: 24,
+  },
+  loadingOrb: {
+    width: 76,
+    height: 76,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
   },
   centerText: {
     marginTop: 10,
-    color: '#617194',
+    color: JourneyPalette.inkSoft,
   },
   errorText: {
     marginTop: 10,
     marginBottom: 16,
-    color: '#4E5C7F',
+    color: JourneyPalette.danger,
   },
   heroCard: {
-    height: 280,
-    borderRadius: 20,
+    height: 360,
+    borderRadius: 30,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#D8E2F7',
+    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: '#DCD9D2',
   },
   heroImage: {
     width: '100%',
@@ -815,384 +1266,374 @@ const styles = StyleSheet.create({
   heroFallbackText: {
     marginTop: 8,
     fontSize: 12,
-    color: '#4A5E93',
+    color: JourneyPalette.inkSoft,
     fontWeight: '600',
   },
   heroShade: {
     ...StyleSheet.absoluteFillObject,
   },
-  backBtn: {
+  heroTopBar: {
     position: 'absolute',
-    top: 14,
-    left: 12,
+    top: 16,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  topBarButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(24,35,34,0.34)',
+  },
+  topBarPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(24,35,34,0.34)',
   },
-  coverActionBtn: {
-    position: 'absolute',
-    top: 14,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  coverActionBtnText: {
+  topBarPillText: {
+    color: '#FFF9F2',
+    fontWeight: '800',
     fontSize: 12,
-    fontWeight: '700',
-    color: '#10204A',
-  },
-  backBtnText: {
-    marginLeft: 1,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#10204A',
   },
   heroMeta: {
     position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 14,
+    left: 18,
+    right: 18,
+    bottom: 18,
   },
-  heroTitle: {
-    color: '#FFFFFF',
-    fontSize: 26,
+  heroEyebrow: {
+    color: 'rgba(255,249,242,0.88)',
+    fontSize: 11,
+    letterSpacing: 1.1,
     fontWeight: '800',
   },
-  heroSub: {
-    marginTop: 5,
-    color: 'rgba(255,255,255,0.9)',
+  heroTitle: {
+    marginTop: 8,
+    color: '#FFF9F2',
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  heroChipRow: {
+    marginTop: 12,
+    gap: 8,
+  },
+  heroChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,249,242,0.18)',
+  },
+  heroChipText: {
+    color: '#FFF9F2',
     fontSize: 12,
+    fontWeight: '700',
   },
-  heroHint: {
-    marginTop: 7,
-    color: 'rgba(255,255,255,0.86)',
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  summaryCard: {
+    flex: 1,
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+  },
+  summaryValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+    textAlign: 'center',
+  },
+  summaryLabel: {
+    marginTop: 5,
     fontSize: 11,
+    color: JourneyPalette.muted,
   },
-  quickStats: {
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  flexAction: {
+    flex: 1,
+  },
+  primaryAction: {
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
-  statCard: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E8FA',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  statValue: {
-    fontSize: 13,
+  primaryActionText: {
+    color: '#FFF9F2',
     fontWeight: '800',
-    color: '#28385E',
-    textAlign: 'center',
   },
-  statLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    color: '#7E8CAE',
+  secondaryAction: {
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: '#EDE5D8',
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryActionText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  disabledAction: {
+    opacity: 0.55,
+  },
+  noticeCard: {
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  noticeCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  noticeTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  noticeText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: JourneyPalette.inkSoft,
   },
   sectionCard: {
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 26,
+    backgroundColor: JourneyPalette.card,
     borderWidth: 1,
-    borderColor: '#E0E8FA',
-    padding: 14,
+    borderColor: JourneyPalette.line,
+    padding: 18,
+    gap: 12,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#28385E',
-  },
-  sectionBody: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 22,
-    color: '#4C5C80',
-  },
-  enhancementHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 10,
   },
-  enhancementTitleWrap: {
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  sectionBody: {
+    fontSize: 15,
+    lineHeight: 25,
+    color: JourneyPalette.ink,
+  },
+  sectionBodyMuted: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: JourneyPalette.inkSoft,
+  },
+  sectionHint: {
+    color: JourneyPalette.muted,
+    lineHeight: 20,
+  },
+  staleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  enhancementBadge: {
+    gap: 4,
     borderRadius: 999,
-    backgroundColor: '#EEF4FF',
+    backgroundColor: JourneyPalette.warningSoft,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  enhancementBadgeText: {
-    color: '#355CB0',
+  staleBadgeText: {
+    color: JourneyPalette.warning,
+    fontWeight: '800',
     fontSize: 11,
-    fontWeight: '700',
   },
-  enhancementInfoCard: {
-    marginTop: 12,
-    gap: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#DBE5FA',
-    backgroundColor: '#F7FAFF',
-    padding: 12,
+  retryBadge: {
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accentSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  enhancementInfoRow: {
+  retryBadgeText: {
+    color: JourneyPalette.accent,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  infoPanel: {
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.cardAlt,
+    padding: 14,
+    gap: 10,
+  },
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 10,
   },
-  enhancementInfoLabel: {
-    color: '#6E7FA2',
-    fontSize: 12,
+  infoLabel: {
+    color: JourneyPalette.muted,
+    fontSize: 13,
   },
-  enhancementInfoValue: {
-    color: '#27416E',
-    fontSize: 12,
+  infoValue: {
+    color: JourneyPalette.ink,
+    fontSize: 13,
     fontWeight: '700',
-  },
-  enhancementActions: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  enhancementPrimaryBtn: {
     flex: 1,
-    borderRadius: 999,
-    backgroundColor: '#2F6AF6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-  },
-  enhancementPrimaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  enhancementGhostBtn: {
-    flex: 1,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#D8E2F7',
-    backgroundColor: '#F8FAFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-  },
-  enhancementGhostBtnText: {
-    color: '#47608D',
-    fontSize: 12,
-    fontWeight: '700',
+    textAlign: 'right',
   },
   chapterList: {
-    marginTop: 10,
     gap: 10,
   },
   chapterItem: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E4EBFC',
-    backgroundColor: '#F8FAFF',
-    padding: 10,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.cardAlt,
+    padding: 14,
+    gap: 8,
   },
   chapterTitle: {
-    fontSize: 13,
-    color: '#2F4A82',
+    fontSize: 15,
     fontWeight: '800',
+    color: JourneyPalette.ink,
   },
   chapterStory: {
-    marginTop: 6,
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#4E628D',
-  },
-  warningCard: {
-    borderRadius: 16,
-    backgroundColor: '#FFF7EE',
-    borderWidth: 1,
-    borderColor: '#F4DDC8',
-    padding: 14,
-  },
-  warningHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  warningTitle: {
-    fontSize: 15,
-    color: '#854E32',
-    fontWeight: '700',
-  },
-  warningText: {
-    marginTop: 8,
-    fontSize: 12,
-    lineHeight: 18,
-    color: '#8A5B3F',
-  },
-  retryAiBtn: {
-    marginTop: 12,
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    backgroundColor: '#D46A3E',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  retryAiBtnDisabled: {
-    opacity: 0.7,
-  },
-  retryAiBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  sectionHint: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#6E7FA2',
-  },
-  musicHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  musicTitleWrap: {
-    flexDirection: 'row',
-    gap: 6,
-    alignItems: 'center',
-  },
-  albumHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  playBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    backgroundColor: '#2F6AF6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  playBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  primaryBtn: {
-    borderRadius: 999,
-    backgroundColor: '#2F6AF6',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  primaryBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  ghostBtn: {
-    marginTop: 10,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  ghostBtnText: {
-    color: '#66779D',
-    fontWeight: '600',
+    color: JourneyPalette.inkSoft,
+    lineHeight: 22,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(7, 14, 29, 0.42)',
     justifyContent: 'flex-end',
+    backgroundColor: 'rgba(21, 32, 31, 0.42)',
   },
   modalSheet: {
-    maxHeight: '78%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    backgroundColor: '#F7F9FE',
-    paddingHorizontal: 16,
+    maxHeight: '82%',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: JourneyPalette.card,
+    paddingHorizontal: 18,
     paddingTop: 10,
-    paddingBottom: 18,
+    paddingBottom: 20,
   },
   modalHandle: {
     alignSelf: 'center',
-    width: 44,
+    width: 46,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#D1D9EB',
+    backgroundColor: JourneyPalette.lineStrong,
+    marginBottom: 14,
   },
   modalHeader: {
-    marginTop: 14,
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
+  },
+  modalCopy: {
+    flex: 1,
+    gap: 6,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
-    color: '#26365D',
+    color: JourneyPalette.ink,
   },
   modalHint: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#6C7B9D',
+    lineHeight: 20,
+    color: JourneyPalette.inkSoft,
   },
   modalCloseBtn: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EAF0FF',
+    backgroundColor: JourneyPalette.cardAlt,
   },
   modalContent: {
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  formGroup: {
+    gap: 8,
+    marginTop: 14,
+  },
+  formCard: {
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.cardAlt,
+    padding: 14,
+    gap: 10,
+    marginBottom: 14,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  fieldInput: {
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: '#FFF9F2',
+    paddingHorizontal: 14,
+    color: JourneyPalette.ink,
   },
   selectionStats: {
-    gap: 4,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.cardAlt,
+    padding: 14,
     marginBottom: 14,
   },
   selectionStatsText: {
-    color: '#25365F',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
+    color: JourneyPalette.ink,
   },
   selectionStatsHint: {
-    color: '#7284A8',
-    fontSize: 12,
+    marginTop: 4,
+    color: JourneyPalette.inkSoft,
   },
   selectionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   selectionItem: {
-    position: 'relative',
     width: '31%',
     aspectRatio: 1,
-    borderRadius: 14,
+    borderRadius: 18,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#DCE5FA',
-    backgroundColor: '#EDF2FF',
+    backgroundColor: '#DFE5DE',
   },
   selectionItemSelected: {
-    borderColor: '#2F6AF6',
     borderWidth: 2,
+    borderColor: JourneyPalette.accent,
   },
   selectionImage: {
     width: '100%',
@@ -1202,10 +1643,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#E7E4DC',
   },
   selectionShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(17, 33, 68, 0.08)',
+    backgroundColor: 'rgba(21, 32, 31, 0.16)',
   },
   selectionTopRow: {
     position: 'absolute',
@@ -1216,65 +1658,118 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  targetEventList: {
+    gap: 8,
+  },
+  targetEventItem: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: '#FFF9F2',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  targetEventTitle: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  targetEventMeta: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+  },
   selectionScoreBadge: {
-    minWidth: 30,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,249,242,0.82)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    alignItems: 'center',
   },
   selectionScoreText: {
-    color: '#27416E',
-    fontSize: 10,
+    color: JourneyPalette.ink,
+    fontSize: 11,
     fontWeight: '800',
   },
   selectionIndexBadge: {
     width: 24,
     height: 24,
     borderRadius: 999,
-    backgroundColor: '#2F6AF6',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: JourneyPalette.accent,
   },
   selectionIndexText: {
-    color: '#FFFFFF',
-    fontSize: 11,
+    color: '#FFF9F2',
     fontWeight: '800',
+    fontSize: 12,
   },
   modalActions: {
-    marginTop: 8,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     gap: 10,
   },
   modalGhostBtn: {
     flex: 1,
+    minHeight: 48,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#D5DDF2',
-    paddingVertical: 11,
+    backgroundColor: '#EDE5D8',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
   },
   modalGhostBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#5B6B90',
+    color: JourneyPalette.ink,
+    fontWeight: '800',
   },
   modalPrimaryBtn: {
     flex: 1,
+    minHeight: 48,
     borderRadius: 999,
-    paddingVertical: 11,
+    backgroundColor: JourneyPalette.accent,
     alignItems: 'center',
-    backgroundColor: '#2F6AF6',
+    justifyContent: 'center',
   },
   modalPrimaryBtnText: {
-    fontSize: 13,
+    color: '#FFF9F2',
     fontWeight: '800',
-    color: '#FFFFFF',
+  },
+  modalDangerBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: '#F6D9D6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalDangerBtnText: {
+    color: JourneyPalette.danger,
+    fontWeight: '800',
+  },
+  primaryBtn: {
+    minWidth: 132,
+    minHeight: 46,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBtnText: {
+    color: '#FFF9F2',
+    fontWeight: '800',
+  },
+  ghostBtn: {
+    marginTop: 10,
+    minWidth: 132,
+    minHeight: 46,
+    borderRadius: 999,
+    backgroundColor: '#EDE5D8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ghostBtnText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
   },
   pressed: {
-    transform: [{ scale: 0.98 }],
+    transform: [{ scale: 0.985 }],
+    opacity: 0.92,
   },
 });

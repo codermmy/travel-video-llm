@@ -2,8 +2,32 @@ import type { EventChapter } from '@/types/chapter';
 import type { PhotoGroup } from '@/types/photoGroup';
 import type { OnDeviceVisionResult } from '@/types/vision';
 
-export type EventStatus = 'clustered' | 'ai_pending' | 'ai_processing' | 'generated' | 'ai_failed';
+export type EventStatus =
+  | 'clustered'
+  | 'waiting_for_vision'
+  | 'ai_pending'
+  | 'ai_processing'
+  | 'generated'
+  | 'ai_failed';
 export type EventEnhancementStatus = 'none' | 'retained' | 'expired';
+export type StoryFreshness = 'fresh' | 'stale';
+export type EventVisionStatus =
+  | 'pending'
+  | 'processing'
+  | 'partial'
+  | 'completed'
+  | 'failed'
+  | 'unsupported';
+
+export interface EventVisionSummary {
+  status: EventVisionStatus;
+  total: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  unsupported: number;
+}
 
 export interface EventEnhancementSummary {
   status: EventEnhancementStatus;
@@ -45,6 +69,15 @@ export interface EventRecord {
   emotionTag?: string | null;
   musicUrl?: string | null;
   status: EventStatus;
+  eventVersion: number;
+  storyGeneratedFromVersion?: number | null;
+  storyFreshness: StoryFreshness;
+  slideshowGeneratedFromVersion?: number | null;
+  slideshowFreshness: StoryFreshness;
+  hasPendingStructureChanges: boolean;
+  titleManuallySet: boolean;
+  storyReady: boolean;
+  visionSummary: EventVisionSummary;
   aiError?: string | null;
   updatedAt?: string | null;
 }
@@ -75,6 +108,9 @@ export interface EventPhotoItem {
   visualDesc?: string | null;
   microStory?: string | null;
   emotionTag?: string | null;
+  visionStatus?: 'pending' | 'processing' | 'completed' | 'failed' | 'unsupported' | null;
+  visionError?: string | null;
+  visionUpdatedAt?: string | null;
   vision?: OnDeviceVisionResult | null;
 }
 

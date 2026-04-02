@@ -10,9 +10,21 @@ from app.schemas.photo import PhotoVisionResult
 from app.schemas.photo_group import PhotoGroupResponse
 
 EventStatus = Literal[
-    "clustered", "ai_pending", "ai_processing", "generated", "ai_failed"
+    "clustered", "waiting_for_vision", "ai_pending", "ai_processing", "generated", "ai_failed"
 ]
+StoryFreshness = Literal["fresh", "stale"]
 EnhancementStatus = Literal["none", "retained", "expired"]
+EventVisionStatus = Literal["pending", "processing", "partial", "completed", "failed", "unsupported"]
+
+
+class EventVisionSummary(BaseModel):
+    status: EventVisionStatus = "pending"
+    total: int = 0
+    pending: int = 0
+    processing: int = 0
+    completed: int = 0
+    failed: int = 0
+    unsupported: int = 0
 
 
 class EventResponse(BaseModel):
@@ -37,6 +49,15 @@ class EventResponse(BaseModel):
     emotionTag: Optional[str] = None
     musicUrl: Optional[str] = None
     status: EventStatus = "clustered"
+    eventVersion: int = 1
+    storyGeneratedFromVersion: Optional[int] = None
+    storyFreshness: StoryFreshness = "stale"
+    slideshowGeneratedFromVersion: Optional[int] = None
+    slideshowFreshness: StoryFreshness = "stale"
+    hasPendingStructureChanges: bool = True
+    titleManuallySet: bool = False
+    storyReady: bool = False
+    visionSummary: EventVisionSummary = Field(default_factory=EventVisionSummary)
     aiError: Optional[str] = None
     updatedAt: Optional[datetime] = None
 
@@ -79,6 +100,9 @@ class EventPhotoItem(BaseModel):
     visualDesc: Optional[str] = None
     microStory: Optional[str] = None
     emotionTag: Optional[str] = None
+    visionStatus: str = "pending"
+    visionError: Optional[str] = None
+    visionUpdatedAt: Optional[datetime] = None
     vision: Optional[PhotoVisionResult] = None
 
 
@@ -91,6 +115,8 @@ class EventDetailResponse(EventResponse):
 
 class EventCreateRequest(BaseModel):
     title: Optional[str] = None
+    locationName: Optional[str] = None
+    photoIds: list[str] = Field(default_factory=list)
 
 
 class EventUpdateRequest(BaseModel):

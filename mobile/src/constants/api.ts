@@ -8,6 +8,31 @@ const IOS_SIMULATOR_API = 'http://127.0.0.1:8000';
 // 优先使用环境变量（支持打包后的 App 配置 API 地址）
 const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL?.trim() || null;
 
+function isPlausibleDevHost(host: string | null | undefined): host is string {
+  if (!host) {
+    return false;
+  }
+
+  const normalized = host.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized === 'localhost' || normalized === '127.0.0.1') {
+    return true;
+  }
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(normalized)) {
+    return true;
+  }
+
+  if (normalized.includes('.')) {
+    return true;
+  }
+
+  return false;
+}
+
 function extractHost(input: string | null | undefined): string | null {
   if (!input) {
     return null;
@@ -20,12 +45,36 @@ function extractHost(input: string | null | undefined): string | null {
 
   try {
     const normalized = trimmed.includes('://') ? trimmed : `http://${trimmed}`;
-    return new URL(normalized).hostname || null;
+    const parsed = new URL(normalized);
+    const directHost = parsed.hostname || null;
+    if (isPlausibleDevHost(directHost)) {
+      return directHost;
+    }
+
+    for (const key of ['url', 'uri', 'redirect_uri']) {
+      const nestedValue = parsed.searchParams.get(key);
+      const nestedHost = extractHost(nestedValue ? decodeURIComponent(nestedValue) : nestedValue);
+      if (isPlausibleDevHost(nestedHost)) {
+        return nestedHost;
+      }
+    }
   } catch {
     const withoutScheme = trimmed.replace(/^[a-z]+:\/\//i, '');
     const host = withoutScheme.split('/')[0]?.split(':')[0]?.trim();
-    return host || null;
+    if (isPlausibleDevHost(host)) {
+      return host;
+    }
   }
+
+  const embeddedUrlMatch = trimmed.match(/[?&](?:url|uri|redirect_uri)=([^&]+)/i);
+  if (embeddedUrlMatch?.[1]) {
+    const nestedHost = extractHost(decodeURIComponent(embeddedUrlMatch[1]));
+    if (isPlausibleDevHost(nestedHost)) {
+      return nestedHost;
+    }
+  }
+
+  return null;
 }
 
 function getDevServerHost(): string | null {
@@ -76,8 +125,7 @@ function resolveApiBaseCandidates(): string[] {
 export const API_BASE_URL_CANDIDATES = resolveApiBaseCandidates();
 
 let activeApiBaseUrl =
-  API_BASE_URL_CANDIDATES[0] ??
-  (Platform.OS === 'android' ? ANDROID_EMULATOR_API : LOCALHOST_API);
+  API_BASE_URL_CANDIDATES[0] ?? (Platform.OS === 'android' ? ANDROID_EMULATOR_API : LOCALHOST_API);
 
 // 优先级：环境变量 > Expo 开发服务器 > localhost
 export function getApiBaseUrl(): string {
