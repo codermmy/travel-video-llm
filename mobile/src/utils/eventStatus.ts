@@ -1,17 +1,22 @@
 import type { EventRecord, EventStatus } from '@/types/event';
 import { JourneyPalette } from '@/styles/colors';
 
-export function getEventStatusMeta(event: Pick<EventRecord, 'status' | 'visionSummary'>): {
+export function getEventStatusMeta(
+  event: Pick<
+    EventRecord,
+    | 'status'
+    | 'visionSummary'
+    | 'storyFreshness'
+    | 'slideshowFreshness'
+    | 'hasPendingStructureChanges'
+  >,
+): {
   label: string;
   color: string;
   soft: string;
 } {
-  if (event.status === 'generated') {
-    return {
-      label: '已完成',
-      color: JourneyPalette.success,
-      soft: JourneyPalette.successSoft,
-    };
+  if (event.status === 'ai_failed') {
+    return { label: '生成失败', color: JourneyPalette.danger, soft: JourneyPalette.dangerSoft };
   }
   if (event.status === 'ai_processing') {
     return {
@@ -23,8 +28,26 @@ export function getEventStatusMeta(event: Pick<EventRecord, 'status' | 'visionSu
   if (event.status === 'ai_pending') {
     return { label: '故事待生成', color: JourneyPalette.inkSoft, soft: '#EEE8DE' };
   }
-  if (event.status === 'ai_failed') {
-    return { label: '生成失败', color: JourneyPalette.danger, soft: JourneyPalette.dangerSoft };
+  if (
+    event.storyFreshness === 'stale' ||
+    event.slideshowFreshness === 'stale' ||
+    event.hasPendingStructureChanges
+  ) {
+    return {
+      label: '待更新',
+      color: JourneyPalette.warning,
+      soft: JourneyPalette.warningSoft,
+    };
+  }
+  if (event.status === 'generated') {
+    return {
+      label: '已完成',
+      color: JourneyPalette.success,
+      soft: JourneyPalette.successSoft,
+    };
+  }
+  if (event.status === 'waiting_for_vision') {
+    return { label: '整理中', color: JourneyPalette.inkSoft, soft: '#EEE8DE' };
   }
   if (event.visionSummary.processing > 0 || event.visionSummary.completed > 0) {
     return { label: '分析中', color: JourneyPalette.accent, soft: JourneyPalette.accentSoft };

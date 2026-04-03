@@ -18,6 +18,13 @@ import { ImportProgressModal, type ImportProgress } from '@/components/import/Im
 import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
 import {
+  ActionButton,
+  BottomSheetScaffold,
+  InlineBanner,
+  SectionLabel,
+  SurfaceCard,
+} from '@/components/ui/revamp';
+import {
   importSelectedLibraryAssets,
   type ImportResult,
 } from '@/services/album/photoImportService';
@@ -291,33 +298,83 @@ export function EventPhotoManagerSheet({
         <GestureHandlerRootView style={styles.gestureRoot}>
           <View style={styles.modalBackdrop}>
             <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
-            <View style={styles.modalSheet}>
-              <View style={styles.modalHandle} />
-              <View style={styles.modalHeader}>
-                <View style={styles.modalCopy}>
-                  <Text style={styles.modalTitle}>管理照片</Text>
-                  <Text style={styles.modalHint}>
-                    可以添加照片、批量移出当前事件、移动到其他事件，或直接删除照片。
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={handleClose}
-                  disabled={!canClose}
-                  style={({ pressed }) => [
-                    styles.modalCloseBtn,
-                    pressed && styles.pressed,
-                    !canClose && styles.disabledAction,
-                  ]}
-                >
-                  <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
-                </Pressable>
-              </View>
+            <BottomSheetScaffold
+              title="管理照片"
+              hint="把浏览、选择、多选和补导入收进同一条连续流程里。"
+              onClose={canClose ? handleClose : undefined}
+              style={styles.modalSheet}
+              footer={
+                selectionMode ? (
+                  <View style={styles.batchActions}>
+                    <ActionButton
+                      label="移出当前事件"
+                      tone="secondary"
+                      style={styles.flexButton}
+                      disabled={isActionLoading}
+                      onPress={() => {
+                        void runPhotoMutation(
+                          () => photoApi.reassignPhotosToEvent(selectedPhotoIds, null),
+                          '移出失败',
+                        );
+                      }}
+                    />
+                    <ActionButton
+                      label="移动到其他事件"
+                      tone="secondary"
+                      style={styles.flexButton}
+                      disabled={isActionLoading}
+                      onPress={() => setMovePickerVisible(true)}
+                    />
+                    <ActionButton
+                      label="删除照片"
+                      tone="danger"
+                      style={styles.flexButton}
+                      disabled={isActionLoading}
+                      onPress={() => {
+                        Alert.alert(
+                          '删除照片',
+                          '删除后将无法恢复，选中的照片会从应用数据里移除。',
+                          [
+                            { text: '取消', style: 'cancel' },
+                            {
+                              text: '删除',
+                              style: 'destructive',
+                              onPress: () => {
+                                void runPhotoMutation(
+                                  () => photoApi.deletePhotos(selectedPhotoIds),
+                                  '删除失败',
+                                );
+                              },
+                            },
+                          ],
+                        );
+                      }}
+                    />
+                  </View>
+                ) : null
+              }
+            >
+              <InlineBanner
+                icon="image-multiple-outline"
+                title={
+                  selectionMode
+                    ? `已选择 ${selectedPhotoIds.length} / ${event?.photos.length ?? 0} 张`
+                    : event?.title || '未命名事件'
+                }
+                body={
+                  selectionMode
+                    ? '保持选择态后可以继续滑动多选，再决定移动、移出或删除。'
+                    : '默认先浏览照片，长按任意一张进入选择态；顶部不再堆一排零散动作。'
+                }
+                tone="neutral"
+                style={styles.topBanner}
+              />
 
               {loading ? (
-                <View style={styles.loadingState}>
+                <SurfaceCard style={styles.loadingState}>
                   <ActivityIndicator color={JourneyPalette.accent} />
                   <Text style={styles.loadingText}>正在加载事件照片...</Text>
-                </View>
+                </SurfaceCard>
               ) : (
                 <View style={styles.gridContainer}>
                   <SelectableMediaGrid
@@ -336,66 +393,7 @@ export function EventPhotoManagerSheet({
                   />
                 </View>
               )}
-
-              {selectionMode ? (
-                <View style={styles.batchActions}>
-                  <Pressable
-                    onPress={() => {
-                      void runPhotoMutation(
-                        () => photoApi.reassignPhotosToEvent(selectedPhotoIds, null),
-                        '移出失败',
-                      );
-                    }}
-                    disabled={isActionLoading}
-                    style={({ pressed }) => [
-                      styles.batchGhostAction,
-                      pressed && styles.pressed,
-                      isActionLoading && styles.disabledAction,
-                    ]}
-                  >
-                    <Text style={styles.batchGhostText}>移出当前事件</Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => setMovePickerVisible(true)}
-                    disabled={isActionLoading}
-                    style={({ pressed }) => [
-                      styles.batchGhostAction,
-                      pressed && styles.pressed,
-                      isActionLoading && styles.disabledAction,
-                    ]}
-                  >
-                    <Text style={styles.batchGhostText}>移动到其他事件</Text>
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => {
-                      Alert.alert('删除照片', '删除后将无法恢复，选中的照片会从应用数据里移除。', [
-                        { text: '取消', style: 'cancel' },
-                        {
-                          text: '删除',
-                          style: 'destructive',
-                          onPress: () => {
-                            void runPhotoMutation(
-                              () => photoApi.deletePhotos(selectedPhotoIds),
-                              '删除失败',
-                            );
-                          },
-                        },
-                      ]);
-                    }}
-                    disabled={isActionLoading}
-                    style={({ pressed }) => [
-                      styles.batchDangerAction,
-                      pressed && styles.pressed,
-                      isActionLoading && styles.disabledAction,
-                    ]}
-                  >
-                    <Text style={styles.batchDangerText}>删除照片</Text>
-                  </Pressable>
-                </View>
-              ) : null}
-            </View>
+            </BottomSheetScaffold>
           </View>
         </GestureHandlerRootView>
       </Modal>
@@ -435,31 +433,23 @@ export function EventPhotoManagerSheet({
             onPress={() => setMovePickerVisible(false)}
             disabled={isActionLoading}
           />
-          <View style={styles.moveSheet}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeader}>
-              <View style={styles.modalCopy}>
-                <Text style={styles.modalTitle}>移动到其他事件</Text>
-                <Text style={styles.modalHint}>
-                  {`已选择 ${selectedPhotoIds.length} 张。可以移动到已有事件，或直接新建一个事件承接这些照片。`}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setMovePickerVisible(false)}
-                disabled={isActionLoading}
-                style={({ pressed }) => [
-                  styles.modalCloseBtn,
-                  pressed && styles.pressed,
-                  isActionLoading && styles.disabledAction,
-                ]}
-              >
-                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
-              </Pressable>
-            </View>
+          <BottomSheetScaffold
+            title="移动到其他事件"
+            hint={`已选择 ${selectedPhotoIds.length} 张。可以移动到已有事件，或直接新建一个事件承接这些照片。`}
+            onClose={isActionLoading ? undefined : () => setMovePickerVisible(false)}
+            style={styles.moveSheet}
+          >
+            <InlineBanner
+              icon="swap-horizontal"
+              title="目标事件选择"
+              body="先选目标，再执行移动；也支持直接新建事件来承接误聚合的照片。"
+              tone="neutral"
+              style={styles.topBanner}
+            />
 
             <ScrollView contentContainerStyle={styles.moveContent}>
-              <View style={styles.moveCard}>
-                <Text style={styles.moveCardTitle}>已有事件</Text>
+              <SurfaceCard style={styles.moveCard}>
+                <SectionLabel title="已有事件" />
                 {availableEvents.length > 0 ? (
                   <View style={styles.targetEventList}>
                     {availableEvents.map((targetEvent) => (
@@ -490,10 +480,10 @@ export function EventPhotoManagerSheet({
                 ) : (
                   <Text style={styles.mutedText}>暂时没有其他可移动到的事件。</Text>
                 )}
-              </View>
+              </SurfaceCard>
 
-              <View style={styles.moveCard}>
-                <Text style={styles.moveCardTitle}>新建事件并移动</Text>
+              <SurfaceCard style={styles.moveCard}>
+                <SectionLabel title="新建事件并移动" />
                 <TextInput
                   value={newEventTitle}
                   onChangeText={setNewEventTitle}
@@ -508,7 +498,8 @@ export function EventPhotoManagerSheet({
                   placeholderTextColor={JourneyPalette.muted}
                   style={styles.fieldInput}
                 />
-                <Pressable
+                <ActionButton
+                  label="新建事件并移动选中照片"
                   onPress={() => {
                     void (async () => {
                       try {
@@ -530,21 +521,10 @@ export function EventPhotoManagerSheet({
                     })();
                   }}
                   disabled={isActionLoading}
-                  style={({ pressed }) => [
-                    styles.primaryPill,
-                    pressed && styles.pressed,
-                    isActionLoading && styles.disabledAction,
-                  ]}
-                >
-                  {isActionLoading ? (
-                    <ActivityIndicator color="#FFF9F2" />
-                  ) : (
-                    <Text style={styles.primaryPillText}>新建事件并移动选中照片</Text>
-                  )}
-                </Pressable>
-              </View>
+                />
+              </SurfaceCard>
             </ScrollView>
-          </View>
+          </BottomSheetScaffold>
         </View>
       </Modal>
 
@@ -564,69 +544,29 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(21, 32, 31, 0.42)',
+    backgroundColor: 'rgba(15, 23, 42, 0.34)',
   },
   modalSheet: {
     height: '88%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingBottom: 18,
   },
   moveSheet: {
     height: '78%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 20,
-  },
-  modalHandle: {
-    alignSelf: 'center',
-    width: 46,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.lineStrong,
-    marginBottom: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  modalCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  modalHint: {
-    lineHeight: 20,
-    color: JourneyPalette.inkSoft,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    paddingBottom: 18,
   },
   gridHeader: {
-    paddingTop: 16,
+    paddingTop: 4,
     paddingBottom: 12,
   },
+  topBanner: {
+    marginBottom: 12,
+  },
   toolbarCard: {
-    borderRadius: 20,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+    padding: 16,
     gap: 12,
   },
   toolbarTopRow: {
@@ -658,7 +598,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -673,7 +613,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -698,56 +638,17 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   batchActions: {
-    flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
   },
-  batchGhostAction: {
+  flexButton: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  batchGhostText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  batchDangerAction: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: '#F6D9D6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  batchDangerText: {
-    color: JourneyPalette.danger,
-    fontWeight: '800',
-    textAlign: 'center',
   },
   moveContent: {
-    paddingTop: 16,
+    paddingTop: 4,
     gap: 14,
   },
   moveCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
     gap: 10,
-  },
-  moveCardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
   },
   targetEventList: {
     gap: 10,
@@ -756,7 +657,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 4,
@@ -773,21 +674,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 14,
     color: JourneyPalette.ink,
-  },
-  primaryPill: {
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  primaryPillText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
   },
   mutedText: {
     color: JourneyPalette.inkSoft,

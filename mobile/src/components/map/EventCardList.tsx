@@ -110,20 +110,6 @@ export function EventCardList({
                   </Text>
                 </View>
               ) : null}
-
-              {event.storyFreshness === 'stale' ? (
-                <View style={styles.metaContainer}>
-                  <Ionicons
-                    name="refresh-outline"
-                    size={12}
-                    color={JourneyPalette.warning}
-                    style={styles.icon}
-                  />
-                  <Text style={styles.staleText} numberOfLines={1}>
-                    旧故事待更新
-                  </Text>
-                </View>
-              ) : null}
             </View>
 
             <View style={styles.arrowContainer}>
@@ -139,7 +125,7 @@ export function EventCardList({
     <View style={styles.container}>
       <View style={styles.handle} />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>这一片足迹</Text>
+        <Text style={styles.headerTitle}>这个地点</Text>
         <Text style={styles.headerMeta}>{events.length} 个旅行事件</Text>
       </View>
       <View style={isScrollable ? styles.scrollContainer : styles.stackedContainer}>
@@ -168,9 +154,9 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 14,
     right: 14,
-    borderRadius: 28,
+    borderRadius: 30,
     overflow: 'hidden',
-    backgroundColor: Platform.OS === 'android' ? JourneyPalette.card : 'rgba(255,252,247,0.98)',
+    backgroundColor: Platform.OS === 'android' ? JourneyPalette.card : JourneyPalette.overlay,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
     shadowColor: JourneyPalette.shadow,
@@ -190,10 +176,10 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
@@ -229,7 +215,7 @@ const styles = StyleSheet.create({
   },
   card: {
     flexDirection: 'row',
-    padding: 12,
+    padding: 14,
     backgroundColor: JourneyPalette.card,
     borderBottomWidth: 1,
     borderBottomColor: JourneyPalette.line,
@@ -306,11 +292,6 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
     color: JourneyPalette.inkSoft,
-  },
-  staleText: {
-    fontSize: 12,
-    color: JourneyPalette.warning,
-    fontWeight: '700',
   },
   arrowContainer: {
     paddingLeft: 8,

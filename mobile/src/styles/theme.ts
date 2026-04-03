@@ -4,7 +4,7 @@ import { AppColors } from '@/styles/colors';
 
 export const appTheme = {
   ...MD3LightTheme,
-  roundness: 18,
+  roundness: 20,
   colors: {
     ...MD3LightTheme.colors,
     primary: AppColors.primary,

@@ -3,18 +3,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { JourneyPalette } from '@/styles/colors';
 
-/**
- * Tab 导航布局
- * 包含地图(足迹)、事件、我的/设置三个标签页
- */
 export default function TabLayout() {
   return (
     <Tabs
       detachInactiveScreens={false}
       screenOptions={{
-        tabBarActiveTintColor: JourneyPalette.ink,
-        tabBarInactiveTintColor: '#8B8A84',
-        tabBarActiveBackgroundColor: JourneyPalette.card,
+        tabBarActiveTintColor: JourneyPalette.accent,
+        tabBarInactiveTintColor: JourneyPalette.muted,
+        tabBarActiveBackgroundColor: JourneyPalette.accentSoft,
         headerShown: false,
         lazy: false,
         freezeOnBlur: false,
@@ -22,26 +18,26 @@ export default function TabLayout() {
           backgroundColor: JourneyPalette.cardAlt,
         },
         tabBarStyle: {
-          height: 72,
-          paddingTop: 8,
-          paddingBottom: 10,
-          paddingHorizontal: 12,
-          backgroundColor: 'rgba(255,252,247,0.96)',
+          height: 84,
+          paddingTop: 10,
+          paddingBottom: 12,
+          paddingHorizontal: 14,
+          backgroundColor: 'rgba(251,253,255,0.98)',
           borderTopWidth: 1,
           borderTopColor: JourneyPalette.line,
           shadowColor: JourneyPalette.shadow,
-          shadowOffset: { width: 0, height: -6 },
+          shadowOffset: { width: 0, height: -8 },
           shadowOpacity: 0.08,
-          shadowRadius: 18,
-          elevation: 10,
+          shadowRadius: 22,
+          elevation: 14,
         },
         tabBarItemStyle: {
-          borderRadius: 18,
+          borderRadius: 20,
           marginHorizontal: 4,
         },
         tabBarLabelStyle: {
           fontSize: 12,
-          fontWeight: '700',
+          fontWeight: '800',
           marginBottom: 2,
         },
       }}
@@ -49,21 +45,21 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: '足迹',
+          title: '回忆',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="map-marker-multiple" size={size} color={color} />
+            <MaterialCommunityIcons name="image-filter-hdr" size={size} color={color} />
           ),
-          tabBarAccessibilityLabel: 'tab-map',
+          tabBarAccessibilityLabel: 'tab-memories',
         }}
       />
       <Tabs.Screen
-        name="events"
+        name="map"
         options={{
-          title: '旅程',
+          title: '地图',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="calendar-multiselect" size={size} color={color} />
+            <MaterialCommunityIcons name="map-marker-radius-outline" size={size} color={color} />
           ),
-          tabBarAccessibilityLabel: 'tab-events',
+          tabBarAccessibilityLabel: 'tab-map',
         }}
       />
       <Tabs.Screen
@@ -71,7 +67,7 @@ export default function TabLayout() {
         options={{
           title: '我的',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account-cog-outline" size={size} color={color} />
+            <MaterialCommunityIcons name="account-circle-outline" size={size} color={color} />
           ),
           tabBarAccessibilityLabel: 'tab-profile',
         }}

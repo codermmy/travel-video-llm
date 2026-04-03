@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
 
 import {
@@ -12,8 +10,19 @@ import {
 } from '@/services/import/importTaskService';
 import { JourneyPalette } from '@/styles/colors';
 import type { ImportTaskPhase, ImportTaskRecord, ImportTaskState } from '@/types/importTask';
+import {
+  ActionButton,
+  EmptyStateCard,
+  InlineBanner,
+  MetricPill,
+  PageContent,
+  PageHeader,
+  SectionLabel,
+  SurfaceCard,
+} from '@/components/ui/revamp';
 
 const PHASE_ORDER = ['prepare', 'analysis', 'sync', 'story'] as const;
+type TaskFilter = 'all' | 'running' | 'completed' | 'failed';
 
 function formatDateTime(value: string): string {
   const date = new Date(value);
@@ -76,6 +85,7 @@ function getPhaseStatusText(phase: ImportTaskPhase): string {
 
 export default function ImportTasksScreen() {
   const router = useRouter();
+  const [activeFilter, setActiveFilter] = useState<TaskFilter>('all');
   const [taskState, setTaskState] = useState<ImportTaskState>({
     tasks: [],
     latestVisibleTask: null,
@@ -91,77 +101,116 @@ export default function ImportTasksScreen() {
   }, []);
 
   const latestTask = useMemo(() => taskState.tasks[0] ?? null, [taskState.tasks]);
+  const failedCount = useMemo(
+    () => taskState.tasks.filter((task) => task.status === 'failed').length,
+    [taskState.tasks],
+  );
+  const completedCount = useMemo(
+    () => taskState.tasks.filter((task) => task.status === 'completed').length,
+    [taskState.tasks],
+  );
+
+  const filteredTasks = useMemo(() => {
+    if (activeFilter === 'running') {
+      return taskState.tasks.filter((task) => task.status === 'running');
+    }
+    if (activeFilter === 'completed') {
+      return taskState.tasks.filter((task) => task.status === 'completed');
+    }
+    if (activeFilter === 'failed') {
+      return taskState.tasks.filter((task) => task.status === 'failed');
+    }
+    return taskState.tasks;
+  }, [activeFilter, taskState.tasks]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <LinearGradient colors={['#FFF6EC', '#EEE6D8']} style={styles.heroCard}>
-        <View style={styles.heroTopRow}>
-          <Pressable style={styles.backButton} onPress={() => router.back()}>
-            <MaterialCommunityIcons name="arrow-left" size={18} color="#FFF9F2" />
-          </Pressable>
-          <View style={styles.heroCopy}>
-            <Text style={styles.eyebrow}>IMPORT TASKS</Text>
-            <Text style={styles.heroTitle}>导入任务</Text>
-            <Text style={styles.heroSubtitle}>
-              这里会记录每次导入的阶段进度。顶部任务条关闭后，仍然可以在这里回看。
-            </Text>
-          </View>
-        </View>
+    <PageContent>
+      <PageHeader
+        eyebrow="IMPORT TASKS"
+        title="导入任务"
+        subtitle="把跨页状态条、即时进度和历史记录统一到一个可以回看的中心。"
+        rightSlot={
+          <ActionButton
+            label="返回"
+            tone="secondary"
+            icon="arrow-left"
+            fullWidth={false}
+            onPress={() => router.back()}
+          />
+        }
+      />
 
-        <View style={styles.heroStats}>
-          <View style={styles.heroStatCard}>
-            <Text style={styles.heroStatValue}>{taskState.runningCount}</Text>
-            <Text style={styles.heroStatLabel}>进行中</Text>
-          </View>
-          <View style={styles.heroStatCard}>
-            <Text style={styles.heroStatValue}>{taskState.tasks.length}</Text>
-            <Text style={styles.heroStatLabel}>历史任务</Text>
-          </View>
-          <View style={styles.heroStatCard}>
-            <Text style={styles.heroStatValue}>
-              {latestTask ? getImportTaskSourceLabel(latestTask.source) : '暂无'}
-            </Text>
-            <Text style={styles.heroStatLabel}>最近来源</Text>
-          </View>
+      <InlineBanner
+        icon="timeline-clock-outline"
+        title="顶部状态条会跨页出现"
+        body="分析仍在后台继续，点开这里可以回看完整阶段、结果和失败项。"
+        tone="accent"
+      />
+
+      <View style={styles.metricsRow}>
+        <MetricPill value={String(taskState.runningCount)} label="进行中" />
+        <MetricPill
+          value={latestTask ? formatDateTime(latestTask.createdAt) : '暂无'}
+          label="最近启动"
+        />
+        <MetricPill value={String(failedCount)} label="需要关注" />
+      </View>
+
+      <SurfaceCard>
+        <SectionLabel title="筛选任务" />
+        <View style={styles.filterRow}>
+          {(
+            [
+              { key: 'all', label: '全部', count: taskState.tasks.length },
+              { key: 'running', label: '进行中', count: taskState.runningCount },
+              { key: 'completed', label: '已完成', count: completedCount },
+              { key: 'failed', label: '异常', count: failedCount },
+            ] as const
+          ).map((item) => {
+            const active = activeFilter === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveFilter(item.key)}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {item.label}
+                </Text>
+                <Text style={[styles.filterChipCount, active && styles.filterChipCountActive]}>
+                  {item.count}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
-      </LinearGradient>
+      </SurfaceCard>
 
       {taskState.tasks.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <MaterialCommunityIcons
-            name="timeline-clock-outline"
-            size={26}
-            color={JourneyPalette.muted}
-          />
-          <Text style={styles.emptyTitle}>还没有导入任务</Text>
-          <Text style={styles.emptyBody}>
-            第一次导入照片后，这里会显示每一轮任务的分析与同步进度。
-          </Text>
-        </View>
+        <EmptyStateCard
+          icon="timeline-clock-outline"
+          title="还没有导入任务"
+          description="第一次导入照片后，这里会显示每一轮任务的分析与同步进度。"
+        />
       ) : (
-        taskState.tasks.map((task) => (
-          <View key={task.id} style={styles.taskCard}>
+        filteredTasks.map((task) => (
+          <SurfaceCard key={task.id} style={styles.taskCard}>
             <View style={styles.taskHeader}>
-              <View style={styles.taskHeaderCopy}>
-                <View style={styles.taskBadges}>
-                  <View style={styles.taskSourceBadge}>
-                    <Text style={styles.taskSourceBadgeText}>
-                      {getImportTaskSourceLabel(task.source)}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.taskStatusBadge,
-                      { backgroundColor: `${getTaskStatusColor(task)}18` },
-                    ]}
-                  >
-                    <Text style={[styles.taskStatusText, { color: getTaskStatusColor(task) }]}>
-                      {getTaskStatusLabel(task)}
-                    </Text>
-                  </View>
+              <View style={styles.taskBadges}>
+                <View style={styles.sourceBadge}>
+                  <Text style={styles.sourceBadgeText}>
+                    {getImportTaskSourceLabel(task.source)}
+                  </Text>
                 </View>
-                <Text style={styles.taskTime}>{formatDateTime(task.createdAt)}</Text>
+                <View
+                  style={[styles.statusBadge, { backgroundColor: `${getTaskStatusColor(task)}16` }]}
+                >
+                  <Text style={[styles.statusBadgeText, { color: getTaskStatusColor(task) }]}>
+                    {getTaskStatusLabel(task)}
+                  </Text>
+                </View>
               </View>
+              <Text style={styles.taskTime}>{formatDateTime(task.createdAt)}</Text>
             </View>
 
             <View style={styles.countRow}>
@@ -194,161 +243,118 @@ export default function ImportTasksScreen() {
                         style={[
                           styles.phaseIndexBadge,
                           isActive && styles.phaseIndexBadgeActive,
-                          phase.status === 'completed' && styles.phaseIndexBadgeDone,
+                          phase.status === 'completed' && styles.phaseIndexBadgeCompleted,
                           phase.status === 'failed' && styles.phaseIndexBadgeFailed,
                         ]}
                       >
-                        <Text style={styles.phaseIndexBadgeText}>{index + 1}</Text>
+                        <Text style={styles.phaseIndexText}>{index + 1}</Text>
                       </View>
                       <View style={styles.phaseCopy}>
-                        <Text style={styles.phaseLabel}>{phase.label}</Text>
-                        <Text style={styles.phaseMeta}>{getPhaseStatusText(phase)}</Text>
+                        <Text style={styles.phaseTitle}>{phase.label}</Text>
+                        <Text style={styles.phaseDetail} numberOfLines={2}>
+                          {phase.detail || '等待进入该阶段'}
+                        </Text>
                       </View>
+                      <Text style={styles.phaseStatus}>{getPhaseStatusText(phase)}</Text>
                     </View>
-                    <ProgressBar progress={getPhaseProgress(phase)} style={styles.phaseProgress} />
-                    <Text style={styles.phaseDetail}>{phase.detail || '等待开始'}</Text>
+                    <ProgressBar
+                      progress={getPhaseProgress(phase)}
+                      color={getTaskStatusColor(task)}
+                      style={styles.phaseProgress}
+                    />
                   </View>
                 );
               })}
             </View>
-          </View>
+          </SurfaceCard>
         ))
       )}
-    </ScrollView>
+    </PageContent>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: JourneyPalette.cardAlt,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 110,
-    gap: 14,
-  },
-  heroCard: {
-    borderRadius: 28,
-    padding: 18,
-    gap: 18,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    gap: 14,
-    alignItems: 'flex-start',
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.accent,
-  },
-  heroCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  eyebrow: {
-    color: JourneyPalette.accent,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-  },
-  heroTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  heroSubtitle: {
-    color: JourneyPalette.inkSoft,
-    lineHeight: 20,
-  },
-  heroStats: {
+  metricsRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  heroStatCard: {
-    flex: 1,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,252,247,0.72)',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 4,
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12,
   },
-  heroStatValue: {
-    color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  heroStatLabel: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-  },
-  emptyCard: {
-    borderRadius: 24,
-    backgroundColor: JourneyPalette.card,
+  filterChip: {
+    minHeight: 40,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    padding: 22,
+    backgroundColor: JourneyPalette.cardAlt,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  emptyTitle: {
+  filterChipActive: {
+    borderColor: JourneyPalette.accent,
+    backgroundColor: JourneyPalette.accentSoft,
+  },
+  filterChipText: {
     color: JourneyPalette.ink,
-    fontSize: 18,
     fontWeight: '800',
   },
-  emptyBody: {
+  filterChipTextActive: {
+    color: JourneyPalette.accent,
+  },
+  filterChipCount: {
+    minWidth: 22,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: '#FFFFFF',
     color: JourneyPalette.inkSoft,
+    fontSize: 11,
+    fontWeight: '800',
     textAlign: 'center',
-    lineHeight: 20,
+  },
+  filterChipCountActive: {
+    color: JourneyPalette.accent,
   },
   taskCard: {
-    borderRadius: 24,
-    backgroundColor: JourneyPalette.card,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    padding: 16,
     gap: 14,
   },
   taskHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  taskHeaderCopy: {
-    flex: 1,
-    gap: 8,
+    gap: 12,
   },
   taskBadges: {
     flexDirection: 'row',
-    gap: 8,
     flexWrap: 'wrap',
+    gap: 8,
   },
-  taskSourceBadge: {
+  sourceBadge: {
     borderRadius: 999,
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: JourneyPalette.accentSoft,
+    paddingVertical: 7,
   },
-  taskSourceBadgeText: {
-    color: JourneyPalette.accent,
+  sourceBadgeText: {
     fontSize: 11,
     fontWeight: '800',
+    color: JourneyPalette.ink,
   },
-  taskStatusBadge: {
+  statusBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
-  taskStatusText: {
+  statusBadgeText: {
     fontSize: 11,
     fontWeight: '800',
   },
   taskTime: {
-    color: JourneyPalette.muted,
+    color: JourneyPalette.inkSoft,
     fontSize: 12,
   },
   countRow: {
@@ -357,81 +363,81 @@ const styles = StyleSheet.create({
   },
   countItem: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 18,
     backgroundColor: JourneyPalette.cardAlt,
     paddingVertical: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
     gap: 4,
   },
   countValue: {
     color: JourneyPalette.ink,
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   countLabel: {
     color: JourneyPalette.inkSoft,
     fontSize: 11,
+    fontWeight: '700',
   },
   phaseList: {
     gap: 10,
   },
   phaseCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: '#FFFDF9',
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.cardAlt,
     padding: 12,
-    gap: 8,
+    gap: 10,
   },
   phaseTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
   },
   phaseIndexBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 999,
+    width: 28,
+    height: 28,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: '#FFFFFF',
   },
   phaseIndexBadgeActive: {
-    backgroundColor: JourneyPalette.accent,
+    backgroundColor: JourneyPalette.accentSoft,
   },
-  phaseIndexBadgeDone: {
-    backgroundColor: JourneyPalette.success,
+  phaseIndexBadgeCompleted: {
+    backgroundColor: JourneyPalette.successSoft,
   },
   phaseIndexBadgeFailed: {
-    backgroundColor: JourneyPalette.danger,
+    backgroundColor: JourneyPalette.dangerSoft,
   },
-  phaseIndexBadgeText: {
-    color: '#FFF9F2',
-    fontSize: 11,
-    fontWeight: '800',
+  phaseIndexText: {
+    color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '900',
   },
   phaseCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
-  phaseLabel: {
+  phaseTitle: {
     color: JourneyPalette.ink,
     fontSize: 14,
     fontWeight: '800',
-  },
-  phaseMeta: {
-    color: JourneyPalette.accent,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  phaseProgress: {
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.cardAlt,
   },
   phaseDetail: {
     color: JourneyPalette.inkSoft,
     fontSize: 12,
     lineHeight: 18,
+  },
+  phaseStatus: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  phaseProgress: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
   },
 });

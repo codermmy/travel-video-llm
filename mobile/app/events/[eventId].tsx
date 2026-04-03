@@ -31,7 +31,6 @@ import { useSlideshowStore } from '@/stores/slideshowStore';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
 import { formatDateRange } from '@/utils/dateUtils';
-import { getEventDetailStatusMeta } from '@/utils/eventStatus';
 import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
 function getFallbackDateRange(event: EventDetail): string {
@@ -98,6 +97,7 @@ export default function EventDetailScreen() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPhotoManagerVisible, setIsPhotoManagerVisible] = useState(false);
+  const [isMoreActionsVisible, setIsMoreActionsVisible] = useState(false);
   const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
   const [isFullStoryExpanded, setIsFullStoryExpanded] = useState(false);
 
@@ -154,6 +154,9 @@ export default function EventDetailScreen() {
         musicUrl: event.musicUrl ?? null,
         storyText: event.storyText ?? null,
         fullStory: event.fullStory ?? null,
+        storyFreshness: event.storyFreshness,
+        slideshowFreshness: event.slideshowFreshness,
+        hasPendingStructureChanges: event.hasPendingStructureChanges,
         chapters: event.chapters,
         photoGroups: event.photoGroups,
       },
@@ -162,6 +165,15 @@ export default function EventDetailScreen() {
 
     router.push('/slideshow');
   }, [event, router, setSlideshowSession]);
+
+  const onOpenPhotoViewer = useCallback(() => {
+    if (!event || event.photos.length === 0) {
+      Alert.alert('暂无照片', '该事件目前没有可查看的照片。');
+      return;
+    }
+    setPhotoViewerSession(event.photos, 0);
+    router.push('/photo-viewer');
+  }, [event, router, setPhotoViewerSession]);
 
   const pollTaskUntilSettled = useCallback(async (taskId?: string | null) => {
     if (!taskId) {
@@ -230,7 +242,7 @@ export default function EventDetailScreen() {
             takeSentence(chapter.chapterStory, 28) ||
             takeSentence(chapter.chapterIntro, 28) ||
             takeSentence(chapter.chapterSummary, 28) ||
-            `这一段旅程由 ${chapterPhotos.length} 张照片慢慢展开。`,
+            `这一段回忆由 ${chapterPhotos.length} 张照片慢慢展开。`,
           descriptionText:
             takeParagraph(chapter.chapterStory, 96) ||
             takeParagraph(chapter.chapterIntro, 96) ||
@@ -258,6 +270,7 @@ export default function EventDetailScreen() {
     return resolveCoverCandidateFromPhotos(event.photos, [event.coverPhotoId]);
   }, [event]);
   const coverUri = event?.localCoverUri ?? automaticCover.uri ?? event?.coverPhotoUrl ?? null;
+  const coverStatusLabel = event?.selectedCoverPhotoId ? '已选择' : '默认';
 
   const openEditModal = useCallback(() => {
     if (!event) {
@@ -270,8 +283,13 @@ export default function EventDetailScreen() {
     if (!event) {
       return;
     }
+    setIsMoreActionsVisible(false);
     setIsPhotoManagerVisible(true);
   }, [event]);
+
+  const openMoreActions = useCallback(() => {
+    setIsMoreActionsVisible(true);
+  }, []);
 
   const onSelectCoverPhoto = useCallback(
     async (photo: EventDetail['photos'][number]) => {
@@ -334,7 +352,7 @@ export default function EventDetailScreen() {
     return (
       <SafeAreaView style={styles.centerScreen}>
         <StatusBar barStyle="dark-content" />
-        <LinearGradient colors={['#F8F1E7', '#ECF0E8']} style={styles.loadingOrb}>
+        <LinearGradient colors={['#EEF4FF', '#F8FBFF']} style={styles.loadingOrb}>
           <MaterialCommunityIcons name="image-filter-hdr" size={28} color={JourneyPalette.accent} />
         </LinearGradient>
         <ActivityIndicator size="large" color={JourneyPalette.accent} />
@@ -370,8 +388,6 @@ export default function EventDetailScreen() {
       </SafeAreaView>
     );
   }
-
-  const statusMeta = getEventDetailStatusMeta(event.status);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -437,54 +453,30 @@ export default function EventDetailScreen() {
             <Text style={styles.summaryLabel}>照片</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{event.emotionTag || '未标注'}</Text>
-            <Text style={styles.summaryLabel}>心情</Text>
+            <Text style={styles.summaryValue}>{chapterSections.length}</Text>
+            <Text style={styles.summaryLabel}>章节</Text>
           </View>
           <View style={styles.summaryCard}>
-            <Text style={[styles.summaryValue, { color: statusMeta.color }]}>
-              {statusMeta.label}
-            </Text>
-            <Text style={styles.summaryLabel}>状态</Text>
+            <Text style={styles.summaryValue}>{coverStatusLabel}</Text>
+            <Text style={styles.summaryLabel}>封面</Text>
           </View>
         </View>
 
         <View style={styles.quickActions}>
           <Pressable style={[styles.primaryAction, styles.flexAction]} onPress={onPlaySlideshow}>
             <MaterialCommunityIcons name="play-circle-outline" size={16} color="#FFF9F2" />
-            <Text style={styles.primaryActionText}>播放幻灯片</Text>
+            <Text style={styles.primaryActionText}>播放回忆</Text>
           </Pressable>
           <Pressable
-            style={[
-              styles.secondaryAction,
-              styles.flexAction,
-              isRegenerating && styles.disabledAction,
-            ]}
-            onPress={retryAiStory}
-            disabled={isRegenerating}
+            style={[styles.secondaryAction, styles.flexAction]}
+            onPress={onOpenPhotoViewer}
           >
-            {isRegenerating ? (
-              <ActivityIndicator size="small" color={JourneyPalette.ink} />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="robot-outline" size={16} color={JourneyPalette.ink} />
-                <Text style={styles.secondaryActionText}>刷新故事</Text>
-              </>
-            )}
+            <MaterialCommunityIcons name="image-outline" size={16} color={JourneyPalette.ink} />
+            <Text style={styles.secondaryActionText}>查看照片</Text>
           </Pressable>
-        </View>
-
-        <View style={styles.quickActions}>
-          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openEditModal}>
-            <MaterialCommunityIcons name="pencil-outline" size={16} color={JourneyPalette.ink} />
-            <Text style={styles.secondaryActionText}>编辑事件</Text>
-          </Pressable>
-          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openPhotoManager}>
-            <MaterialCommunityIcons
-              name="image-multiple-outline"
-              size={16}
-              color={JourneyPalette.ink}
-            />
-            <Text style={styles.secondaryActionText}>管理照片</Text>
+          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openMoreActions}>
+            <MaterialCommunityIcons name="dots-horizontal" size={18} color={JourneyPalette.ink} />
+            <Text style={styles.secondaryActionText}>更多</Text>
           </Pressable>
         </View>
 
@@ -502,6 +494,20 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
 
+        {event.storyFreshness === 'stale' ||
+        event.slideshowFreshness === 'stale' ||
+        event.hasPendingStructureChanges ? (
+          <View style={styles.noticeCard}>
+            <MaterialCommunityIcons name="update" size={18} color={JourneyPalette.warning} />
+            <View style={styles.noticeCopy}>
+              <Text style={styles.noticeTitle}>内容待自动更新</Text>
+              <Text style={styles.noticeText}>
+                你刚才的照片或事件变更会在后台自动刷新。当前版本仍可先预览，异常时可在“更多”里手动重试。
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {event.status === 'ai_failed' ? (
           <View style={styles.noticeCard}>
             <MaterialCommunityIcons
@@ -512,7 +518,7 @@ export default function EventDetailScreen() {
             <View style={styles.noticeCopy}>
               <Text style={styles.noticeTitle}>最近一次生成失败</Text>
               <Text style={styles.noticeText}>
-                {event.aiError || '可以稍后自动重试，或手动点击“刷新故事”重试。'}
+                {event.aiError || '可以稍后等待自动更新，必要时再从“更多”里手动重试。'}
               </Text>
             </View>
           </View>
@@ -521,7 +527,9 @@ export default function EventDetailScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>故事引子</Text>
-            {event.storyFreshness === 'stale' ? (
+            {event.storyFreshness === 'stale' ||
+            event.slideshowFreshness === 'stale' ||
+            event.hasPendingStructureChanges ? (
               <View style={styles.staleBadge}>
                 <MaterialCommunityIcons name="update" size={12} color={JourneyPalette.warning} />
                 <Text style={styles.staleBadgeText}>内容待更新</Text>
@@ -535,7 +543,7 @@ export default function EventDetailScreen() {
         {chapterSections.length > 0 ? (
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>旅程片段</Text>
+              <Text style={styles.sectionTitle}>旅程章节</Text>
               <Text style={styles.sectionHint}>{chapterSections.length} 段</Text>
             </View>
             <View style={styles.chapterList}>
@@ -560,6 +568,21 @@ export default function EventDetailScreen() {
             </View>
           </View>
         ) : null}
+
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>相册</Text>
+            <Text style={styles.sectionHint}>{event.photos.length} 张</Text>
+          </View>
+          <Text style={styles.sectionBodyMuted}>
+            支持批量移出当前事件、移动到其他事件、删除照片，或从系统相册继续导入到当前事件。
+          </Text>
+          <PhotoGrid
+            photos={event.photos}
+            onPhotoPress={onPhotoPress}
+            emptyText="这个事件还没有可展示的照片"
+          />
+        </View>
 
         {fullStory ? (
           <View style={styles.sectionCard}>
@@ -589,21 +612,6 @@ export default function EventDetailScreen() {
             </Text>
           </View>
         )}
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>相册</Text>
-            <Text style={styles.sectionHint}>{event.photos.length} 张</Text>
-          </View>
-          <Text style={styles.sectionBodyMuted}>
-            支持批量移出当前事件、移动到其他事件、删除照片，或从系统相册继续导入到当前事件。
-          </Text>
-          <PhotoGrid
-            photos={event.photos}
-            onPhotoPress={onPhotoPress}
-            emptyText="这个事件还没有可展示的照片"
-          />
-        </View>
       </ScrollView>
 
       <EventEditSheet
@@ -634,6 +642,99 @@ export default function EventDetailScreen() {
           void loadDetail();
         }}
       />
+
+      <Modal
+        visible={isMoreActionsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsMoreActionsVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setIsMoreActionsVisible(false)}
+          />
+          <View style={styles.actionSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.actionSheetTitle}>更多操作</Text>
+            <Text style={styles.actionSheetHint}>
+              低频操作收纳在这里，首页动作只保留播放和看照片。
+            </Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              onPress={() => {
+                setIsMoreActionsVisible(false);
+                openEditModal();
+              }}
+            >
+              <MaterialCommunityIcons name="pencil-outline" size={18} color={JourneyPalette.ink} />
+              <Text style={styles.actionSheetRowText}>编辑事件</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              onPress={openPhotoManager}
+            >
+              <MaterialCommunityIcons
+                name="image-multiple-outline"
+                size={18}
+                color={JourneyPalette.ink}
+              />
+              <Text style={styles.actionSheetRowText}>管理照片</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              onPress={() => {
+                setIsMoreActionsVisible(false);
+                setIsCoverPickerVisible(true);
+              }}
+            >
+              <MaterialCommunityIcons
+                name="image-edit-outline"
+                size={18}
+                color={JourneyPalette.ink}
+              />
+              <Text style={styles.actionSheetRowText}>更换封面</Text>
+            </Pressable>
+
+            {(event.aiError ||
+              event.storyFreshness === 'stale' ||
+              event.slideshowFreshness === 'stale' ||
+              event.hasPendingStructureChanges) && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionSheetRow,
+                  isRegenerating && styles.disabledAction,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setIsMoreActionsVisible(false);
+                  void retryAiStory();
+                }}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <ActivityIndicator size="small" color={JourneyPalette.accent} />
+                ) : (
+                  <MaterialCommunityIcons name="refresh" size={18} color={JourneyPalette.accent} />
+                )}
+                <Text style={[styles.actionSheetRowText, styles.actionSheetRowTextAccent]}>
+                  手动重试更新
+                </Text>
+              </Pressable>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetCancel, pressed && styles.pressed]}
+              onPress={() => setIsMoreActionsVisible(false)}
+            >
+              <Text style={styles.actionSheetCancelText}>取消</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={isCoverPickerVisible}
@@ -871,7 +972,7 @@ const styles = StyleSheet.create({
   secondaryAction: {
     minHeight: 48,
     borderRadius: 999,
-    backgroundColor: '#EDE5D8',
+    backgroundColor: JourneyPalette.cardAlt,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
     alignItems: 'center',
@@ -1008,6 +1109,54 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(21, 32, 31, 0.42)',
+  },
+  actionSheet: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: JourneyPalette.card,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 24,
+    gap: 10,
+  },
+  actionSheetTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  actionSheetHint: {
+    marginBottom: 4,
+    color: JourneyPalette.inkSoft,
+    lineHeight: 20,
+  },
+  actionSheetRow: {
+    minHeight: 54,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.cardAlt,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  actionSheetRowText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  actionSheetRowTextAccent: {
+    color: JourneyPalette.accent,
+  },
+  actionSheetCancel: {
+    minHeight: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: JourneyPalette.cardAlt,
+  },
+  actionSheetCancelText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
   },
   modalSheet: {
     maxHeight: '82%',

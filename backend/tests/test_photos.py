@@ -296,6 +296,8 @@ def test_upload_metadata_persists_on_device_vision_payload() -> None:
                     "gpsLat": 30.259,
                     "gpsLon": 120.215,
                     "shootTime": shoot_time,
+                    "width": 3024,
+                    "height": 4032,
                     "vision": {
                         "schema_version": "single-device-vision/v1",
                         "source_platform": "android-mlkit",
@@ -324,12 +326,16 @@ def test_upload_metadata_persists_on_device_vision_payload() -> None:
     item = lst.json()["data"]["items"][0]
     assert item["assetId"] == "asset-vision-001"
     assert item["thumbnailUrl"] is None
+    assert item["width"] == 3024
+    assert item["height"] == 4032
     assert item["vision"]["scene_category"] == "beach"
     assert item["caption"] is None
 
     db: Session = TestingSessionLocal()
     try:
         photo = db.query(Photo).filter_by(asset_id="asset-vision-001").one()
+        assert photo.width == 3024
+        assert photo.height == 4032
         assert photo.visual_desc is not None
         assert "beach" in photo.visual_desc
         assert photo.emotion_tag == "joyful"

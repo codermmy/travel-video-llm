@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Travel Video Canvas Alignment Demo</title>
+    <style>
+      :root {
+        --bg: #070707;
+        --panel: #111111;
+        --panel-soft: #171717;
+        --line: rgba(255, 255, 255, 0.08);
+        --text: #f5f3ee;
+        --muted: rgba(245, 243, 238, 0.64);
+        --accent: #d4a64c;
+        --shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+          sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top, rgba(212, 166, 76, 0.08), transparent 24%),
+          linear-gradient(180deg, #0a0a0a 0%, #050505 100%);
+      }
+
+      .page {
+        width: min(1280px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 40px 0 64px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 14px;
+        margin-bottom: 28px;
+      }
+
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Times New Roman", Georgia, serif;
+        font-size: clamp(34px, 4.2vw, 58px);
+        line-height: 1.02;
+        font-weight: 700;
+      }
+
+      .intro {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.75;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .summary-card {
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.02);
+        backdrop-filter: blur(10px);
+      }
+
+      .summary-card strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+      }
+
+      .summary-card span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .note {
+        margin-bottom: 34px;
+        padding: 18px 20px;
+        border-radius: 18px;
+        border: 1px solid rgba(212, 166, 76, 0.2);
+        background: linear-gradient(180deg, rgba(212, 166, 76, 0.08), rgba(212, 166, 76, 0.02));
+      }
+
+      .note strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      .subtitle-spec {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .subtitle-spec-card {
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .subtitle-spec-card strong {
+        display: block;
+        margin-bottom: 7px;
+        font-size: 13px;
+      }
+
+      .subtitle-spec-card span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 28px 22px;
+      }
+
+      .case {
+        display: grid;
+        gap: 12px;
+      }
+
+      .case-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .case-title {
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .case-meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .case-desc {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .video-shell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+        border-radius: 24px;
+        border: 1px solid var(--line);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02)),
+          var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .canvas {
+        position: relative;
+        overflow: hidden;
+        background: #000;
+        border-radius: 18px;
+        --safe-line-bottom: 5.2%;
+        --subtitle-bottom: 6.1%;
+        --subtitle-width: min(82%, 720px);
+        --subtitle-font-size: clamp(19px, 2.15vw, 24px);
+      }
+
+      .canvas.landscape {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+      }
+
+      .canvas.portrait {
+        width: min(360px, 64%);
+        aspect-ratio: 9 / 16;
+        --safe-line-bottom: 7.1%;
+        --subtitle-bottom: 8.2%;
+        --subtitle-width: 82%;
+        --subtitle-font-size: clamp(15px, 1.85vw, 19px);
+      }
+
+      .media-frame {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+
+      .canvas::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 18%;
+        z-index: 1;
+        pointer-events: none;
+        background: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0) 0%,
+          rgba(0, 0, 0, 0.18) 56%,
+          rgba(0, 0, 0, 0.38) 100%
+        );
+      }
+
+      .photo {
+        position: relative;
+        overflow: hidden;
+        background-color: #141414;
+      }
+
+      .photo::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.28)),
+          radial-gradient(circle at 20% 18%, rgba(255, 219, 159, 0.4), transparent 28%),
+          linear-gradient(180deg, rgba(255, 194, 122, 0.3) 0%, rgba(82, 111, 122, 0.18) 34%, rgba(28, 37, 46, 0.6) 100%);
+      }
+
+      .photo::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 34%;
+        background:
+          linear-gradient(180deg, transparent, rgba(8, 18, 28, 0.75)),
+          radial-gradient(circle at 30% 0%, rgba(239, 200, 136, 0.15), transparent 28%);
+      }
+
+      .photo.landscape {
+        width: 100%;
+        height: 100%;
+      }
+
+      .photo.portrait-in-landscape {
+        height: 100%;
+        aspect-ratio: 3 / 4.6;
+      }
+
+      .photo.four-three-in-landscape {
+        height: 100%;
+        aspect-ratio: 4 / 3;
+      }
+
+      .photo.portrait-full {
+        width: 100%;
+        height: 100%;
+      }
+
+      .photo.three-four-in-portrait {
+        width: 100%;
+        aspect-ratio: 3 / 4;
+      }
+
+      .photo.landscape-in-portrait {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+      }
+
+      .photo-label {
+        position: absolute;
+        left: 18px;
+        top: 16px;
+        z-index: 2;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .subtitle {
+        position: absolute;
+        left: 50%;
+        bottom: var(--subtitle-bottom);
+        z-index: 4;
+        width: var(--subtitle-width);
+        transform: translateX(-50%);
+        text-align: center;
+        font-family: "Noto Sans SC", "PingFang SC", "Source Han Sans SC", "Inter",
+          "Helvetica Neue", sans-serif;
+        font-size: var(--subtitle-font-size);
+        line-height: 1.5;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        color: #faf7f2;
+        text-shadow:
+          0 2px 10px rgba(0, 0, 0, 0.72),
+          0 0 1px rgba(0, 0, 0, 0.55);
+      }
+
+      .subtitle.narrow {
+        width: var(--subtitle-width);
+      }
+
+      .safe-line {
+        position: absolute;
+        left: 10%;
+        right: 10%;
+        bottom: var(--safe-line-bottom);
+        z-index: 3;
+        border-top: 1px dashed rgba(255, 255, 255, 0.18);
+      }
+
+      .safe-line span {
+        position: absolute;
+        right: 0;
+        top: -18px;
+        color: rgba(255, 255, 255, 0.34);
+        font-size: 11px;
+      }
+
+      .caption {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .footer-note {
+        margin-top: 36px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.8;
+      }
+
+      @media (max-width: 980px) {
+        .summary,
+        .subtitle-spec,
+        .gallery {
+          grid-template-columns: 1fr;
+        }
+
+        .canvas.portrait {
+          width: min(100%, 400px);
+        }
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          width: min(100vw - 24px, 100%);
+          padding-top: 26px;
+        }
+
+        .video-shell {
+          padding: 10px;
+          border-radius: 18px;
+        }
+
+        .canvas {
+          border-radius: 14px;
+        }
+
+        .subtitle {
+          width: 88%;
+          font-size: clamp(15px, 4vw, 18px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div class="eyebrow">Canvas Alignment Demo</div>
+        <h1>我当前理解的是：我们不是播放器，而是在预览一支已经定规格的视频。</h1>
+        <p class="intro">
+          这个页面只对齐单张照片镜头的处理方式。重点不是“页面 UI”，而是“成片长什么样”：16:9
+          和 9:16 都先是完整视频画布，然后照片尽可能占满大部分画面；不匹配比例时，只留下干净黑边；字幕永远贴在整张视频画布底部的固定电影字幕线附近。
+        </p>
+      </section>
+
+      <section class="summary">
+        <article class="summary-card">
+          <strong>1. 先有视频画布</strong>
+          <span>先确定整支视频是 16:9 还是 9:16，再讨论照片怎么放进去。</span>
+        </article>
+        <article class="summary-card">
+          <strong>2. 照片尽量占满</strong>
+          <span>同方向时优先尽量占满；但凡比例不一致，仍先保证完整显示，不强裁。</span>
+        </article>
+        <article class="summary-card">
+          <strong>3. 黑边是标准画布</strong>
+          <span>不做模糊铺底，不做补背景；凡是比例不一致，都直接用纯黑留白兜底。</span>
+        </article>
+        <article class="summary-card">
+          <strong>4. 字幕贴着画面</strong>
+          <span>字幕跟随视频画布的固定底部字幕线，不随着横图竖图的尺寸变化而收窄。</span>
+        </article>
+      </section>
+
+      <section class="note">
+        <strong>这份 demo 在刻意验证什么</strong>
+        <p>
+          我这次除了“横版视频中的横图 / 横版视频中的竖图 / 竖版视频中的竖图 / 竖版视频中的横图”，还补了“同方向但比例不一致”的场景。你主要看四件事：
+          照片占比是不是足够大，比例不一致时是不是优先完整显示，黑边是不是足够干净，字幕是不是始终跟着整张视频的固定底部字幕线。
+        </p>
+      </section>
+
+      <section class="subtitle-spec">
+        <article class="subtitle-spec-card">
+          <strong>字幕气质</strong>
+          <span>像已经烧录进成片里的电影字幕，不像播放器黑条，也不像短视频控件。</span>
+        </article>
+        <article class="subtitle-spec-card">
+          <strong>字体方向</strong>
+          <span>改成暖白无衬线，小字重、低存在感，更稳更清楚，不和照片争主角。</span>
+        </article>
+        <article class="subtitle-spec-card">
+          <strong>可读性处理</strong>
+          <span>只保留轻阴影和极弱底部托底，增强可读性，但不制造明显的 UI 条形感。</span>
+        </article>
+        <article class="subtitle-spec-card">
+          <strong>横竖屏规则</strong>
+          <span>横版更低，竖版略高，但仍是一套系统。字幕永远按视频画布，而不是按照片框对齐。</span>
+        </article>
+      </section>
+
+      <section class="gallery">
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">A. 16:9 视频 + 横图</div>
+            <div class="case-meta">横图直接全屏</div>
+          </div>
+          <p class="case-desc">
+            这是最理想情况。横图进入横版成片，照片应该直接占满整个 16:9 视频画布，不留边，不加假背景。
+          </p>
+          <div class="video-shell">
+            <div class="canvas landscape">
+              <div class="media-frame">
+                <div class="photo landscape">
+                  <div class="photo-label">Landscape Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle">海风很轻，整段旅程在这里真正打开。</div>
+            </div>
+          </div>
+          <div class="caption">照片全屏，字幕跟着整张横版视频的底部安全线出现。</div>
+        </article>
+
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">B. 16:9 视频 + 4:3 横图</div>
+            <div class="case-meta">同方向，但不裁图</div>
+          </div>
+          <p class="case-desc">
+            这是你刚补充的关键场景。虽然照片也是横图，但它不是 16:9，而是更接近 4:3。这里应该优先完整显示，所以让它高度贴满视频高度，左右留下黑边。
+          </p>
+          <div class="video-shell">
+            <div class="canvas landscape">
+              <div class="media-frame">
+                <div class="photo four-three-in-landscape">
+                  <div class="photo-label">4:3 Landscape Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle">画面完整保留，不为了填满 16:9 去牺牲原始构图。</div>
+            </div>
+          </div>
+          <div class="caption">统一策略不是“横图就一定铺满宽度”，而是“先完整显示，再由黑边兜底”。</div>
+        </article>
+
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">C. 16:9 视频 + 竖图</div>
+            <div class="case-meta">竖图满高，两侧黑框</div>
+          </div>
+          <p class="case-desc">
+            你刚才强调的核心场景。竖图在横版成片里不做模糊铺底，直接让照片高度贴满视频高度，左右保留黑边。
+          </p>
+          <div class="video-shell">
+            <div class="canvas landscape">
+              <div class="media-frame">
+                <div class="photo portrait-in-landscape">
+                  <div class="photo-label">Portrait Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle narrow">人站在山口，风景不需要被填满，留白本身就是电影画布。</div>
+            </div>
+          </div>
+          <div class="caption">即使中间是竖图，字幕仍横跨整张横版视频底部，不缩到竖图中间那一条里。</div>
+        </article>
+
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">D. 9:16 视频 + 竖图</div>
+            <div class="case-meta">竖图几乎全屏</div>
+          </div>
+          <p class="case-desc">
+            竖版成片遇到竖图时，同样应该尽可能让照片成为整个画面的主体，而不是缩成一张中间卡片。
+          </p>
+          <div class="video-shell">
+            <div class="canvas portrait">
+              <div class="media-frame">
+                <div class="photo portrait-full">
+                  <div class="photo-label">Portrait Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle">傍晚的光贴在脸上，时间像突然慢了半拍。</div>
+            </div>
+          </div>
+          <div class="caption">竖版视频里，字幕依然固定在整张竖版视频底部的统一位置。</div>
+        </article>
+
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">E. 9:16 视频 + 3:4 竖图</div>
+            <div class="case-meta">同方向，但不裁图</div>
+          </div>
+          <p class="case-desc">
+            竖版成片里也要遵守同一条规则。即使照片也是竖图，但如果它更接近 3:4，而不是 9:16，就优先完整显示，让宽度贴满，顶部和底部保留黑边。
+          </p>
+          <div class="video-shell">
+            <div class="canvas portrait">
+              <div class="media-frame">
+                <div class="photo three-four-in-portrait">
+                  <div class="photo-label">3:4 Portrait Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle">即使都是竖图，也不是一律铺满；比例不对就保持完整，让黑边来承担适配。</div>
+            </div>
+          </div>
+          <div class="caption">竖版视频中的 3:4 竖图，应该是上下黑边，而不是强行拉伸或裁切成 9:16。</div>
+        </article>
+
+        <article class="case">
+          <div class="case-header">
+            <div class="case-title">F. 9:16 视频 + 横图</div>
+            <div class="case-meta">横图满宽，上下黑框</div>
+          </div>
+          <p class="case-desc">
+            反向场景同理。横图进入竖版成片时，不裁成奇怪构图，不做模糊铺满，上下直接保留黑边。
+          </p>
+          <div class="video-shell">
+            <div class="canvas portrait">
+              <div class="media-frame">
+                <div class="photo landscape-in-portrait">
+                  <div class="photo-label">Landscape Photo</div>
+                </div>
+              </div>
+              <div class="safe-line"><span>视频固定字幕线</span></div>
+              <div class="subtitle">公路被夕阳拉得很长，镜头不需要假装它原本就是竖着的。</div>
+            </div>
+          </div>
+          <div class="caption">即使横图只占中间区域，字幕也不跟着横图跑，仍落在整张竖版视频底部。</div>
+        </article>
+      </section>
+
+      <section class="footer-note">
+        如果你认可这个方向，我下一步会据此继续细化两件事：
+        1. 横版和竖版的视频字幕线分别定多高更合适。
+        2. 序幕、章节、蒙太奇是否也要遵守同一条视觉安全线。
+        另外这版已经明确了一个统一适配规则：默认使用 `contain`，优先完整显示照片，不做强裁切。
+      </section>
+    </main>
+  </body>
+</html>

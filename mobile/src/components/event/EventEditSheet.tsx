@@ -83,7 +83,7 @@ export function EventEditSheet({
             <TextInput
               value={editTitle}
               onChangeText={setEditTitle}
-              placeholder="给这段旅程起个名字"
+              placeholder="给这段回忆起个名字"
               placeholderTextColor={JourneyPalette.muted}
               style={styles.fieldInput}
             />

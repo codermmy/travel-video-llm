@@ -93,7 +93,7 @@ function buildApiUrl(host: string): string {
   return `http://${host}:8000`;
 }
 
-function uniqueUrls(items: Array<string | null | undefined>): string[] {
+function uniqueUrls(items: (string | null | undefined)[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
 

@@ -112,6 +112,8 @@ def _photo_to_out(photo: Photo) -> PhotoOut:
         id=photo.id,
         assetId=photo.asset_id,
         fileHash=photo.file_hash,
+        width=photo.width,
+        height=photo.height,
         thumbnailUrl=storage_service.resolve_client_url(photo.thumbnail_url),
         storageProvider=photo.storage_provider,
         objectKey=photo.object_key,
@@ -276,6 +278,8 @@ def upload_metadata(
                 gps_lon=item.gpsLon,
                 shoot_time=item.shootTime,
                 file_size=item.fileSize,
+                width=item.width,
+                height=item.height,
                 status="uploaded",
                 visual_desc=_build_visual_desc(item.vision),
                 emotion_tag=(item.vision.emotion_hint if item.vision is not None else None),
@@ -455,10 +459,16 @@ def update_photo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
 
     previous_event_id = photo.event_id
+    previous_vision_status = photo.vision_status
+    previous_vision_result = (
+        photo.vision_result.copy()
+        if isinstance(photo.vision_result, dict)
+        else photo.vision_result
+    )
     fields_set = request.model_fields_set
     vision_updated = False
 
-    if request.eventId is not None:
+    if "eventId" in fields_set:
         if request.eventId:
             target_event = db.scalar(
                 select(Event).where(
@@ -505,12 +515,20 @@ def update_photo(
 
     db.commit()
     db.refresh(photo)
-    if request.eventId is not None or vision_updated:
+    derivative_changed = False
+    if "eventId" in fields_set and previous_event_id != photo.event_id:
+        derivative_changed = True
+    if vision_updated and (
+        previous_vision_status != photo.vision_status
+        or previous_vision_result != photo.vision_result
+    ):
+        derivative_changed = True
+    if "eventId" in fields_set or vision_updated:
         _refresh_impacted_events(
             db=db,
             user_id=current_user_id,
             event_ids={previous_event_id, photo.event_id},
-            structure_changed=request.eventId is not None,
+            structure_changed=derivative_changed,
         )
         db.refresh(photo)
     return ApiResponse.ok(_photo_to_out(photo))

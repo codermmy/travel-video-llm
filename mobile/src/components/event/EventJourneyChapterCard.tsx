@@ -145,15 +145,15 @@ function EventJourneyChapterCardBase({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 24,
+    borderRadius: 26,
     backgroundColor: JourneyPalette.card,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
     overflow: 'hidden',
   },
   headerPressable: {
-    padding: 16,
-    gap: 14,
+    padding: 18,
+    gap: 16,
   },
   headerRow: {
     flexDirection: 'row',
@@ -196,16 +196,16 @@ const styles = StyleSheet.create({
   },
   title: {
     color: JourneyPalette.ink,
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '800',
   },
   teaser: {
     color: JourneyPalette.inkSoft,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 23,
   },
   previewWrap: {
-    height: 164,
+    height: 176,
     flexDirection: 'row',
     gap: 8,
   },
@@ -249,10 +249,10 @@ const styles = StyleSheet.create({
   expandedContent: {
     borderTopWidth: 1,
     borderTopColor: JourneyPalette.line,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 18,
-    gap: 14,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 20,
+    gap: 16,
   },
   description: {
     color: JourneyPalette.inkSoft,

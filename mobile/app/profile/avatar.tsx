@@ -1,183 +1,278 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import {
+  ActionButton,
+  BottomSheetScaffold,
+  EmptyStateCard,
+  InlineBanner,
+  PageContent,
+  PageHeader,
+  SectionLabel,
+  SurfaceCard,
+} from '@/components/ui/revamp';
 import { userApi } from '@/services/api/userApi';
+import { JourneyPalette } from '@/styles/colors';
+import { openAppSettings } from '@/utils/permissionUtils';
 
 const MAX_AVATAR_SIZE = 1024 * 1024;
+
+type PermissionType = 'media' | 'camera' | null;
 
 export default function AvatarScreen() {
   const router = useRouter();
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState<PermissionType>(null);
 
   const validateAndSet = useCallback((asset: ImagePicker.ImagePickerAsset) => {
     if (asset.fileSize && asset.fileSize > MAX_AVATAR_SIZE) {
       Alert.alert('图片过大', '头像图片需小于 1MB');
-      return;
+      return false;
     }
+
     setAvatarUri(asset.uri);
+    setPermissionDenied(null);
+    return true;
   }, []);
 
   const pickFromLibrary = useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
-      Alert.alert('需要权限', '请允许访问相册后重试');
+      setPermissionDenied('media');
       return;
     }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) {
-      validateAndSet(result.assets[0]);
+
+    if (!result.canceled && result.assets[0] && !validateAndSet(result.assets[0])) {
+      setPermissionDenied(null);
     }
   }, [validateAndSet]);
 
   const captureFromCamera = useCallback(async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (perm.status !== 'granted') {
-      Alert.alert('需要权限', '请允许访问相机后重试');
+      setPermissionDenied('camera');
       return;
     }
+
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) {
-      validateAndSet(result.assets[0]);
+
+    if (!result.canceled && result.assets[0] && !validateAndSet(result.assets[0])) {
+      setPermissionDenied(null);
     }
   }, [validateAndSet]);
-
-  const chooseAvatar = useCallback(() => {
-    Alert.alert('选择头像', '请选择图片来源', [
-      { text: '相册', onPress: () => void pickFromLibrary() },
-      { text: '拍照', onPress: () => void captureFromCamera() },
-      { text: '取消', style: 'cancel' },
-    ]);
-  }, [captureFromCamera, pickFromLibrary]);
 
   const uploadAvatar = useCallback(async () => {
     if (!avatarUri) {
       return;
     }
+
     try {
       setUploading(true);
       await userApi.uploadAvatarAndUpdate(avatarUri);
-      Alert.alert('上传成功', '头像已更新', [{ text: '确定', onPress: () => router.back() }]);
-    } catch (e) {
-      Alert.alert('上传失败', e instanceof Error ? e.message : '请稍后重试');
+      router.back();
+    } catch (error) {
+      Alert.alert('上传失败', error instanceof Error ? error.message : '请稍后重试');
     } finally {
       setUploading(false);
     }
   }, [avatarUri, router]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>头像上传</Text>
+    <>
+      <PageContent>
+        <PageHeader
+          title="头像来源"
+          subtitle="和相册、拍照、权限恢复共用同一套轻量底部流程。"
+          rightSlot={
+            <ActionButton
+              label="返回"
+              tone="secondary"
+              icon="arrow-left"
+              fullWidth={false}
+              onPress={() => router.back()}
+            />
+          }
+        />
 
-      <View style={styles.previewCard}>
-        {avatarUri ? (
-          <Image source={{ uri: avatarUri }} style={styles.previewImage} />
-        ) : (
-          <View style={styles.placeholder}>
-            <MaterialCommunityIcons name="account-circle-outline" size={80} color="#95A5C9" />
-            <Text style={styles.placeholderText}>点击下方按钮选择头像</Text>
-          </View>
-        )}
-      </View>
+        {permissionDenied ? (
+          <EmptyStateCard
+            icon={permissionDenied === 'media' ? 'image-lock-outline' : 'camera-off-outline'}
+            title={permissionDenied === 'media' ? '没有相册权限' : '没有相机权限'}
+            description={
+              permissionDenied === 'media'
+                ? '需要开启系统相册权限后才能从相册选择头像。'
+                : '需要开启系统相机权限后才能拍照更新头像。'
+            }
+            action={
+              <ActionButton
+                label="打开系统设置"
+                icon="cog-outline"
+                onPress={openAppSettings}
+                fullWidth={false}
+              />
+            }
+          />
+        ) : null}
 
-      <View style={styles.actionRow}>
-        <Pressable style={styles.secondaryButton} onPress={chooseAvatar} disabled={uploading}>
-          <Text style={styles.secondaryText}>{avatarUri ? '重新选择' : '选择头像'}</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.primaryButton, (!avatarUri || uploading) && styles.buttonDisabled]}
-          onPress={uploadAvatar}
-          disabled={!avatarUri || uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#FFFFFF" />
+        <SurfaceCard style={styles.previewCard}>
+          <SectionLabel title="头像预览" />
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.previewImage} />
           ) : (
-            <Text style={styles.primaryText}>上传</Text>
+            <View style={styles.placeholder}>
+              <View style={styles.placeholderIconWrap}>
+                <MaterialCommunityIcons
+                  name="account-circle-outline"
+                  size={74}
+                  color={JourneyPalette.muted}
+                />
+              </View>
+              <Text style={styles.placeholderTitle}>还没有选定头像</Text>
+              <Text style={styles.placeholderText}>先选择来源，再裁切并确认当前设备头像。</Text>
+            </View>
           )}
-        </Pressable>
-      </View>
-    </View>
+        </SurfaceCard>
+
+        <InlineBanner
+          icon="image-outline"
+          title="头像来源"
+          body="来源选择做成轻量 action sheet，而不是只靠系统 Alert。"
+          tone="neutral"
+        />
+
+        <View style={styles.actionRow}>
+          <ActionButton
+            label={avatarUri ? '重新选择' : '选择头像'}
+            tone="secondary"
+            onPress={() => setSourceSheetVisible(true)}
+            style={styles.flexButton}
+          />
+          <ActionButton
+            label={uploading ? '上传中...' : '上传头像'}
+            onPress={uploadAvatar}
+            disabled={!avatarUri || uploading}
+            style={styles.flexButton}
+          />
+        </View>
+      </PageContent>
+
+      <Modal
+        visible={sourceSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSourceSheetVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSourceSheetVisible(false)} />
+          <BottomSheetScaffold
+            title="选择头像来源"
+            hint="相册和拍照并列展示，但确认动作回到底部主按钮。"
+            onClose={() => setSourceSheetVisible(false)}
+            style={styles.sheet}
+          >
+            <InlineBanner
+              icon="shield-check-outline"
+              title="低步骤、强确定感"
+              body="先选来源，再裁切预览，最后回到头像页确认上传。"
+              tone="accent"
+              style={styles.sheetBanner}
+            />
+            <SurfaceCard style={styles.optionCard}>
+              <ActionButton
+                label="从相册选择头像"
+                tone="secondary"
+                icon="image-outline"
+                onPress={() => {
+                  setSourceSheetVisible(false);
+                  void pickFromLibrary();
+                }}
+              />
+              <ActionButton
+                label="拍照更新头像"
+                tone="secondary"
+                icon="camera-outline"
+                onPress={() => {
+                  setSourceSheetVisible(false);
+                  void captureFromCamera();
+                }}
+              />
+            </SurfaceCard>
+          </BottomSheetScaffold>
+        </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#EEF3FF',
-    padding: 16,
+  previewCard: {
+    alignItems: 'center',
     gap: 14,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#22335C',
-  },
-  previewCard: {
-    flex: 1,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#D9E3FB',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
   previewImage: {
-    width: 260,
-    height: 260,
-    borderRadius: 130,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
   },
   placeholder: {
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+    paddingVertical: 22,
+  },
+  placeholderIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 32,
+    backgroundColor: JourneyPalette.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  placeholderTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 18,
+    fontWeight: '900',
   },
   placeholderText: {
-    color: '#6579A6',
+    color: JourneyPalette.inkSoft,
     fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
   },
   actionRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  secondaryButton: {
+  flexButton: {
     flex: 1,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#BFCDED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
   },
-  secondaryText: {
-    color: '#334E88',
-    fontWeight: '700',
-  },
-  primaryButton: {
+  modalBackdrop: {
     flex: 1,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3659A8',
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.34)',
   },
-  primaryText: {
-    color: '#FFFFFF',
-    fontWeight: '800',
+  sheet: {
+    paddingBottom: 18,
   },
-  buttonDisabled: {
-    opacity: 0.65,
+  sheetBanner: {
+    marginBottom: 12,
+  },
+  optionCard: {
+    gap: 12,
   },
 });

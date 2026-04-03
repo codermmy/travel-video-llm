@@ -3,19 +3,21 @@ import {
   Dimensions,
   FlatList,
   Image,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   Pressable,
+  SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import type { EventPhotoItem } from '@/types/event';
 import { formatDateTime } from '@/utils/dateUtils';
-import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
+import { getPhotoOriginalCandidates, getPreferredPhotoThumbnailUri } from '@/utils/mediaRefs';
 
 const { width, height } = Dimensions.get('window');
 
@@ -35,17 +37,18 @@ function formatGps(photo: EventPhotoItem): string | null {
 
 export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerProps) {
   const [currentIndex, setCurrentIndex] = useState(
-    Math.min(Math.max(initialIndex, 0), photos.length - 1),
+    Math.min(Math.max(initialIndex, 0), Math.max(photos.length - 1, 0)),
   );
   const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
   const listRef = useRef<FlatList<EventPhotoItem>>(null);
+  const stripRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     StatusBar.setHidden(true, 'fade');
     const timer = setTimeout(() => {
       if (initialIndex > 0) {
         listRef.current?.scrollToIndex({
-          index: Math.min(initialIndex, photos.length - 1),
+          index: Math.min(initialIndex, Math.max(photos.length - 1, 0)),
           animated: false,
         });
       }
@@ -57,12 +60,20 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
     };
   }, [initialIndex, photos.length]);
 
+  useEffect(() => {
+    stripRef.current?.scrollTo({
+      x: Math.max(currentIndex - 1, 0) * 76,
+      animated: true,
+    });
+  }, [currentIndex]);
+
   const currentPhoto = photos[currentIndex];
 
   const footerText = useMemo(() => {
     if (!currentPhoto?.shootTime) {
       return null;
     }
+
     try {
       return formatDateTime(currentPhoto.shootTime);
     } catch {
@@ -79,24 +90,33 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
     return formatGps(currentPhoto);
   }, [currentPhoto]);
 
+  const locationText = useMemo(() => {
+    if (!currentPhoto) {
+      return null;
+    }
+    return gpsText;
+  }, [currentPhoto, gpsText]);
+
   const onMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
-    setCurrentIndex(Math.min(Math.max(nextIndex, 0), photos.length - 1));
+    setCurrentIndex(Math.min(Math.max(nextIndex, 0), Math.max(photos.length - 1, 0)));
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.topBar}>
         <Pressable
           onPress={onBack}
-          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.topChip, pressed && styles.pressed]}
         >
-          <MaterialCommunityIcons name="chevron-left" size={22} color="#FFFFFF" />
-          <Text style={styles.backText}>返回</Text>
+          <MaterialCommunityIcons name="chevron-left" size={20} color="#FFFFFF" />
+          <Text style={styles.topChipText}>返回</Text>
         </Pressable>
-        <Text style={styles.counterText}>
-          {Math.max(currentIndex + 1, 1)} / {Math.max(photos.length, 1)}
-        </Text>
+        <View style={styles.topChip}>
+          <Text style={styles.topChipText}>
+            {Math.max(currentIndex + 1, 1)} / {Math.max(photos.length, 1)}
+          </Text>
+        </View>
       </View>
 
       <FlatList
@@ -112,50 +132,98 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
         renderItem={({ item }) => {
           const uriCandidates = getPhotoOriginalCandidates(item);
           const uri = uriCandidates[failedCandidateIndices[item.id] ?? 0] ?? null;
+
           return (
             <View style={styles.slide}>
-              {uri ? (
-                <Image
-                  source={{ uri }}
-                  style={styles.image}
-                  resizeMode="contain"
-                  onError={() => {
-                    setFailedCandidateIndices((prev) => ({
-                      ...prev,
-                      [item.id]: (prev[item.id] ?? 0) + 1,
-                    }));
-                  }}
-                />
-              ) : (
-                <View style={styles.errorPlaceholder}>
-                  <MaterialCommunityIcons name="image-broken-variant" size={32} color="#93A2C4" />
-                  <Text style={styles.errorText}>图片加载失败</Text>
-                </View>
-              )}
+              <View style={styles.stageFrame}>
+                {uri ? (
+                  <Image
+                    source={{ uri }}
+                    style={styles.image}
+                    resizeMode="contain"
+                    onError={() => {
+                      setFailedCandidateIndices((prev) => ({
+                        ...prev,
+                        [item.id]: (prev[item.id] ?? 0) + 1,
+                      }));
+                    }}
+                  />
+                ) : (
+                  <View style={styles.errorPlaceholder}>
+                    <View style={styles.errorIconWrap}>
+                      <MaterialCommunityIcons
+                        name="image-broken-variant"
+                        size={28}
+                        color="#A9B7D6"
+                      />
+                    </View>
+                    <Text style={styles.errorTitle}>图片加载失败</Text>
+                    <Text style={styles.errorText}>本地候选地址已失效，可以稍后再试。</Text>
+                  </View>
+                )}
+              </View>
             </View>
           );
         }}
       />
 
-      {(footerText || captionText || gpsText) && (
-        <View style={styles.metaContainer}>
-          {footerText ? <Text style={styles.metaText}>{footerText}</Text> : null}
+      <View style={styles.bottomPanel}>
+        <View style={styles.metaBlock}>
+          {footerText ? <Text style={styles.metaTitle}>{footerText}</Text> : null}
+          {locationText ? <Text style={styles.metaLine}>{locationText}</Text> : null}
           {captionText ? <Text style={styles.captionText}>{captionText}</Text> : null}
-          {gpsText ? <Text style={styles.metaText}>GPS: {gpsText}</Text> : null}
         </View>
-      )}
-    </View>
+
+        <ScrollView
+          ref={stripRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filmstrip}
+        >
+          {photos.map((photo, index) => {
+            const thumbUri =
+              getPreferredPhotoThumbnailUri(photo) ||
+              getPhotoOriginalCandidates(photo)[0] ||
+              undefined;
+            const active = currentIndex === index;
+
+            return (
+              <Pressable
+                key={photo.id}
+                onPress={() => {
+                  listRef.current?.scrollToIndex({ index, animated: true });
+                  setCurrentIndex(index);
+                }}
+                style={({ pressed }) => [
+                  styles.thumbCell,
+                  active && styles.thumbCellActive,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {thumbUri ? (
+                  <Image source={{ uri: thumbUri }} style={styles.thumbImage} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.thumbImage, styles.thumbFallback]}>
+                    <MaterialCommunityIcons name="image-outline" size={16} color="#97A5C4" />
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#030913',
+    backgroundColor: '#09101D',
   },
-  header: {
+  topBar: {
     position: 'absolute',
-    top: 48,
+    top: 10,
     left: 14,
     right: 14,
     zIndex: 20,
@@ -163,75 +231,127 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  backButton: {
+  topChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10, 20, 38, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(157, 179, 230, 0.18)',
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(7,16,34,0.62)',
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    gap: 4,
   },
-  backText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+  topChipText: {
+    color: '#F4F7FF',
     fontSize: 13,
-    marginLeft: 2,
-  },
-  counterText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-    backgroundColor: 'rgba(7,16,34,0.62)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    fontWeight: '800',
   },
   slide: {
     width,
     height,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: 24,
+    paddingBottom: 188,
   },
-  image: {
+  stageFrame: {
     width: width,
-    height: height * 0.76,
-  },
-  errorPlaceholder: {
-    width: width * 0.72,
-    height: width * 0.72,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#253451',
-    backgroundColor: '#111D33',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  image: {
+    width,
+    height: height * 0.7,
+  },
+  errorPlaceholder: {
+    width: width * 0.76,
+    minHeight: width * 0.72,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(149, 173, 223, 0.16)',
+    backgroundColor: 'rgba(16, 27, 47, 0.94)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  errorIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  errorTitle: {
+    color: '#F1F5FF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
   errorText: {
     marginTop: 8,
-    color: '#96A6C8',
-    fontSize: 12,
+    color: '#A8B7D9',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
   },
-  metaContainer: {
+  bottomPanel: {
     position: 'absolute',
     left: 14,
     right: 14,
-    bottom: 28,
-    borderRadius: 12,
-    backgroundColor: 'rgba(7,16,34,0.58)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 2,
+    bottom: 18,
+    borderRadius: 24,
+    backgroundColor: 'rgba(9, 17, 31, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(157, 179, 230, 0.16)',
+    padding: 14,
+    gap: 14,
   },
-  metaText: {
-    color: '#EAF0FF',
+  metaBlock: {
+    gap: 4,
+  },
+  metaTitle: {
+    color: '#F4F7FF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  metaLine: {
+    color: '#D1DBF3',
     fontSize: 12,
   },
   captionText: {
-    color: '#B8C5FF',
+    color: '#AFC0E7',
     fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 19,
+  },
+  filmstrip: {
+    gap: 10,
+  },
+  thumbCell: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(157, 179, 230, 0.16)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  thumbCellActive: {
+    borderColor: '#F4F7FF',
+    transform: [{ scale: 1.04 }],
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   pressed: {
     transform: [{ scale: 0.98 }],
+    opacity: 0.92,
   },
 });

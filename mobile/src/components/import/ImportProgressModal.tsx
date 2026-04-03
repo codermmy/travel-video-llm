@@ -1,6 +1,9 @@
 import * as React from 'react';
-import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Modal, Portal, ProgressBar, Text } from 'react-native-paper';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
+
+import { ActionButton, BottomSheetScaffold, InlineBanner } from '@/components/ui/revamp';
+import { JourneyPalette } from '@/styles/colors';
 
 export type ImportStage =
   | 'idle'
@@ -64,32 +67,54 @@ export function ImportProgressModal(props: {
         onDismiss={props.allowClose ? props.onClose : undefined}
         contentContainerStyle={styles.container}
       >
-        <View style={styles.header}>
-          <ActivityIndicator animating size="large" />
-        </View>
-        <Text variant="titleMedium" style={styles.title}>
-          {label}
-        </Text>
-        {detail ? (
-          <Text variant="bodyMedium" style={styles.detail}>
-            {detail}
-          </Text>
-        ) : null}
-
-        {showProgress ? (
-          <View style={styles.progressBlock}>
-            <ProgressBar progress={value} />
-            <Text variant="labelSmall" style={styles.progressText}>
-              {props.progress.current} / {props.progress.total}
+        <BottomSheetScaffold
+          title={label}
+          hint={detail || '默认链路只同步 metadata 与端侧结构化结果。'}
+          onClose={props.allowClose ? props.onClose : undefined}
+          style={styles.sheet}
+        >
+          <View style={styles.heroState}>
+            <View style={styles.heroIcon}>
+              <ActivityIndicator size="large" color={JourneyPalette.accent} />
+            </View>
+            <Text variant="headlineMedium" style={styles.heroLabel}>
+              {showProgress && props.progress.total
+                ? `${props.progress.current || 0} / ${props.progress.total}`
+                : '整理进行中'}
             </Text>
           </View>
-        ) : null}
 
-        {props.allowClose ? (
-          <Button mode="text" onPress={props.onClose} style={styles.closeButton}>
-            关闭
-          </Button>
-        ) : null}
+          <InlineBanner
+            icon="shield-lock-outline"
+            title="隐私优先"
+            body="整理过程中不会把原图作为默认上传内容，当前展示的是本机整理进度。"
+            tone="accent"
+          />
+
+          {showProgress ? (
+            <View style={styles.progressBlock}>
+              <ProgressBar
+                progress={value}
+                color={JourneyPalette.accent}
+                style={styles.progressBar}
+              />
+              <Text variant="labelMedium" style={styles.progressText}>
+                当前阶段
+                {props.progress.current !== undefined && props.progress.total !== undefined
+                  ? ` · ${props.progress.current} / ${props.progress.total}`
+                  : ''}
+              </Text>
+            </View>
+          ) : null}
+
+          {props.allowClose ? (
+            <ActionButton
+              label="关闭"
+              tone="secondary"
+              onPress={props.onClose || (() => undefined)}
+            />
+          ) : null}
+        </BottomSheetScaffold>
       </Modal>
     </Portal>
   );
@@ -97,32 +122,40 @@ export function ImportProgressModal(props: {
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 24,
-    padding: 20,
-    borderRadius: 12,
-    backgroundColor: '#fff',
+    justifyContent: 'flex-end',
+    margin: 0,
   },
-  header: {
+  sheet: {
+    paddingBottom: 28,
+  },
+  heroState: {
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 16,
   },
-  title: {
-    textAlign: 'center',
-    marginBottom: 8,
+  heroIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 26,
+    backgroundColor: JourneyPalette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  detail: {
-    textAlign: 'center',
-    color: '#666',
+  heroLabel: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
   },
   progressBlock: {
     marginTop: 14,
     gap: 8,
   },
+  progressBar: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.cardAlt,
+  },
   progressText: {
     textAlign: 'center',
-    color: '#666',
-  },
-  closeButton: {
-    marginTop: 10,
+    color: JourneyPalette.inkSoft,
   },
 });

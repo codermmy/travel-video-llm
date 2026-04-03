@@ -90,6 +90,8 @@ class EventPhotoItem(BaseModel):
     id: str
     assetId: Optional[str] = None
     fileHash: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     photoUrl: Optional[str] = None
     thumbnailUrl: Optional[str] = None
     shootTime: Optional[datetime] = None

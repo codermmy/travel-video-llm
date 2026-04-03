@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Modal, Portal, ProgressBar, Text } from 'react-native-paper';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
 
+import { ActionButton, BottomSheetScaffold, InlineBanner } from '@/components/ui/revamp';
 import { taskApi, type TaskStatus } from '@/services/api/taskApi';
+import { JourneyPalette } from '@/styles/colors';
 
 type UploadPhase = 'pending' | 'clustering' | 'geocoding' | 'ai' | 'completed' | 'failed';
 
@@ -146,42 +148,48 @@ export function UploadProgress({
   return (
     <Portal>
       <Modal visible dismissable={false} contentContainerStyle={styles.container}>
-        <View style={styles.iconWrap}>
+        <BottomSheetScaffold title={getPhaseMessage(phase)} hint={hintText} style={styles.sheet}>
+          <View style={styles.heroState}>
+            <View style={[styles.heroIcon, phase === 'failed' ? styles.heroIconDanger : null]}>
+              {phase === 'failed' ? (
+                <Text style={styles.heroIconText}>!</Text>
+              ) : (
+                <ActivityIndicator size="large" color={JourneyPalette.accent} />
+              )}
+            </View>
+            <Text variant="displaySmall" style={styles.percentText}>
+              {percent}%
+            </Text>
+          </View>
+
+          <ProgressBar
+            progress={Math.max(0, Math.min(1, percent / 100))}
+            style={styles.progressBar}
+            color={phase === 'failed' ? JourneyPalette.danger : JourneyPalette.accent}
+          />
+
+          <InlineBanner
+            icon={phase === 'failed' ? 'alert-circle-outline' : 'timeline-clock-outline'}
+            title={phase === 'failed' ? '需要关注这次任务' : '任务会继续在后台推进'}
+            body={
+              phase === 'failed'
+                ? status?.error || '失败项会留在任务中心，你可以稍后再回看或重试。'
+                : '即时反馈会短暂出现，完整阶段记录会统一沉淀到任务中心。'
+            }
+            tone={phase === 'failed' ? 'danger' : 'accent'}
+            style={styles.banner}
+          />
+
           {phase === 'failed' ? (
-            <ActivityIndicator animating={false} />
+            <ActionButton label="关闭" onPress={onDismissFailed || (() => undefined)} />
           ) : (
-            <ActivityIndicator size="large" />
+            <ActionButton
+              label="后台继续"
+              tone="secondary"
+              onPress={onContinueInBackground || (() => undefined)}
+            />
           )}
-        </View>
-
-        <Text variant="titleMedium" style={styles.title}>
-          {getPhaseMessage(phase)}
-        </Text>
-
-        <Text variant="headlineSmall" style={styles.percentText}>
-          {percent}%
-        </Text>
-
-        <ProgressBar
-          progress={Math.max(0, Math.min(1, percent / 100))}
-          style={styles.progressBar}
-        />
-
-        {hintText ? (
-          <Text variant="bodySmall" style={styles.hint}>
-            {hintText}
-          </Text>
-        ) : null}
-
-        {phase === 'failed' ? (
-          <Button mode="contained" onPress={onDismissFailed} style={styles.primaryAction}>
-            关闭
-          </Button>
-        ) : (
-          <Button mode="outlined" onPress={onContinueInBackground} style={styles.primaryAction}>
-            后台继续
-          </Button>
-        )}
+        </BottomSheetScaffold>
       </Modal>
     </Portal>
   );
@@ -189,36 +197,44 @@ export function UploadProgress({
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 28,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingVertical: 22,
+    justifyContent: 'flex-end',
+    margin: 0,
   },
-  iconWrap: {
+  sheet: {
+    paddingBottom: 28,
+  },
+  heroState: {
     alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
   },
-  title: {
-    marginTop: 12,
-    textAlign: 'center',
-    color: '#213053',
+  heroIcon: {
+    width: 76,
+    height: 76,
+    borderRadius: 28,
+    backgroundColor: JourneyPalette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroIconDanger: {
+    backgroundColor: JourneyPalette.dangerSoft,
+  },
+  heroIconText: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: JourneyPalette.danger,
   },
   percentText: {
-    marginTop: 10,
-    textAlign: 'center',
-    color: '#2F6AF6',
-    fontWeight: '700',
+    color: JourneyPalette.ink,
+    fontWeight: '900',
   },
   progressBar: {
-    marginTop: 10,
     height: 8,
     borderRadius: 999,
+    backgroundColor: JourneyPalette.cardAlt,
   },
-  hint: {
-    marginTop: 10,
-    textAlign: 'center',
-    color: '#63759A',
-    lineHeight: 18,
+  banner: {
+    marginTop: 16,
   },
   primaryAction: {
     marginTop: 16,

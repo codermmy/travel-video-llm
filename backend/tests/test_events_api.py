@@ -363,6 +363,82 @@ def test_update_photo_reassigns_event_and_refreshes_summaries() -> None:
     assert {photo["id"] for photo in event_b_payload["photos"]} == {photo_a_id, photo_b_id}
 
 
+def test_update_photo_vision_marks_event_stale() -> None:
+    token = _register_and_get_token("events-test-device-vision-001")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-vision-001"))
+        assert user is not None
+
+        base_time = datetime(2024, 6, 2, 8, 0, 0, tzinfo=timezone.utc)
+        event = Event(
+            user_id=user.id,
+            title="事件 A",
+            start_time=base_time,
+            end_time=base_time + timedelta(minutes=5),
+            photo_count=1,
+            status="generated",
+            event_version=3,
+            story_generated_from_version=3,
+            story_requested_for_version=3,
+            story_freshness="fresh",
+            slideshow_generated_from_version=3,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        db.add(event)
+        db.flush()
+
+        photo = Photo(
+            user_id=user.id,
+            event_id=event.id,
+            asset_id="asset-vision-refresh",
+            shoot_time=base_time,
+            status="clustered",
+            vision_status="pending",
+        )
+        db.add(photo)
+        db.commit()
+        event_id = event.id
+        photo_id = photo.id
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/v1/photos/{photo_id}",
+        headers=headers,
+        json={
+            "visionStatus": "completed",
+            "vision": {
+                "schema_version": "single-device-vision/v1",
+                "source_platform": "android-mlkit",
+                "generated_at": base_time.isoformat(),
+                "scene_category": "lake",
+                "object_tags": ["water", "tree"],
+                "activity_hint": "walking",
+                "people_present": True,
+                "people_count_bucket": "1",
+                "emotion_hint": "peaceful",
+                "ocr_text": "West Lake",
+                "landmark_hint": "lake",
+                "image_quality_flags": [],
+                "cover_score": 0.86,
+                "confidence_map": {"scene_category": 0.91},
+            },
+        },
+    )
+    assert response.status_code == 200
+
+    detail = client.get(f"/api/v1/events/{event_id}", headers=headers)
+    assert detail.status_code == 200
+    payload = detail.json()["data"]
+    assert payload["eventVersion"] == 4
+    assert payload["storyGeneratedFromVersion"] != 3
+    assert payload["slideshowGeneratedFromVersion"] != 3
+
+
 def test_update_event_triggers_story_refresh_for_structural_fields() -> None:
     token = _register_and_get_token("events-test-device-010")
     headers = {"Authorization": f"Bearer {token}"}

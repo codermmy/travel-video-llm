@@ -5,6 +5,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
+import {
+  ActionButton,
+  BottomSheetScaffold,
+  EmptyStateCard,
+  InlineBanner,
+  SurfaceCard,
+} from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import { openAppSettings } from '@/utils/permissionUtils';
 
@@ -207,46 +214,69 @@ export function PhotoLibraryPickerModal({
       <GestureHandlerRootView style={styles.gestureRoot}>
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeader}>
-              <View style={styles.modalCopy}>
-                <Text style={styles.modalTitle}>{title}</Text>
-                <Text style={styles.modalHint}>{hint}</Text>
+          <BottomSheetScaffold
+            title={title}
+            hint={hint}
+            onClose={canClose ? handleClose : undefined}
+            style={styles.modalSheet}
+            footer={
+              <View style={styles.modalActions}>
+                <ActionButton
+                  label="取消"
+                  tone="secondary"
+                  onPress={handleClose}
+                  disabled={!canClose}
+                  style={styles.flexButton}
+                />
+                <ActionButton
+                  label={confirmLabel}
+                  onPress={() => {
+                    void onConfirm(selectedAssets);
+                  }}
+                  disabled={selectedAssets.length === 0 || confirmLoading}
+                  style={styles.flexButton}
+                />
               </View>
-              <Pressable
-                onPress={handleClose}
-                disabled={!canClose}
-                style={({ pressed }) => [
-                  styles.modalCloseBtn,
-                  pressed && styles.pressed,
-                  !canClose && styles.disabledAction,
-                ]}
-              >
-                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
-              </Pressable>
-            </View>
+            }
+          >
+            <InlineBanner
+              icon="image-multiple-outline"
+              title={
+                selectionMode
+                  ? `已选择 ${selectedIds.length}${maxSelection ? ` / ${maxSelection}` : ''}`
+                  : '手动补导入'
+              }
+              body={
+                selectionMode
+                  ? '保持选择态后可以继续点选补充，也可以像系统相册一样滑动连续选择。'
+                  : '默认先浏览，长按任意一张进入选择态；手动补导入保留为次级入口，但体验应足够顺手。'
+              }
+              tone="neutral"
+              style={styles.topBanner}
+            />
 
             {permissionDenied ? (
               <View style={styles.modalContent}>
-                <View style={styles.emptyState}>
-                  <MaterialCommunityIcons name="image-lock-outline" size={24} color="#8A97B8" />
-                  <Text style={styles.emptyTitle}>没有相册权限</Text>
-                  <Text style={styles.emptyDescription}>需要开启系统相册权限后才能选择照片。</Text>
-                  <Pressable
-                    onPress={openAppSettings}
-                    style={({ pressed }) => [styles.settingsButton, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.settingsButtonText}>打开系统设置</Text>
-                  </Pressable>
-                </View>
+                <EmptyStateCard
+                  icon="image-lock-outline"
+                  title="没有相册权限"
+                  description="需要开启系统相册权限后才能继续手动补导入或选择当前事件照片。"
+                  action={
+                    <ActionButton
+                      label="打开系统设置"
+                      icon="cog-outline"
+                      onPress={openAppSettings}
+                      fullWidth={false}
+                    />
+                  }
+                />
               </View>
             ) : loadingInitial ? (
               <View style={styles.modalContent}>
-                <View style={styles.loadingState}>
+                <SurfaceCard style={styles.loadingCard}>
                   <ActivityIndicator color={JourneyPalette.accent} />
                   <Text style={styles.loadingText}>正在读取相册照片...</Text>
-                </View>
+                </SurfaceCard>
               </View>
             ) : (
               <View style={styles.gridContainer}>
@@ -269,38 +299,7 @@ export function PhotoLibraryPickerModal({
                 />
               </View>
             )}
-
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={handleClose}
-                disabled={!canClose}
-                style={({ pressed }) => [
-                  styles.modalGhostBtn,
-                  pressed && styles.pressed,
-                  !canClose && styles.disabledAction,
-                ]}
-              >
-                <Text style={styles.modalGhostBtnText}>取消</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  void onConfirm(selectedAssets);
-                }}
-                style={({ pressed }) => [
-                  styles.modalPrimaryBtn,
-                  pressed && styles.pressed,
-                  (selectedAssets.length === 0 || confirmLoading) && styles.disabledAction,
-                ]}
-                disabled={selectedAssets.length === 0 || confirmLoading}
-              >
-                {confirmLoading ? (
-                  <ActivityIndicator color="#FFF9F2" />
-                ) : (
-                  <Text style={styles.modalPrimaryBtnText}>{confirmLabel}</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
+          </BottomSheetScaffold>
         </View>
       </GestureHandlerRootView>
     </Modal>
@@ -314,75 +313,39 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(21, 32, 31, 0.42)',
+    backgroundColor: 'rgba(15, 23, 42, 0.34)',
   },
   modalSheet: {
     height: '88%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 20,
-  },
-  modalHandle: {
-    alignSelf: 'center',
-    width: 46,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.lineStrong,
-    marginBottom: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  modalCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  modalHint: {
-    lineHeight: 20,
-    color: JourneyPalette.inkSoft,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    paddingBottom: 18,
   },
   modalContent: {
-    paddingTop: 16,
     paddingBottom: 12,
     gap: 14,
   },
   gridContainer: {
     flex: 1,
     minHeight: 320,
-    paddingTop: 8,
+    paddingTop: 12,
+  },
+  topBanner: {
+    marginBottom: 12,
   },
   gridHeader: {
-    paddingTop: 16,
+    paddingTop: 4,
     paddingBottom: 12,
   },
   toolbarCard: {
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+    padding: 16,
     gap: 10,
   },
   selectionStatsText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     color: JourneyPalette.ink,
   },
   selectionStatsHint: {
@@ -399,7 +362,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
+    backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -415,42 +378,13 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     gap: 10,
   },
+  loadingCard: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    gap: 10,
+  },
   loadingText: {
     color: JourneyPalette.inkSoft,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 28,
-    gap: 8,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  emptyDescription: {
-    textAlign: 'center',
-    color: JourneyPalette.inkSoft,
-    paddingHorizontal: 12,
-    lineHeight: 20,
-  },
-  settingsButton: {
-    marginTop: 6,
-    minHeight: 44,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.accent,
-  },
-  settingsButtonText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
   },
   footerLoading: {
     paddingVertical: 16,
@@ -463,33 +397,9 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
   },
-  modalGhostBtn: {
+  flexButton: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
-  },
-  modalGhostBtnText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  modalPrimaryBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryBtnText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
   },
   disabledAction: {
     opacity: 0.55,

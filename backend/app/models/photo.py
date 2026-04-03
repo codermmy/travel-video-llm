@@ -30,6 +30,8 @@ class Photo(Base):
     storage_provider: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     object_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     gps_lat: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)
     gps_lon: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 7), nullable=True)

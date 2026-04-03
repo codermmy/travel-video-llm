@@ -4,8 +4,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,29 +11,38 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import {
+  ActionButton,
+  EmptyStateCard,
+  PageContent,
+  PageHeader,
+  SectionLabel,
+  SurfaceCard,
+} from '@/components/ui/revamp';
+import { JourneyPalette } from '@/styles/colors';
 import { userApi } from '@/services/api/userApi';
 
 const NICKNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,64}$/;
 
 export default function EditProfileScreen() {
   const router = useRouter();
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [nickname, setNickname] = useState('');
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadUser = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const user = await userApi.getCurrentUser();
       setNickname(user.nickname || '');
     } catch (e) {
-      Alert.alert('加载失败', e instanceof Error ? e.message : '请稍后重试');
-      router.back();
+      setLoadError(e instanceof Error ? e.message : '请稍后重试');
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     void loadUser();
@@ -71,7 +78,20 @@ export default function EditProfileScreen() {
   if (loading) {
     return (
       <View style={styles.centerState}>
-        <ActivityIndicator size="large" color="#3659A8" />
+        <ActivityIndicator size="large" color={JourneyPalette.accent} />
+      </View>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.errorWrap}>
+        <EmptyStateCard
+          icon="account-edit-outline"
+          title="本机资料加载失败"
+          description={loadError}
+          action={<ActionButton label="重试" onPress={() => void loadUser()} fullWidth={false} />}
+        />
       </View>
     );
   }
@@ -81,32 +101,42 @@ export default function EditProfileScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>编辑本机资料</Text>
-        <Text style={styles.subtitle}>
-          这里只保留轻量的本机展示信息，不涉及账号升级或社交资料。
-        </Text>
+      <PageContent>
+        <PageHeader
+          title="本机资料"
+          subtitle="低频页也保持和主页面同一套分组、边框、留白和按钮体系。"
+          rightSlot={
+            <ActionButton
+              label="返回"
+              tone="secondary"
+              icon="arrow-left"
+              fullWidth={false}
+              onPress={() => router.back()}
+            />
+          }
+        />
 
-        <View style={styles.card}>
-          <Text style={styles.label}>昵称</Text>
-          <TextInput
-            style={styles.input}
-            value={nickname}
-            onChangeText={setNickname}
-            placeholder="请输入昵称"
-            maxLength={64}
-          />
-          <Text style={styles.hint}>长度 {nicknameCount}/64</Text>
-        </View>
+        <SurfaceCard>
+          <SectionLabel title="基本资料" />
+          <Text style={styles.cardTitle}>编辑昵称</Text>
+          <Text style={styles.cardHint}>这里只保留轻量展示信息，不涉及账号升级或社交资料。</Text>
 
-        <Pressable style={[styles.saveButton, saving && styles.buttonDisabled]} onPress={onSave}>
-          {saving ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.saveText}>保存</Text>
-          )}
-        </Pressable>
-      </ScrollView>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>昵称</Text>
+            <TextInput
+              style={styles.input}
+              value={nickname}
+              onChangeText={setNickname}
+              placeholder="请输入昵称"
+              maxLength={64}
+              placeholderTextColor={JourneyPalette.muted}
+            />
+            <Text style={styles.hint}>长度 {nicknameCount}/64</Text>
+          </View>
+        </SurfaceCard>
+
+        <ActionButton label="保存修改" onPress={onSave} disabled={saving} />
+      </PageContent>
     </KeyboardAvoidingView>
   );
 }
@@ -114,69 +144,53 @@ export default function EditProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#EEF3FF',
-  },
-  content: {
-    padding: 16,
-    gap: 14,
+    backgroundColor: JourneyPalette.cardAlt,
   },
   centerState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEF3FF',
+    backgroundColor: JourneyPalette.cardAlt,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#22335C',
+  errorWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: JourneyPalette.cardAlt,
   },
-  subtitle: {
-    color: '#6478A4',
+  cardTitle: {
+    marginTop: 12,
+    color: JourneyPalette.ink,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  cardHint: {
+    marginTop: 6,
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
     lineHeight: 20,
   },
-  card: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#D9E3FB',
-    backgroundColor: '#FFFFFF',
-    padding: 14,
+  fieldGroup: {
+    marginTop: 16,
+    gap: 8,
   },
-  label: {
-    marginTop: 6,
-    marginBottom: 6,
+  fieldLabel: {
+    color: JourneyPalette.ink,
     fontSize: 13,
-    fontWeight: '700',
-    color: '#2D406E',
-  },
-  input: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#D8E1F8',
-    backgroundColor: '#F8FAFF',
-    fontSize: 14,
-    color: '#24355E',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  hint: {
-    marginTop: 6,
-    fontSize: 11,
-    color: '#7D91B8',
-  },
-  saveButton: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#3659A8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveText: {
-    color: '#FFFFFF',
-    fontSize: 15,
     fontWeight: '800',
   },
-  buttonDisabled: {
-    opacity: 0.7,
+  input: {
+    minHeight: 50,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.cardAlt,
+    paddingHorizontal: 14,
+    color: JourneyPalette.ink,
+    fontSize: 14,
+  },
+  hint: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
   },
 });

@@ -309,7 +309,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
       {validEvents.length === 0 ? (
         <View pointerEvents="none" style={styles.emptyState}>
           <Text style={styles.emptyTitle}>还没有带定位的事件</Text>
-          <Text style={styles.emptyText}>上传包含 GPS 信息的照片后，这里会显示足迹标记。</Text>
+          <Text style={styles.emptyText}>导入包含 GPS 信息的照片后，这里会显示地点标记。</Text>
         </View>
       ) : null}
 

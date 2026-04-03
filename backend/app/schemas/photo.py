@@ -82,6 +82,8 @@ class PhotoOut(BaseModel):
     id: str
     assetId: Optional[str] = None
     fileHash: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     thumbnailUrl: Optional[str] = None
     storageProvider: Optional[str] = None
     objectKey: Optional[str] = None

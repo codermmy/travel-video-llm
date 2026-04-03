@@ -43,7 +43,85 @@ function maskValue(value?: string | null): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
+function buildImportSummary(localData: ImportCacheSummary): string {
+  if (localData.assetCount <= 0) {
+    return '还没有导入历史';
+  }
+  return `已记录 ${localData.assetCount} 条导入历史`;
+}
+
 type LocalDataSummary = ImportCacheSummary;
+
+type GroupHeaderProps = {
+  title: string;
+};
+
+function GroupHeader({ title }: GroupHeaderProps) {
+  return (
+    <View style={styles.groupHeader}>
+      <Text style={styles.groupTitle}>{title}</Text>
+    </View>
+  );
+}
+
+type ListRowProps = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  title: string;
+  subtitle?: string;
+  value?: string;
+  onPress?: () => void;
+  destructive?: boolean;
+  emphasizeValue?: boolean;
+  loading?: boolean;
+};
+
+function ListRow({
+  icon,
+  title,
+  subtitle,
+  value,
+  onPress,
+  destructive = false,
+  emphasizeValue = false,
+  loading = false,
+}: ListRowProps) {
+  const tint = destructive ? JourneyPalette.danger : JourneyPalette.accent;
+  const iconBackground = destructive ? JourneyPalette.dangerSoft : JourneyPalette.accentSoft;
+
+  return (
+    <Pressable
+      disabled={!onPress || loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.listRow,
+        !onPress && styles.listRowStatic,
+        pressed && onPress ? styles.rowPressed : null,
+      ]}
+    >
+      <View style={[styles.rowIconWrap, { backgroundColor: iconBackground }]}>
+        <MaterialCommunityIcons name={icon} size={18} color={tint} />
+      </View>
+
+      <View style={styles.rowCopy}>
+        <Text style={[styles.rowTitle, destructive && styles.rowTitleDanger]}>{title}</Text>
+        {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
+      </View>
+
+      <View style={styles.rowTrailing}>
+        {loading ? (
+          <ActivityIndicator size="small" color={destructive ? JourneyPalette.danger : tint} />
+        ) : value ? (
+          <Text style={[styles.rowValue, emphasizeValue && styles.rowValueEmphasized]}>
+            {value}
+          </Text>
+        ) : null}
+        {onPress ? (
+          <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -84,6 +162,24 @@ export default function ProfileScreen() {
     return source.slice(0, 1).toUpperCase();
   }, [user?.nickname]);
 
+  const metricItems = useMemo(
+    () => [
+      {
+        label: '导入记录',
+        value: localData ? String(localData.assetCount) : '0',
+      },
+      {
+        label: '最近导入',
+        value: localData?.lastRunAt ? formatDate(localData.lastRunAt) : '暂无',
+      },
+      {
+        label: '隐私保护',
+        value: '默认开启',
+      },
+    ],
+    [localData],
+  );
+
   const handleClearLocalCache = useCallback(() => {
     Alert.alert('清理导入记录', '会清理本机导入记录，不会删除已生成的事件与故事。', [
       { text: '取消', style: 'cancel' },
@@ -114,7 +210,7 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <View style={styles.centerState}>
-        <LinearGradient colors={['#F8F1E7', '#ECF0E8']} style={styles.loadingOrb}>
+        <LinearGradient colors={['#EEF4FF', '#F8FBFF']} style={styles.loadingOrb}>
           <MaterialCommunityIcons
             name="account-circle-outline"
             size={28}
@@ -139,173 +235,106 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <LinearGradient colors={['#FFF6EC', '#EEE6D8']} style={styles.heroCard}>
-        <Text style={styles.eyebrow}>LOCAL & PRIVATE</Text>
-        <View style={styles.heroTopRow}>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>我的</Text>
+        <Text style={styles.pageSubtitle}>这台设备上的资料与导入记录</Text>
+      </View>
+
+      <View style={styles.identityCard}>
+        <View style={styles.identityRow}>
           {user.avatar_url ? (
             <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
           ) : (
-            <LinearGradient colors={['#255D58', '#5B7E78']} style={styles.avatarFallback}>
+            <LinearGradient
+              colors={[JourneyPalette.heroTop, JourneyPalette.heroBottom]}
+              style={styles.avatarFallback}
+            >
               <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
             </LinearGradient>
           )}
 
-          <View style={styles.heroTextWrap}>
-            <Text style={styles.heroTitle}>{user.nickname || '这台设备'}</Text>
-            <Text style={styles.heroSubtitle}>
-              当前应用按单设备、默认不上图的方式运行，设置页更像一张本机数据与隐私面板。
-            </Text>
+          <View style={styles.identityCopy}>
+            <Text style={styles.identityTitle}>{user.nickname || '这台设备'}</Text>
+            <Text style={styles.identitySubtitle}>这台设备上的旅行记忆</Text>
+          </View>
+          <View style={styles.deviceBadge}>
+            <Text style={styles.deviceBadgeText}>本机</Text>
           </View>
         </View>
 
-        <View style={styles.metaGrid}>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>本机标识</Text>
-            <Text style={styles.metaValue}>{maskValue(user.device_id || user.id)}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>注册时间</Text>
-            <Text style={styles.metaValue}>{formatDate(user.created_at)}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>使用方式</Text>
-            <Text style={styles.metaValue}>单设备闭环</Text>
-          </View>
-        </View>
-      </LinearGradient>
-
-      <View style={styles.statsRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{localData.assetCount}</Text>
-          <Text style={styles.statLabel}>导入记录</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>
-            {localData.lastMode === 'manual'
-              ? '手动'
-              : localData.lastMode === 'recent'
-                ? '最近 200'
-                : '暂无'}
-          </Text>
-          <Text style={styles.statLabel}>最近入口</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>默认关闭</Text>
-          <Text style={styles.statLabel}>云端上图</Text>
+        <View style={styles.metricRow}>
+          {metricItems.map((item) => (
+            <View key={item.label} style={styles.metricPill}>
+              <Text numberOfLines={1} style={styles.metricValue}>
+                {item.value}
+              </Text>
+              <Text style={styles.metricLabel}>{item.label}</Text>
+            </View>
+          ))}
         </View>
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>产品原则</Text>
-          <Text style={styles.sectionHint}>当前口径</Text>
-        </View>
-
-        <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: JourneyPalette.accentSoft }]}>
-            <MaterialCommunityIcons name="cellphone-lock" size={18} color={JourneyPalette.accent} />
-          </View>
-          <View style={styles.infoBody}>
-            <Text style={styles.infoTitle}>本机身份</Text>
-            <Text style={styles.infoText}>
-              首次打开会自动初始化设备身份，不再要求登录、注册或退出账号。
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: '#EEE7DB' }]}>
-            <MaterialCommunityIcons name="cloud-off-outline" size={18} color={JourneyPalette.ink} />
-          </View>
-          <View style={styles.infoBody}>
-            <Text style={styles.infoTitle}>默认不上图</Text>
-            <Text style={styles.infoText}>
-              默认故事生成只基于时间、地点和端侧结构化信息，不上传原图或公开 URL。
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.infoRow}>
-          <View style={[styles.infoIconWrap, { backgroundColor: JourneyPalette.accentWarmSoft }]}>
-            <MaterialCommunityIcons
-              name="robot-outline"
-              size={18}
-              color={JourneyPalette.accentWarm}
-            />
-          </View>
-          <View style={styles.infoBody}>
-            <Text style={styles.infoTitle}>AI 生成走文本线索</Text>
-            <Text style={styles.infoText}>
-              当前故事生成只依赖时间、地点和端侧识别结果，不再在前端暴露云端增强入口。
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>本地数据</Text>
-          <Text style={styles.sectionHint}>导入与缓存</Text>
-        </View>
-
-        <View style={styles.dataRow}>
-          <Text style={styles.dataLabel}>最近导入</Text>
-          <Text style={styles.dataValue}>{formatDate(localData.lastRunAt)}</Text>
-        </View>
-        <View style={styles.dataRow}>
-          <Text style={styles.dataLabel}>最近尝试</Text>
-          <Text style={styles.dataValue}>{formatDate(localData.lastAttemptAt)}</Text>
-        </View>
-        <View style={styles.dataRow}>
-          <Text style={styles.dataLabel}>入口方式</Text>
-          <Text style={styles.dataValue}>
-            {localData.lastMode === 'manual' ? '手动补导入' : '最近 200 张'}
-          </Text>
-        </View>
-
-        <Pressable style={styles.menuItem} onPress={() => router.push('/profile/import-tasks')}>
-          <MaterialCommunityIcons
-            name="timeline-clock-outline"
-            size={20}
-            color={JourneyPalette.accent}
+      <View style={styles.sectionBlock}>
+        <GroupHeader title="任务与导入" />
+        <View style={styles.groupCard}>
+          <ListRow
+            icon="timeline-clock-outline"
+            title="导入任务"
+            subtitle={buildImportSummary(localData)}
+            value="查看"
+            emphasizeValue
+            onPress={() => router.push('/profile/import-tasks')}
           />
-          <View style={styles.menuTextWrap}>
-            <Text style={styles.menuText}>查看导入任务</Text>
-            <Text style={styles.menuSubtext}>回看每次导入的分析、同步和聚合进度。</Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.primaryButton, cleaning && styles.buttonDisabled]}
-          onPress={handleClearLocalCache}
-          disabled={cleaning}
-        >
-          {cleaning ? (
-            <ActivityIndicator color="#FFF9F2" size="small" />
-          ) : (
-            <Text style={styles.primaryButtonText}>清理导入记录</Text>
-          )}
-        </Pressable>
+          <View style={styles.groupDivider} />
+          <ListRow
+            icon="image-plus"
+            title="继续导入"
+            subtitle="手动补导入保留为次级入口，不再抢主路径"
+            value="入口"
+            onPress={() => router.push('/')}
+          />
+        </View>
       </View>
 
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>本机资料</Text>
-          <Text style={styles.sectionHint}>轻量信息</Text>
-        </View>
-        <Pressable style={styles.menuItem} onPress={() => router.push('/profile/edit')}>
-          <MaterialCommunityIcons
-            name="account-edit-outline"
-            size={20}
-            color={JourneyPalette.accent}
+      <View style={styles.sectionBlock}>
+        <GroupHeader title="设备与隐私" />
+        <View style={styles.groupCard}>
+          <ListRow
+            icon="shield-lock-outline"
+            title="隐私承诺"
+            subtitle="默认不上图，只同步 metadata 与端侧结构化结果"
+            value="默认"
           />
-          <View style={styles.menuTextWrap}>
-            <Text style={styles.menuText}>编辑本机资料</Text>
-            <Text style={styles.menuSubtext}>可调整昵称等轻量本机展示信息。</Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color={JourneyPalette.muted} />
-        </Pressable>
+          <View style={styles.groupDivider} />
+          <ListRow
+            icon="account-edit-outline"
+            title="编辑本机资料"
+            subtitle="可调整昵称等轻量展示信息"
+            onPress={() => router.push('/profile/edit')}
+          />
+          <View style={styles.groupDivider} />
+          <ListRow
+            icon="cellphone-key"
+            title="本机标识"
+            value={maskValue(user.device_id || user.id)}
+          />
+          <View style={styles.groupDivider} />
+          <ListRow icon="calendar-outline" title="注册时间" value={formatDate(user.created_at)} />
+        </View>
+      </View>
+
+      <View style={styles.sectionBlock}>
+        <GroupHeader title="本地清理" />
+        <View style={styles.groupCard}>
+          <ListRow
+            icon="trash-can-outline"
+            title="清理导入记录"
+            subtitle="仅清理本机导入记录，不删除事件与故事"
+            destructive
+            loading={cleaning}
+            onPress={handleClearLocalCache}
+          />
+        </View>
       </View>
     </ScrollView>
   );
@@ -317,9 +346,24 @@ const styles = StyleSheet.create({
     backgroundColor: JourneyPalette.cardAlt,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 18,
+    paddingTop: 24,
     paddingBottom: 112,
-    gap: 14,
+    gap: 24,
+  },
+  pageHeader: {
+    gap: 6,
+    paddingHorizontal: 4,
+  },
+  pageTitle: {
+    fontSize: 31,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  pageSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 18,
   },
   centerState: {
     flex: 1,
@@ -335,6 +379,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 18,
+    backgroundColor: JourneyPalette.accentSoft,
   },
   errorText: {
     color: JourneyPalette.danger,
@@ -350,33 +395,29 @@ const styles = StyleSheet.create({
     color: '#FFF9F2',
     fontWeight: '700',
   },
-  heroCard: {
-    borderRadius: 30,
-    padding: 20,
+  identityCard: {
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
+    backgroundColor: 'rgba(255,255,255,0.84)',
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    gap: 18,
   },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: JourneyPalette.muted,
-  },
-  heroTopRow: {
+  identityRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 14,
-    alignItems: 'center',
-    marginTop: 10,
   },
   avatarImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
   },
   avatarFallback: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -385,184 +426,135 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '800',
   },
-  heroTextWrap: {
+  identityCopy: {
     flex: 1,
-    gap: 6,
+    gap: 5,
   },
-  heroTitle: {
+  identityTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  heroSubtitle: {
+  identitySubtitle: {
     color: JourneyPalette.inkSoft,
+    fontSize: 14,
     lineHeight: 20,
   },
-  metaGrid: {
-    marginTop: 18,
-    gap: 10,
+  deviceBadge: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: JourneyPalette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  metaItem: {
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,252,247,0.76)',
-    padding: 14,
-    gap: 6,
+  deviceBadgeText: {
+    color: JourneyPalette.accent,
+    fontSize: 12,
+    fontWeight: '800',
   },
-  metaLabel: {
-    fontSize: 11,
-    color: JourneyPalette.muted,
-  },
-  metaValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: JourneyPalette.ink,
-  },
-  statsRow: {
+  metricRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  statCard: {
+  metricPill: {
     flex: 1,
-    borderRadius: 22,
+    minHeight: 82,
+    borderRadius: 20,
     backgroundColor: JourneyPalette.card,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'space-between',
   },
-  statValue: {
+  metricValue: {
+    color: JourneyPalette.ink,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  metricLabel: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  sectionBlock: {
+    gap: 12,
+  },
+  groupHeader: {
+    paddingHorizontal: 4,
+  },
+  groupTitle: {
+    color: JourneyPalette.ink,
     fontSize: 18,
     fontWeight: '800',
-    color: JourneyPalette.ink,
-    textAlign: 'center',
   },
-  statLabel: {
-    marginTop: 4,
-    color: JourneyPalette.muted,
-    fontSize: 11,
-    textAlign: 'center',
-  },
-  card: {
-    borderRadius: 26,
+  groupCard: {
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.card,
-    padding: 18,
-    gap: 14,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    overflow: 'hidden',
   },
-  sectionHeader: {
+  groupDivider: {
+    marginLeft: 68,
+    height: 1,
+    backgroundColor: JourneyPalette.line,
+  },
+  listRow: {
+    minHeight: 60,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 10,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  sectionHint: {
-    fontSize: 12,
-    color: JourneyPalette.muted,
-  },
-  infoRow: {
-    flexDirection: 'row',
     gap: 12,
-    alignItems: 'flex-start',
   },
-  infoIconWrap: {
+  listRowStatic: {
+    opacity: 1,
+  },
+  rowPressed: {
+    backgroundColor: 'rgba(228, 236, 255, 0.5)',
+  },
+  rowIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  infoBody: {
+  rowCopy: {
     flex: 1,
-    gap: 4,
+    gap: 3,
   },
-  infoTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+  rowTitle: {
     color: JourneyPalette.ink,
-  },
-  infoText: {
-    color: JourneyPalette.inkSoft,
-    lineHeight: 20,
-  },
-  dataRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 10,
-  },
-  dataLabel: {
-    color: JourneyPalette.muted,
-    fontSize: 13,
-  },
-  dataValue: {
-    color: JourneyPalette.ink,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '700',
-    textAlign: 'right',
-    flex: 1,
   },
-  primaryButton: {
-    marginTop: 6,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
+  rowTitleDanger: {
+    color: JourneyPalette.danger,
   },
-  primaryButtonText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 4,
-  },
-  menuTextWrap: {
-    flex: 1,
-    gap: 4,
-  },
-  menuText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  menuSubtext: {
+  rowSubtitle: {
     color: JourneyPalette.inkSoft,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 18,
   },
-  storageCard: {
-    borderRadius: 20,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
-    gap: 10,
-  },
-  storageHeader: {
+  rowTrailing: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  secondaryButton: {
-    marginTop: 6,
-    borderRadius: 999,
-    backgroundColor: '#EDE5D8',
-    minHeight: 44,
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    marginLeft: 8,
   },
-  secondaryButtonText: {
+  rowValue: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 14,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  rowValueEmphasized: {
     color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

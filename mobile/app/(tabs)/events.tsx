@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, SectionList, StyleSheet, View } from 'react-native';
+import { Alert, Image, Modal, Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -25,6 +25,7 @@ import {
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
 import { groupEventsByMonth, type MonthSection } from '@/utils/eventGrouping';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import { openAppSettings } from '@/utils/permissionUtils';
 
 function buildImportSummaryText(
@@ -48,21 +49,16 @@ function buildImportSummaryText(
   return queued ? `${parts.join('，')}，正在聚合事件和生成故事...` : parts.join('，');
 }
 
-function formatDateLabel(value: string | null | undefined): string {
-  if (!value) {
-    return '尚未整理';
+function buildMemoryTeaser(event?: EventRecord | null): string {
+  const text = (event?.storyText || event?.fullStory || '').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    return '打开这段回忆，继续浏览照片、片段和完整故事。';
   }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '尚未整理';
-  }
-
-  return date.toLocaleDateString('zh-CN', {
-    month: 'long',
-    day: 'numeric',
-  });
+  const firstSentence = text.split(/[。！？!?]/)[0]?.trim() || text;
+  return firstSentence.length > 36 ? `${firstSentence.slice(0, 36).trim()}…` : firstSentence;
 }
+
+type MemoryFilter = 'all' | 'processing' | 'stale';
 
 export default function EventsScreen() {
   const router = useRouter();
@@ -82,6 +78,7 @@ export default function EventsScreen() {
   const [photoManagerEventId, setPhotoManagerEventId] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerSubmitting, setPickerSubmitting] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
   const autoImportTriggeredRef = useRef(false);
 
   const dismissSnackbar = useCallback(() => setSnackbar(''), []);
@@ -90,7 +87,6 @@ export default function EventsScreen() {
     () => importVisible && importProgress.stage !== 'idle',
     [importProgress.stage, importVisible],
   );
-  const monthSections = useMemo(() => groupEventsByMonth(events), [events]);
   const totalPhotoCount = useMemo(
     () => events.reduce((sum, event) => sum + event.photoCount, 0),
     [events],
@@ -99,7 +95,46 @@ export default function EventsScreen() {
     () => events.filter((event) => event.storyFreshness === 'stale').length,
     [events],
   );
+  const activeEventCount = useMemo(
+    () =>
+      events.filter(
+        (event) =>
+          event.status === 'waiting_for_vision' ||
+          event.status === 'ai_pending' ||
+          event.status === 'ai_processing',
+      ).length,
+    [events],
+  );
   const showImportActionCard = events.length === 0 && !importSummary?.lastRunAt;
+  const heroEvent = events[0] ?? null;
+  const heroCoverUri = getPreferredEventCoverUri(heroEvent);
+  const filteredEvents = useMemo(() => {
+    if (activeFilter === 'processing') {
+      return events.filter(
+        (event) =>
+          event.status === 'waiting_for_vision' ||
+          event.status === 'ai_pending' ||
+          event.status === 'ai_processing',
+      );
+    }
+    if (activeFilter === 'stale') {
+      return events.filter(
+        (event) =>
+          event.storyFreshness === 'stale' ||
+          event.slideshowFreshness === 'stale' ||
+          event.hasPendingStructureChanges,
+      );
+    }
+    return events;
+  }, [activeFilter, events]);
+  const monthSections = useMemo(() => groupEventsByMonth(filteredEvents), [filteredEvents]);
+  const headerMeta = useMemo(() => {
+    const eventPart = `${events.length} 个事件`;
+    if (totalPhotoCount <= 0) {
+      return eventPart;
+    }
+    return `${eventPart} · ${totalPhotoCount} 张照片`;
+  }, [events.length, totalPhotoCount]);
 
   const loadImportSummary = useCallback(async () => {
     const summary = await getImportCacheSummary();
@@ -327,43 +362,145 @@ export default function EventsScreen() {
 
   const header = (
     <View style={styles.headerBlock}>
-      <LinearGradient colors={['#FFF8F0', '#F0EADD']} style={styles.heroCard}>
-        <Text style={styles.eyebrow}>TRAVEL MEMORY</Text>
-        <View style={styles.heroRow}>
+      <LinearGradient colors={['#EEF4FF', '#FDFEFF']} style={styles.heroCard}>
+        <View style={styles.heroTopRow}>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>旅程</Text>
-            <Text style={styles.heroSubtitle}>
-              系统会自动把最近导入的照片整理为事件，让回看更像翻一本安静的旅行手帐。
-            </Text>
+            <Text style={styles.heroEyebrow}>MEMORIES</Text>
+            <Text style={styles.heroTitle}>回忆</Text>
+            <Text style={styles.heroMeta}>{headerMeta}</Text>
           </View>
-          <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeValue}>{events.length}</Text>
-            <Text style={styles.heroBadgeLabel}>事件</Text>
-          </View>
+          <Pressable
+            style={({ pressed }) => [styles.stateHubChip, pressed && styles.actionPressed]}
+            onPress={() => router.push('/profile/import-tasks')}
+          >
+            <MaterialCommunityIcons name="progress-clock" size={15} color={JourneyPalette.accent} />
+            <Text style={styles.stateHubChipText}>整理状态</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{totalPhotoCount}</Text>
-            <Text style={styles.metricLabel}>已整理照片</Text>
+        {staleEventCount > 0 || activeEventCount > 0 ? (
+          <View style={styles.statusStrip}>
+            {staleEventCount > 0 ? (
+              <View style={[styles.statusChip, styles.statusChipWarning]}>
+                <MaterialCommunityIcons name="update" size={14} color={JourneyPalette.warning} />
+                <Text style={[styles.statusChipText, styles.statusChipTextWarning]}>
+                  {staleEventCount} 个事件待更新
+                </Text>
+              </View>
+            ) : null}
+
+            {activeEventCount > 0 ? (
+              <View style={styles.statusChip}>
+                <MaterialCommunityIcons
+                  name="progress-clock"
+                  size={14}
+                  color={JourneyPalette.accent}
+                />
+                <Text style={[styles.statusChipText, styles.statusChipTextAccent]}>
+                  {activeEventCount} 个事件正在整理
+                </Text>
+              </View>
+            ) : null}
           </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{formatDateLabel(importSummary?.lastRunAt)}</Text>
-            <Text style={styles.metricLabel}>最近整理</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{staleEventCount}</Text>
-            <Text style={styles.metricLabel}>待更新故事</Text>
-          </View>
-        </View>
+        ) : null}
+
+        {heroEvent ? (
+          <Pressable
+            style={({ pressed }) => [styles.memoryHeroCard, pressed && styles.actionPressed]}
+            onPress={() => goToEventDetail(heroEvent.id)}
+          >
+            {heroCoverUri ? (
+              <Image
+                source={{ uri: heroCoverUri }}
+                style={styles.memoryHeroImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <LinearGradient
+                colors={['#DCE7FF', '#EFF4FD']}
+                style={styles.memoryHeroImageFallback}
+              >
+                <MaterialCommunityIcons
+                  name="image-filter-hdr"
+                  size={28}
+                  color={JourneyPalette.accent}
+                />
+              </LinearGradient>
+            )}
+            <LinearGradient
+              colors={['rgba(15,23,42,0.04)', 'rgba(15,23,42,0.58)']}
+              style={styles.memoryHeroShade}
+            />
+            <View style={styles.memoryHeroContent}>
+              <Text style={styles.memoryHeroLabel}>最近回忆</Text>
+              <Text style={styles.memoryHeroTitle}>{heroEvent.title || '未命名事件'}</Text>
+              <Text numberOfLines={2} style={styles.memoryHeroSummary}>
+                {buildMemoryTeaser(heroEvent)}
+              </Text>
+              <View style={styles.memoryHeroMetaRow}>
+                <View style={styles.memoryHeroMetaChip}>
+                  <MaterialCommunityIcons name="image-outline" size={13} color="#FFFFFF" />
+                  <Text style={styles.memoryHeroMetaText}>{heroEvent.photoCount} 张照片</Text>
+                </View>
+                {heroEvent.locationName ? (
+                  <View style={styles.memoryHeroMetaChip}>
+                    <MaterialCommunityIcons name="map-marker-outline" size={13} color="#FFFFFF" />
+                    <Text numberOfLines={1} style={styles.memoryHeroMetaText}>
+                      {heroEvent.locationName}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
       </LinearGradient>
+
+      {events.length > 0 ? (
+        <View style={styles.filterRow}>
+          {(
+            [
+              { key: 'all', label: '全部', count: events.length },
+              { key: 'processing', label: '整理中', count: activeEventCount },
+              { key: 'stale', label: '待更新', count: staleEventCount },
+            ] as const
+          ).map((item) => {
+            const active = activeFilter === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                style={({ pressed }) => [
+                  styles.filterChip,
+                  active && styles.filterChipActive,
+                  pressed && styles.actionPressed,
+                ]}
+                onPress={() => setActiveFilter(item.key)}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {item.label}
+                </Text>
+                <View style={[styles.filterCountBadge, active && styles.filterCountBadgeActive]}>
+                  <Text
+                    style={[
+                      styles.filterCountBadgeText,
+                      active && styles.filterCountBadgeTextActive,
+                    ]}
+                  >
+                    {item.count}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
 
       {showImportActionCard ? (
         <View style={styles.actionCard}>
           <View style={styles.actionCopy}>
-            <Text style={styles.actionTitle}>继续整理照片</Text>
+            <Text style={styles.actionTitle}>开始整理回忆</Text>
             <Text style={styles.actionSubtitle}>
-              主入口仍然是最近 {AUTO_IMPORT_LIMIT} 张，手动补导入只作为补充能力保留。
+              自动整理最近 {AUTO_IMPORT_LIMIT} 张照片；手动补导入只在需要时使用。
             </Text>
           </View>
 
@@ -404,8 +541,8 @@ export default function EventsScreen() {
           <MaterialCommunityIcons name="image-filter-hdr" size={28} color={JourneyPalette.accent} />
         </LinearGradient>
         <ActivityIndicator size="large" color={JourneyPalette.accent} />
-        <Text style={styles.loadingTitle}>正在整理你的旅程</Text>
-        <Text style={styles.loadingText}>导入、聚类和故事状态会在这里汇总展示。</Text>
+        <Text style={styles.loadingTitle}>正在加载回忆首页</Text>
+        <Text style={styles.loadingText}>最近回忆、整理状态和事件流会按当前版本自动刷新。</Text>
       </View>
     );
   }
@@ -440,9 +577,9 @@ export default function EventsScreen() {
               color={JourneyPalette.accent}
             />
           </LinearGradient>
-          <Text style={styles.emptyTitle}>还没有生成旅程卡片</Text>
+          <Text style={styles.emptyTitle}>还没有生成回忆卡片</Text>
           <Text style={styles.emptyDescription}>
-            首次整理后，系统会自动聚合事件、补全故事并把它们陈列在这里。你不需要再从手动选图开始。
+            导入最近照片后，系统会自动聚合事件并把它们陈列在这里。
           </Text>
 
           {showSettings ? (
@@ -453,6 +590,17 @@ export default function EventsScreen() {
               <Text style={styles.settingsActionText}>打开系统设置授权</Text>
             </Pressable>
           ) : null}
+        </View>
+      ) : filteredEvents.length === 0 ? (
+        <View style={styles.emptyState}>
+          {header}
+          <View style={styles.filteredEmptyCard}>
+            <MaterialCommunityIcons name="tune-variant" size={24} color={JourneyPalette.muted} />
+            <Text style={styles.filteredEmptyTitle}>当前筛选下没有内容</Text>
+            <Text style={styles.filteredEmptyText}>
+              可以切回“全部”，或者等系统继续整理后再回来查看。
+            </Text>
+          </View>
         </View>
       ) : (
         <SectionList
@@ -549,7 +697,7 @@ export default function EventsScreen() {
           <View style={styles.sheetCard}>
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>{actionEvent?.title || '未命名事件'}</Text>
-            <Text style={styles.sheetHint}>长按卡片后的快捷入口，不用先进入事件详情。</Text>
+            <Text style={styles.sheetHint}>长按回忆卡片后的快捷入口，不用先进入详情页。</Text>
 
             <Pressable
               style={({ pressed }) => [styles.sheetAction, pressed && styles.actionPressed]}
@@ -678,79 +826,197 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     marginHorizontal: 14,
-    borderRadius: 30,
-    padding: 20,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
+    gap: 16,
   },
-  eyebrow: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: JourneyPalette.muted,
-  },
-  heroRow: {
-    marginTop: 10,
+  heroTopRow: {
     flexDirection: 'row',
-    gap: 14,
     alignItems: 'flex-start',
+    gap: 12,
   },
   heroCopy: {
     flex: 1,
+    gap: 4,
+  },
+  heroEyebrow: {
+    color: JourneyPalette.accent,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   heroTitle: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  heroSubtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 21,
+  heroMeta: {
     color: JourneyPalette.inkSoft,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  heroBadge: {
-    minWidth: 76,
-    borderRadius: 22,
+  stateHubChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  stateHubChipText: {
+    color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  statusStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statusChip: {
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: JourneyPalette.accentSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusChipWarning: {
+    backgroundColor: JourneyPalette.warningSoft,
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  statusChipTextAccent: {
+    color: JourneyPalette.accent,
+  },
+  statusChipTextWarning: {
+    color: JourneyPalette.warning,
+  },
+  memoryHeroCard: {
+    height: 240,
+    borderRadius: 26,
+    overflow: 'hidden',
+    backgroundColor: '#DCE7FF',
+  },
+  memoryHeroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  memoryHeroImageFallback: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroBadgeValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
+  memoryHeroShade: {
+    ...StyleSheet.absoluteFillObject,
   },
-  heroBadgeLabel: {
-    marginTop: 3,
+  memoryHeroContent: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    bottom: 18,
+    gap: 8,
+  },
+  memoryHeroLabel: {
+    color: 'rgba(255,255,255,0.88)',
     fontSize: 11,
-    color: JourneyPalette.muted,
-  },
-  metricsRow: {
-    marginTop: 16,
-    gap: 10,
-  },
-  metricCard: {
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,252,247,0.74)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  metricValue: {
-    fontSize: 18,
     fontWeight: '800',
-    color: JourneyPalette.ink,
+    letterSpacing: 1.1,
   },
-  metricLabel: {
-    marginTop: 4,
+  memoryHeroTitle: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '800',
+  },
+  memoryHeroSummary: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  memoryHeroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  memoryHeroMetaChip: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  memoryHeroMetaText: {
+    color: '#FFFFFF',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  filterRow: {
+    marginHorizontal: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    paddingLeft: 14,
+    paddingRight: 10,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterChipActive: {
+    backgroundColor: JourneyPalette.accentSoft,
+    borderColor: '#C9D8FF',
+  },
+  filterChipText: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  filterChipTextActive: {
+    color: JourneyPalette.accent,
+  },
+  filterCountBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: JourneyPalette.cardAlt,
+  },
+  filterCountBadgeActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  filterCountBadgeText: {
     color: JourneyPalette.muted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  filterCountBadgeTextActive: {
+    color: JourneyPalette.accent,
   },
   actionCard: {
     marginHorizontal: 14,
-    borderRadius: 26,
+    borderRadius: 22,
     backgroundColor: JourneyPalette.card,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
@@ -761,7 +1027,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   actionTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
@@ -820,6 +1086,7 @@ const styles = StyleSheet.create({
   emptyState: {
     flex: 1,
     alignItems: 'center',
+    paddingTop: 12,
     paddingBottom: 40,
   },
   emptyIconWrap: {
@@ -854,6 +1121,27 @@ const styles = StyleSheet.create({
   settingsActionText: {
     color: JourneyPalette.ink,
     fontWeight: '700',
+  },
+  filteredEmptyCard: {
+    marginTop: 18,
+    marginHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    padding: 22,
+    alignItems: 'center',
+    gap: 8,
+  },
+  filteredEmptyTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: JourneyPalette.ink,
+  },
+  filteredEmptyText: {
+    textAlign: 'center',
+    color: JourneyPalette.inkSoft,
+    lineHeight: 20,
   },
   list: {
     flex: 1,

@@ -166,6 +166,8 @@ def _photo_to_event_item(photo: Photo) -> EventPhotoItem:
         id=photo.id,
         assetId=photo.asset_id,
         fileHash=photo.file_hash,
+        width=photo.width,
+        height=photo.height,
         photoUrl=photo_url,
         thumbnailUrl=photo_url,
         shootTime=photo.shoot_time,
