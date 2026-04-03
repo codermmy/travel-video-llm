@@ -7,9 +7,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -27,6 +29,8 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -53,15 +57,15 @@ class TravelSlideshowExportModule : Module() {
       true
     }
 
-    AsyncFunction("exportAsync") { config: Map<String, Any?> ->
+    AsyncFunction("exportAsync") { configJson: String ->
       runBlocking {
-        exportAsync(config)
+        exportAsync(configJson)
       }
     }
   }
 
-  private suspend fun exportAsync(rawConfig: Map<String, Any?>): Map<String, Any?> {
-    val config = parseConfig(rawConfig)
+  private suspend fun exportAsync(configJson: String): Map<String, Any?> {
+    val config = parseConfig(JSONObject(configJson))
     Log.i(
       TAG,
       "export:start eventTitle=${config.eventTitle} scenes=${config.scenes.size} subtitles=${config.subtitles.size} audioSegments=${config.audioSegments.size} durationMs=${config.totalDurationMs}",
@@ -195,190 +199,164 @@ class TravelSlideshowExportModule : Module() {
   private fun renderSceneBitmap(config: ExportConfig, scene: ExportScene): Bitmap {
     val bitmap = Bitmap.createBitmap(config.outputWidth, config.outputHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    canvas.drawColor(Color.parseColor("#140F0D"))
+    canvas.drawColor(Color.BLACK)
 
     when (scene.type) {
-      "photo" -> drawPhotoScene(canvas, config, scene)
-      "collage" -> drawCollageScene(canvas, config, scene)
-      else -> drawChapterScene(canvas, config, scene)
+      "photo-frame" -> drawPhotoFrameScene(canvas, config, scene)
+      "montage-frame" -> drawMontageFrameScene(canvas, config, scene)
+      else -> drawTitlePlateScene(canvas, config, scene)
+    }
+
+    if (config.includeSubtitles && !scene.body.isNullOrBlank()) {
+      drawSubtitleOverlay(canvas, config)
+      drawSubtitleText(canvas, config, scene.body ?: "")
     }
 
     return bitmap
   }
 
-  private fun drawPhotoScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
+  private fun drawPhotoFrameScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     val photoBitmap = loadScaledBitmap(Uri.parse(scene.photoUri ?: "")) ?: return
-    val frameRect = RectF(
-      (config.outputWidth * config.photoSceneLayout.stageLeftRatio).toFloat(),
-      (config.outputHeight * config.photoSceneLayout.stageTopRatio).toFloat(),
-      (config.outputWidth * (config.photoSceneLayout.stageLeftRatio + config.photoSceneLayout.stageWidthRatio)).toFloat(),
-      (config.outputHeight * (config.photoSceneLayout.stageTopRatio + config.photoSceneLayout.stageHeightRatio)).toFloat(),
+    drawBitmapCenterCrop(
+      canvas,
+      photoBitmap,
+      RectF(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat()),
     )
-    val backgroundRect = RectF(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat())
-    drawBlurredBackdrop(canvas, photoBitmap, backgroundRect)
-    val shadePaint = Paint().apply { color = Color.argb(96, 20, 13, 9) }
-    canvas.drawRect(backgroundRect, shadePaint)
-
-    val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.argb(18, 255, 248, 240)
-    }
-    canvas.drawRoundRect(frameRect, 34f, 34f, cardPaint)
-    drawBitmapFitCenter(canvas, photoBitmap, frameRect)
-
-    if (config.includeSubtitles && !scene.body.isNullOrBlank()) {
-      val subtitleTop = min(
-        (config.outputHeight * config.photoSceneLayout.subtitleTopRatio).toFloat(),
-        config.outputHeight - 250f,
-      )
-      val gradientPaint = Paint().apply {
-        shader = LinearGradient(
-          0f,
-          subtitleTop,
-          0f,
-          config.outputHeight.toFloat(),
-          intArrayOf(Color.argb(0, 20, 13, 9), Color.argb(132, 20, 13, 9), Color.argb(0, 20, 13, 9)),
-          null,
-          Shader.TileMode.CLAMP,
-        )
-      }
-      canvas.drawRect(0f, subtitleTop, config.outputWidth.toFloat(), config.outputHeight.toFloat(), gradientPaint)
-      drawCenteredTextBlock(
-        canvas = canvas,
-        text = scene.body ?: "",
-        width = config.outputWidth - (config.outputWidth * config.photoSceneLayout.subtitleHorizontalPaddingRatio * 2).toInt(),
-        left = (config.outputWidth * config.photoSceneLayout.subtitleHorizontalPaddingRatio).toFloat(),
-        top = subtitleTop + 22f,
-        textSizePx = 54f,
-        lineSpacingExtraPx = 10f,
-        color = Color.parseColor("#FFF8F0"),
-        maxLines = 2,
-        bold = true,
-      )
-    }
-
     photoBitmap.recycle()
   }
 
-  private fun drawCollageScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
+  private fun drawMontageFrameScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     val photoUris = scene.photoUris.take(3)
-    val leadRect = RectF(48f, 360f, config.outputWidth * 0.58f, config.outputHeight - 180f)
-    val rightTopRect = RectF(config.outputWidth * 0.60f, 360f, config.outputWidth - 48f, config.outputHeight * 0.60f)
-    val rightBottomRect = RectF(config.outputWidth * 0.60f, config.outputHeight * 0.62f, config.outputWidth - 48f, config.outputHeight - 180f)
-
-    val surfaces = listOf(leadRect, rightTopRect, rightBottomRect)
+    drawSceneHeading(canvas, config, scene)
+    val surfaces = when (photoUris.size) {
+      0 -> emptyList()
+      1 -> config.layoutContract.montageRects.single.map { it.toRectF() }
+      2 -> config.layoutContract.montageRects.pair.map { it.toRectF() }
+      else -> config.layoutContract.montageRects.trio.map { it.toRectF() }
+    }
     photoUris.forEachIndexed { index, uri ->
       if (index >= surfaces.size) {
         return@forEachIndexed
       }
       loadScaledBitmap(Uri.parse(uri))?.let { bitmap ->
-        drawBitmapCenterCrop(canvas, bitmap, surfaces[index])
+        drawBitmapCenterCrop(
+          canvas,
+          bitmap,
+          surfaces[index],
+          radius = config.layoutContract.tileRadius.toFloat(),
+        )
         bitmap.recycle()
       }
     }
-
-    drawSceneEyebrow(canvas, "片段蒙太奇", config.outputWidth)
-    drawCenteredTextBlock(
-      canvas = canvas,
-      text = scene.title.ifBlank { config.eventTitle },
-      width = config.outputWidth - 120,
-      left = 60f,
-      top = 120f,
-      textSizePx = 68f,
-      lineSpacingExtraPx = 12f,
-      color = Color.parseColor("#FFF7EE"),
-      maxLines = 2,
-      bold = true,
-    )
-    if (!scene.body.isNullOrBlank()) {
-      drawCenteredTextBlock(
-        canvas = canvas,
-        text = scene.body ?: "",
-        width = config.outputWidth - 140,
-        left = 70f,
-        top = 228f,
-        textSizePx = 40f,
-        lineSpacingExtraPx = 8f,
-        color = Color.parseColor("#F2E2D1"),
-        maxLines = 3,
-      )
-    }
   }
 
-  private fun drawChapterScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
-    val backgroundPaint = Paint().apply {
-      shader = LinearGradient(
-        0f,
-        0f,
-        0f,
-        config.outputHeight.toFloat(),
-        intArrayOf(
-          Color.parseColor("#3B2B20"),
-          Color.parseColor("#241711"),
-          Color.parseColor("#140F0D"),
-        ),
-        null,
-        Shader.TileMode.CLAMP,
-      )
-    }
-    canvas.drawRect(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat(), backgroundPaint)
-
+  private fun drawTitlePlateScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     if (!scene.photoUri.isNullOrBlank()) {
       loadScaledBitmap(Uri.parse(scene.photoUri))?.let { bitmap ->
         drawBitmapCenterCrop(
           canvas,
           bitmap,
-          RectF(110f, 180f, config.outputWidth - 110f, 620f),
+          RectF(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat()),
         )
         bitmap.recycle()
       }
+      canvas.drawColor(Color.argb(168, 0, 0, 0))
+    }
+    drawSceneHeading(canvas, config, scene)
+  }
+
+  private fun drawSceneHeading(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
+    val titleSafeArea = config.layoutContract.titleSafeArea.toRectF()
+    if (!scene.eyebrow.isNullOrBlank()) {
+      drawEyebrow(
+        canvas = canvas,
+        text = scene.eyebrow,
+        left = titleSafeArea.left,
+        top = titleSafeArea.top,
+        width = titleSafeArea.width(),
+        textSizePx = config.layoutContract.typography.eyebrowSize.toFloat(),
+      )
     }
 
-    drawSceneEyebrow(
-      canvas,
-      if (scene.type == "chapter-summary") "章节尾声" else "章节序幕",
-      config.outputWidth,
-    )
+    val titleTop = if (!scene.eyebrow.isNullOrBlank()) {
+      titleSafeArea.top + config.layoutContract.typography.eyebrowSize + 18f
+    } else {
+      titleSafeArea.top + 4f
+    }
     drawCenteredTextBlock(
       canvas = canvas,
       text = scene.title.ifBlank { config.eventTitle },
-      width = config.outputWidth - 120,
-      left = 60f,
-      top = 700f,
-      textSizePx = 72f,
-      lineSpacingExtraPx = 12f,
-      color = Color.parseColor("#FFF7EE"),
+      width = titleSafeArea.width().toInt(),
+      left = titleSafeArea.left,
+      top = titleTop,
+      textSizePx = config.layoutContract.typography.titleSize.toFloat(),
+      lineSpacingExtraPx =
+        (config.layoutContract.typography.titleLineHeight - config.layoutContract.typography.titleSize).toFloat(),
+      color = Color.parseColor("#F8F8F2"),
       maxLines = 2,
       bold = true,
+      serif = true,
     )
-    if (!scene.body.isNullOrBlank()) {
-      drawCenteredTextBlock(
-        canvas = canvas,
-        text = scene.body ?: "",
-        width = config.outputWidth - 160,
-        left = 80f,
-        top = 860f,
-        textSizePx = 42f,
-        lineSpacingExtraPx = 10f,
-        color = Color.parseColor("#F4E7D8"),
-        maxLines = 4,
-      )
-    }
   }
 
-  private fun drawSceneEyebrow(canvas: Canvas, text: String, width: Int) {
-    val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.argb(54, 231, 197, 160)
+  private fun drawSubtitleOverlay(canvas: Canvas, config: ExportConfig) {
+    val overlayRect = config.layoutContract.subtitleOverlayRect.toRectF()
+    val top = max(0f, overlayRect.top)
+    val gradientPaint = Paint().apply {
+      shader = LinearGradient(
+        0f,
+        top,
+        0f,
+        overlayRect.bottom,
+        intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(46, 0, 0, 0), Color.argb(97, 0, 0, 0)),
+        null,
+        Shader.TileMode.CLAMP,
+      )
     }
-    val rect = RectF(width / 2f - 120f, 58f, width / 2f + 120f, 108f)
-    canvas.drawRoundRect(rect, 24f, 24f, badgePaint)
+    canvas.drawRect(
+      overlayRect.left,
+      top,
+      overlayRect.right,
+      overlayRect.bottom,
+      gradientPaint,
+    )
+  }
+
+  private fun drawSubtitleText(canvas: Canvas, config: ExportConfig, text: String) {
+    val subtitleRect = config.layoutContract.subtitleSafeArea.toRectF()
+    drawCenteredTextBlock(
+      canvas = canvas,
+      text = text,
+      width = subtitleRect.width().toInt(),
+      left = subtitleRect.left,
+      top = subtitleRect.top,
+      textSizePx = config.layoutContract.typography.subtitleSize.toFloat(),
+      lineSpacingExtraPx =
+        (config.layoutContract.typography.subtitleLineHeight - config.layoutContract.typography.subtitleSize).toFloat(),
+      color = Color.parseColor("#FAF7F2"),
+      maxLines = 2,
+      shadowColor = Color.argb(184, 0, 0, 0),
+      shadowRadiusPx = 10f,
+      shadowDyPx = 2f,
+    )
+  }
+
+  private fun drawEyebrow(
+    canvas: Canvas,
+    text: String,
+    left: Float,
+    top: Float,
+    width: Float,
+    textSizePx: Float,
+  ) {
     val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.parseColor("#E7C5A0")
+      color = Color.parseColor("#CA8A04")
       textAlign = Paint.Align.CENTER
-      textSize = 26f
+      textSize = textSizePx
       isFakeBoldText = true
     }
-    val baseline = rect.centerY() - (textPaint.descent() + textPaint.ascent()) / 2
-    canvas.drawText(text, rect.centerX(), baseline, textPaint)
+    val baseline = top - textPaint.ascent()
+    canvas.drawText(text, left + width / 2f, baseline, textPaint)
   }
 
   private fun drawCenteredTextBlock(
@@ -392,12 +370,22 @@ class TravelSlideshowExportModule : Module() {
     color: Int,
     maxLines: Int,
     bold: Boolean = false,
+    serif: Boolean = false,
+    shadowColor: Int = Color.TRANSPARENT,
+    shadowRadiusPx: Float = 0f,
+    shadowDyPx: Float = 0f,
   ) {
     val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
       this.color = color
       textSize = textSizePx
-      textAlign = Paint.Align.CENTER
+      textAlign = Paint.Align.LEFT
       isFakeBoldText = bold
+      if (shadowRadiusPx > 0f) {
+        setShadowLayer(shadowRadiusPx, 0f, shadowDyPx, shadowColor)
+      }
+      if (serif) {
+        typeface = Typeface.create(Typeface.SERIF, if (bold) Typeface.BOLD else Typeface.NORMAL)
+      }
     }
 
     val layout = StaticLayout.Builder.obtain(text, 0, text.length, paint, width)
@@ -413,7 +401,12 @@ class TravelSlideshowExportModule : Module() {
     canvas.restore()
   }
 
-  private fun drawBitmapCenterCrop(canvas: Canvas, bitmap: Bitmap, destination: RectF) {
+  private fun drawBitmapCenterCrop(
+    canvas: Canvas,
+    bitmap: Bitmap,
+    destination: RectF,
+    radius: Float = 0f,
+  ) {
     val sourceAspect = bitmap.width.toFloat() / bitmap.height.toFloat()
     val destinationAspect = destination.width() / destination.height()
     val srcRect = if (sourceAspect > destinationAspect) {
@@ -425,15 +418,17 @@ class TravelSlideshowExportModule : Module() {
       val top = (bitmap.height - newHeight) / 2
       Rect(0, top, bitmap.width, top + newHeight)
     }
+    if (radius > 0f) {
+      val path = Path().apply {
+        addRoundRect(destination, radius, radius, Path.Direction.CW)
+      }
+      canvas.save()
+      canvas.clipPath(path)
+      canvas.drawBitmap(bitmap, srcRect, destination, null)
+      canvas.restore()
+      return
+    }
     canvas.drawBitmap(bitmap, srcRect, destination, null)
-  }
-
-  private fun drawBlurredBackdrop(canvas: Canvas, bitmap: Bitmap, destination: RectF) {
-    val scaledWidth = max(24, bitmap.width / 32)
-    val scaledHeight = max(24, bitmap.height / 32)
-    val blurredBitmap = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
-    drawBitmapCenterCrop(canvas, blurredBitmap, destination)
-    blurredBitmap.recycle()
   }
 
   private fun drawBitmapFitCenter(canvas: Canvas, bitmap: Bitmap, destination: RectF) {
@@ -471,16 +466,17 @@ class TravelSlideshowExportModule : Module() {
     }
   }
 
-  private fun parseConfig(rawConfig: Map<String, Any?>): ExportConfig {
-    val scenes = rawConfig.list("scenes").map(::parseScene)
-    val subtitles = rawConfig.list("subtitles").map(::parseSubtitleCue)
-    val audioSegments = rawConfig.list("audioSegments").map(::parseAudioSegment)
+  private fun parseConfig(rawConfig: JSONObject): ExportConfig {
+    val scenes = rawConfig.array("scenes").map(::parseScene)
+    val subtitles = rawConfig.array("subtitles").map(::parseSubtitleCue)
+    val audioSegments = rawConfig.array("audioSegments").map(::parseAudioSegment)
     return ExportConfig(
       eventTitle = rawConfig.string("eventTitle") ?: "Travel Story",
-      compositionOrientation = rawConfig.string("compositionOrientation") ?: "portrait-dominant",
-      photoSceneLayout = parsePhotoSceneLayout(
-        rawConfig.map("photoSceneLayout")
-          ?: throw IllegalArgumentException("photoSceneLayout is required"),
+      aspectMode = rawConfig.string("aspectMode") ?: "auto",
+      resolvedAspectRatio = rawConfig.string("resolvedAspectRatio") ?: "9:16",
+      layoutContract = parseLayoutContract(
+        rawConfig.objectValue("layoutContract")
+          ?: throw IllegalArgumentException("layoutContract is required"),
       ),
       outputWidth = rawConfig.int("outputWidth") ?: 1080,
       outputHeight = rawConfig.int("outputHeight") ?: 1920,
@@ -493,10 +489,11 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
-  private fun parseScene(raw: Map<String, Any?>): ExportScene {
+  private fun parseScene(raw: JSONObject): ExportScene {
     return ExportScene(
       id = raw.string("id") ?: throw IllegalArgumentException("scene.id is required"),
-      type = raw.string("type") ?: "photo",
+      type = raw.string("type") ?: "photo-frame",
+      eyebrow = raw.string("eyebrow"),
       title = raw.string("title") ?: "",
       body = raw.string("body"),
       photoUri = raw.string("photoUri"),
@@ -510,7 +507,7 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
-  private fun parseSubtitleCue(raw: Map<String, Any?>): SubtitleCue {
+  private fun parseSubtitleCue(raw: JSONObject): SubtitleCue {
     return SubtitleCue(
       startMs = raw.int("startMs") ?: 0,
       endMs = raw.int("endMs") ?: 0,
@@ -518,7 +515,7 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
-  private fun parseAudioSegment(raw: Map<String, Any?>): AudioSegment {
+  private fun parseAudioSegment(raw: JSONObject): AudioSegment {
     return AudioSegment(
       id = raw.string("id") ?: throw IllegalArgumentException("audioSegment.id is required"),
       trackId = raw.string("trackId") ?: "",
@@ -534,22 +531,100 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
-  private fun parsePhotoSceneLayout(raw: Map<String, Any?>): PhotoSceneLayout {
-    return PhotoSceneLayout(
-      stageLeftRatio = raw.double("stageLeftRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageLeftRatio is required"),
-      stageTopRatio = raw.double("stageTopRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageTopRatio is required"),
-      stageWidthRatio = raw.double("stageWidthRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageWidthRatio is required"),
-      stageHeightRatio = raw.double("stageHeightRatio") ?: throw IllegalArgumentException("photoSceneLayout.stageHeightRatio is required"),
-      subtitleTopRatio = raw.double("subtitleTopRatio") ?: throw IllegalArgumentException("photoSceneLayout.subtitleTopRatio is required"),
-      subtitleHorizontalPaddingRatio = raw.double("subtitleHorizontalPaddingRatio")
-        ?: throw IllegalArgumentException("photoSceneLayout.subtitleHorizontalPaddingRatio is required"),
+  private fun parseLayoutContract(raw: JSONObject): LayoutContract {
+    return LayoutContract(
+      canvas = parseCanvasRect(raw.objectValue("canvas") ?: throw IllegalArgumentException("layoutContract.canvas is required")),
+      titleSafeArea = parseRect(
+        raw.objectValue("titleSafeArea")
+          ?: throw IllegalArgumentException("layoutContract.titleSafeArea is required"),
+      ),
+      stageRect = parseRect(
+        raw.objectValue("stageRect") ?: throw IllegalArgumentException("layoutContract.stageRect is required"),
+      ),
+      subtitleSafeArea = parseRect(
+        raw.objectValue("subtitleSafeArea")
+          ?: throw IllegalArgumentException("layoutContract.subtitleSafeArea is required"),
+      ),
+      subtitleOverlayRect = parseRect(
+        raw.objectValue("subtitleOverlayRect")
+          ?: throw IllegalArgumentException("layoutContract.subtitleOverlayRect is required"),
+      ),
+      subtitleOverlayHeight = raw.int("subtitleOverlayHeight")
+        ?: throw IllegalArgumentException("layoutContract.subtitleOverlayHeight is required"),
+      stageGap = raw.int("stageGap") ?: throw IllegalArgumentException("layoutContract.stageGap is required"),
+      stageRadius = raw.int("stageRadius")
+        ?: throw IllegalArgumentException("layoutContract.stageRadius is required"),
+      tileRadius = raw.int("tileRadius") ?: throw IllegalArgumentException("layoutContract.tileRadius is required"),
+      montageRects = parseMontageRects(
+        raw.objectValue("montageRects")
+          ?: throw IllegalArgumentException("layoutContract.montageRects is required"),
+      ),
+      typography = parseTypography(
+        raw.objectValue("typography")
+          ?: throw IllegalArgumentException("layoutContract.typography is required"),
+      ),
     )
+  }
+
+  private fun parseCanvasRect(raw: JSONObject): LayoutRect {
+    return LayoutRect(
+      x = raw.int("x") ?: 0,
+      y = raw.int("y") ?: 0,
+      width = raw.int("width") ?: throw IllegalArgumentException("layout canvas width is required"),
+      height = raw.int("height") ?: throw IllegalArgumentException("layout canvas height is required"),
+    )
+  }
+
+  private fun parseRect(raw: JSONObject): LayoutRect {
+    return LayoutRect(
+      x = raw.int("x") ?: throw IllegalArgumentException("layout rect x is required"),
+      y = raw.int("y") ?: throw IllegalArgumentException("layout rect y is required"),
+      width = raw.int("width") ?: throw IllegalArgumentException("layout rect width is required"),
+      height = raw.int("height") ?: throw IllegalArgumentException("layout rect height is required"),
+    )
+  }
+
+  private fun parseTypography(raw: JSONObject): TypographySpec {
+    return TypographySpec(
+      eyebrowSize = raw.int("eyebrowSize")
+        ?: throw IllegalArgumentException("typography.eyebrowSize is required"),
+      titleSize = raw.int("titleSize")
+        ?: throw IllegalArgumentException("typography.titleSize is required"),
+      titleLineHeight = raw.int("titleLineHeight")
+        ?: throw IllegalArgumentException("typography.titleLineHeight is required"),
+      subtitleSize = raw.int("subtitleSize")
+        ?: throw IllegalArgumentException("typography.subtitleSize is required"),
+      subtitleLineHeight = raw.int("subtitleLineHeight")
+        ?: throw IllegalArgumentException("typography.subtitleLineHeight is required"),
+      metaSize = raw.int("metaSize") ?: throw IllegalArgumentException("typography.metaSize is required"),
+    )
+  }
+
+  private fun parseMontageRects(raw: JSONObject): MontageRects {
+    return MontageRects(
+      single = parseRectArray(raw.optJSONArray("single")),
+      pair = parseRectArray(raw.optJSONArray("pair")),
+      trio = parseRectArray(raw.optJSONArray("trio")),
+    )
+  }
+
+  private fun parseRectArray(raw: JSONArray?): List<LayoutRect> {
+    if (raw == null) {
+      return emptyList()
+    }
+    return buildList(raw.length()) {
+      for (index in 0 until raw.length()) {
+        val item = raw.optJSONObject(index) ?: continue
+        add(parseRect(item))
+      }
+    }
   }
 
   private data class ExportConfig(
     val eventTitle: String,
-    val compositionOrientation: String,
-    val photoSceneLayout: PhotoSceneLayout,
+    val aspectMode: String,
+    val resolvedAspectRatio: String,
+    val layoutContract: LayoutContract,
     val outputWidth: Int,
     val outputHeight: Int,
     val outputPath: String,
@@ -563,6 +638,7 @@ class TravelSlideshowExportModule : Module() {
   private data class ExportScene(
     val id: String,
     val type: String,
+    val eyebrow: String?,
     val title: String,
     val body: String?,
     val photoUri: String?,
@@ -595,46 +671,84 @@ class TravelSlideshowExportModule : Module() {
     val fadeOutMs: Int,
   )
 
-  private data class PhotoSceneLayout(
-    val stageLeftRatio: Double,
-    val stageTopRatio: Double,
-    val stageWidthRatio: Double,
-    val stageHeightRatio: Double,
-    val subtitleTopRatio: Double,
-    val subtitleHorizontalPaddingRatio: Double,
+  private data class LayoutContract(
+    val canvas: LayoutRect,
+    val titleSafeArea: LayoutRect,
+    val stageRect: LayoutRect,
+    val subtitleSafeArea: LayoutRect,
+    val subtitleOverlayRect: LayoutRect,
+    val subtitleOverlayHeight: Int,
+    val stageGap: Int,
+    val stageRadius: Int,
+    val tileRadius: Int,
+    val montageRects: MontageRects,
+    val typography: TypographySpec,
+  )
+
+  private data class MontageRects(
+    val single: List<LayoutRect>,
+    val pair: List<LayoutRect>,
+    val trio: List<LayoutRect>,
+  )
+
+  private data class LayoutRect(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+  ) {
+    fun toRectF(): RectF = RectF(x.toFloat(), y.toFloat(), (x + width).toFloat(), (y + height).toFloat())
+  }
+
+  private data class TypographySpec(
+    val eyebrowSize: Int,
+    val titleSize: Int,
+    val titleLineHeight: Int,
+    val subtitleSize: Int,
+    val subtitleLineHeight: Int,
+    val metaSize: Int,
   )
 }
 
-private fun Map<String, Any?>.string(key: String): String? = when (val value = this[key]) {
-  is String -> value
-  else -> null
+private fun JSONObject.string(key: String): String? =
+  if (has(key) && !isNull(key)) optString(key, null) else null
+
+private fun JSONObject.int(key: String): Int? =
+  if (has(key) && !isNull(key)) optDouble(key).toInt() else null
+
+private fun JSONObject.boolean(key: String): Boolean? =
+  if (has(key) && !isNull(key)) optBoolean(key) else null
+
+private fun JSONObject.objectValue(key: String): JSONObject? =
+  if (has(key) && !isNull(key)) optJSONObject(key) else null
+
+private fun JSONObject.array(key: String): List<JSONObject> =
+  optJSONArray(key).map()
+
+private fun JSONObject.stringList(key: String): List<String> =
+  optJSONArray(key).mapStrings()
+
+private fun JSONArray?.map(): List<JSONObject> {
+  if (this == null) {
+    return emptyList()
+  }
+  return buildList(length()) {
+    for (index in 0 until length()) {
+      optJSONObject(index)?.let(::add)
+    }
+  }
 }
 
-private fun Map<String, Any?>.int(key: String): Int? = when (val value = this[key]) {
-  is Int -> value
-  is Long -> value.toInt()
-  is Double -> value.toInt()
-  is Float -> value.toInt()
-  else -> null
+private fun JSONArray?.mapStrings(): List<String> {
+  if (this == null) {
+    return emptyList()
+  }
+  return buildList(length()) {
+    for (index in 0 until length()) {
+      val value = optString(index, null)
+      if (!value.isNullOrBlank()) {
+        add(value)
+      }
+    }
+  }
 }
-
-private fun Map<String, Any?>.boolean(key: String): Boolean? = this[key] as? Boolean
-
-private fun Map<String, Any?>.double(key: String): Double? = when (val value = this[key]) {
-  is Double -> value
-  is Float -> value.toDouble()
-  is Int -> value.toDouble()
-  is Long -> value.toDouble()
-  else -> null
-}
-
-@Suppress("UNCHECKED_CAST")
-private fun Map<String, Any?>.list(key: String): List<Map<String, Any?>> =
-  (this[key] as? List<*>)?.mapNotNull { it as? Map<String, Any?> } ?: emptyList()
-
-@Suppress("UNCHECKED_CAST")
-private fun Map<String, Any?>.map(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
-
-@Suppress("UNCHECKED_CAST")
-private fun Map<String, Any?>.stringList(key: String): List<String> =
-  (this[key] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()

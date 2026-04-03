@@ -89,16 +89,13 @@ export function getSceneTypeLabel(scene: SlideshowScene | null): string {
   if (!scene) {
     return '';
   }
-  if (scene.type === 'chapter-intro') {
-    return '章节序幕';
+  if (scene.type === 'title-plate') {
+    return scene.narrativeRole === 'chapter-summary' ? 'Title Plate · 尾声' : 'Title Plate';
   }
-  if (scene.type === 'chapter-summary') {
-    return '章节尾声';
+  if (scene.type === 'montage-frame') {
+    return 'Montage Frame';
   }
-  if (scene.type === 'collage') {
-    return '片段蒙太奇';
-  }
-  return '';
+  return 'Photo Frame';
 }
 
 export function getPhotoTransitionPreset(
@@ -178,6 +175,22 @@ function pickCollagePhotos(chapterPhotos: SlideshowPhoto[]): SlideshowPhoto[] {
   return Array.from(new Map(selected.map((photo) => [photo.id, photo])).values());
 }
 
+function buildSceneEyebrow(
+  role: SlideshowScene['narrativeRole'],
+  chapter: EventChapter | null,
+): string | null {
+  if (role === 'montage' && chapter) {
+    return `第 ${chapter.chapterIndex} 章`;
+  }
+  if (role === 'chapter-intro' && chapter) {
+    return `第 ${chapter.chapterIndex} 章`;
+  }
+  if (role === 'chapter-summary') {
+    return '章节尾声';
+  }
+  return null;
+}
+
 export function buildScenes(
   photos: SlideshowPhoto[],
   chapters: EventChapter[] | undefined,
@@ -194,11 +207,13 @@ export function buildScenes(
       const subtitle = buildPhotoSubtitle(photo, null);
       return {
         id: `photo-${photo.id}`,
-        type: 'photo' as const,
+        type: 'photo-frame' as const,
+        narrativeRole: 'photo' as const,
         chapter: null,
         photo,
         photos: [photo],
         photoIndex,
+        eyebrow: null,
         title: '',
         body: subtitle,
         minimumDurationMs: subtitle
@@ -237,11 +252,13 @@ export function buildScenes(
       if (introText) {
         scenes.push({
           id: `chapter-intro-${chapterAtStart.id}`,
-          type: 'chapter-intro',
+          type: 'title-plate',
+          narrativeRole: 'chapter-intro',
           chapter: chapterAtStart,
           photo: chapterPhotos[0] ?? null,
           photos: chapterPhotos.slice(0, 1),
           photoIndex,
+          eyebrow: buildSceneEyebrow('chapter-intro', chapterAtStart),
           title: getChapterTitle(chapterAtStart),
           body: introText,
           minimumDurationMs: computeReadingDuration(introText, 2800, 5000),
@@ -254,11 +271,13 @@ export function buildScenes(
       if (collagePhotos.length >= 2) {
         scenes.push({
           id: `chapter-collage-${chapterAtStart.id}`,
-          type: 'collage',
+          type: 'montage-frame',
+          narrativeRole: 'montage',
           chapter: chapterAtStart,
           photo: collagePhotos[0] ?? null,
           photos: collagePhotos,
           photoIndex,
+          eyebrow: buildSceneEyebrow('montage', chapterAtStart),
           title: getChapterTitle(chapterAtStart),
           body: normalizeSlideshowText(chapterAtStart.slideshowCaption) || null,
           minimumDurationMs: 3600,
@@ -274,11 +293,13 @@ export function buildScenes(
 
     scenes.push({
       id: `photo-${photo.id}`,
-      type: 'photo',
+      type: 'photo-frame',
+      narrativeRole: 'photo',
       chapter,
       photo,
       photos: [photo],
       photoIndex,
+      eyebrow: null,
       title: '',
       body: subtitle,
       minimumDurationMs: subtitle
@@ -298,11 +319,13 @@ export function buildScenes(
       if (summaryText) {
         scenes.push({
           id: `chapter-summary-${chapterAtEnd.id}`,
-          type: 'chapter-summary',
+          type: 'title-plate',
+          narrativeRole: 'chapter-summary',
           chapter: chapterAtEnd,
           photo: chapterPhotos[chapterPhotos.length - 1] ?? chapterPhotos[0] ?? null,
           photos: chapterPhotos.slice(-1),
           photoIndex,
+          eyebrow: buildSceneEyebrow('chapter-summary', chapterAtEnd),
           title: getChapterTitle(chapterAtEnd),
           body: summaryText,
           minimumDurationMs: computeReadingDuration(summaryText, 2600, 4400),
@@ -320,7 +343,7 @@ export function resolveSceneDurationMs(
   scene: SlideshowScene,
   baseSlideDurationMs = DEFAULT_SLIDE_DURATION_MS,
 ): number {
-  if (scene.type === 'photo') {
+  if (scene.type === 'photo-frame') {
     return Math.max(baseSlideDurationMs, scene.minimumDurationMs);
   }
   return scene.minimumDurationMs;
@@ -372,7 +395,7 @@ export function getSceneHeaderLabel(scene: SlideshowScene | null, totalPhotos: n
   if (!scene) {
     return totalPhotos > 0 ? `1 / ${totalPhotos}` : '旅行片段';
   }
-  if (scene.type === 'photo') {
+  if (scene.type === 'photo-frame') {
     return `${scene.photoIndex + 1} / ${totalPhotos}`;
   }
   return getChapterTitle(scene.chapter);

@@ -51,11 +51,11 @@ function resolveCompositionOrientation(params: {
     return 'portrait-dominant';
   }
 
-  if (params.landscapeCount / params.total >= 0.6) {
+  if (params.landscapeCount > params.portraitCount) {
     return 'landscape-dominant';
   }
 
-  if (params.portraitCount / params.total >= 0.6) {
+  if (params.portraitCount > params.landscapeCount) {
     return 'portrait-dominant';
   }
 

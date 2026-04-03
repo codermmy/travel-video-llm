@@ -25,12 +25,14 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
-import type { EventChapter } from '@/types/chapter';
 import {
   PlaybackState,
+  type SlideshowScene,
   type SlideshowAudioPlan,
   type SlideshowAudioSegment,
+  type SlideshowVideoLayoutContract,
   type SlideshowProps,
+  type VideoAspectMode,
 } from '@/types/slideshow';
 import { formatDateTime } from '@/utils/dateUtils';
 import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
@@ -39,14 +41,25 @@ import {
   getAudioSegmentAtPosition,
   getAudioVolumeAtPosition,
 } from '@/services/slideshow/slideshowAudioService';
-import { exportSlideshowVideo } from '@/services/slideshow/slideshowExportService';
-import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
-import { getSlideshowPhotoSceneLayout } from '@/services/slideshow/slideshowCompositionLayout';
 import {
+  exportSlideshowVideo,
+  type SlideshowExportProgress,
+} from '@/services/slideshow/slideshowExportService';
+import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
+import {
+  buildScenes,
   buildSceneTimeline,
   findTimelineSceneAtPosition,
+  getChapterTitle,
+  getSceneDisplayPhoto,
+  getSceneHeaderLabel,
+  getTransitionConfig,
   getTimelineTotalDurationMs,
 } from '@/services/slideshow/slideshowSceneBuilder';
+import {
+  buildSlideshowVideoLayoutContract,
+  fitAspectRatioWithinBounds,
+} from '@/services/slideshow/slideshowVideoContract';
 
 const MotionImage = createAnimatedComponent(Image);
 
@@ -54,52 +67,14 @@ const SPEED_OPTIONS_MS = [2200, 3200, 4800] as const;
 const DEFAULT_SLIDE_DURATION_MS = 3200;
 const CONTROL_AUTO_HIDE_MS = 3000;
 const DEFAULT_LOCAL_BGM = require('../../../assets/audio/default-bgm.wav');
-const GENERIC_CAPTION_SET = new Set([
-  '旅途瞬间 · 光影流动 · 当下心情',
-  '旅途瞬间·光影流动·当下心情',
-]);
 
 type MusicSourceStatus = 'loading' | 'remote' | 'fallback' | 'none' | 'error';
-type SlideshowSceneType = 'chapter-intro' | 'photo' | 'chapter-summary' | 'collage';
-type TransitionPreset =
-  | 'chapter-fade'
-  | 'dissolve'
-  | 'drift-left'
-  | 'drift-right'
-  | 'zoom-in'
-  | 'montage-rise';
-
-type SlideshowScene = {
-  id: string;
-  type: SlideshowSceneType;
-  chapter: EventChapter | null;
-  photo: SlideshowProps['photos'][number] | null;
-  photos: SlideshowProps['photos'];
-  photoIndex: number;
-  title: string;
-  body: string | null;
-  minimumDurationMs: number;
-  transitionPreset: TransitionPreset;
-  subtitleDelayMs: number;
-};
-
-function normalizeText(text?: string | null): string {
-  return (text || '').replace(/\s+/g, ' ').trim();
-}
 
 function getPhotoUri(
   photo: SlideshowProps['photos'][number] | null | undefined,
   failedCandidateIndex = 0,
 ): string | null {
   return getPhotoOriginalCandidates(photo)[failedCandidateIndex] ?? null;
-}
-
-function isGenericCaption(input?: string | null): boolean {
-  if (!input) {
-    return false;
-  }
-  const normalized = input.replace(/\s+/g, '').trim();
-  return GENERIC_CAPTION_SET.has(normalized);
 }
 
 function getMusicStatusText(status: MusicSourceStatus): string {
@@ -125,337 +100,68 @@ function formatDurationLabel(ms: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-function computeReadingDuration(text: string, minMs: number, maxMs: number): number {
-  const charCount = normalizeText(text).length;
-  const estimate = 1400 + charCount * 95;
-  return Math.max(minMs, Math.min(maxMs, estimate));
-}
-
-function buildPhotoSubtitle(
-  photo: SlideshowProps['photos'][number] | null | undefined,
-  chapter: EventChapter | null,
-): string | null {
-  const microStory = normalizeText(photo?.microStory);
-  if (microStory) {
-    return microStory;
-  }
-
-  const caption = normalizeText(photo?.caption);
-  if (caption && !isGenericCaption(caption)) {
-    return caption;
-  }
-
-  const slideshowCaption = normalizeText(chapter?.slideshowCaption);
-  if (slideshowCaption) {
-    return slideshowCaption;
-  }
-
-  return null;
-}
-
-function getChapterTitle(chapter: EventChapter | null | undefined): string {
-  if (!chapter) {
-    return '旅行片段';
-  }
-  return chapter.chapterTitle?.trim() || `第 ${chapter.chapterIndex} 章`;
-}
-
-function getSceneDisplayPhoto(
-  scene: SlideshowScene | null | undefined,
-  photos: SlideshowProps['photos'],
-) {
-  if (!scene) {
-    return null;
-  }
-  return scene.photos[0] ?? scene.photo ?? photos[scene.photoIndex] ?? null;
-}
-
-function getSceneTypeLabel(scene: SlideshowScene | null): string {
-  if (!scene) {
-    return '';
-  }
-  if (scene.type === 'chapter-intro') {
-    return '章节序幕';
-  }
-  if (scene.type === 'chapter-summary') {
-    return '章节尾声';
-  }
-  if (scene.type === 'collage') {
-    return '片段蒙太奇';
-  }
-  return '';
-}
-
-function getPhotoTransitionPreset(
-  photoIndex: number,
-  chapter: EventChapter | null,
-): TransitionPreset {
-  const seed = (chapter?.chapterIndex ?? 0) + photoIndex;
-  const presets: TransitionPreset[] = ['dissolve', 'drift-left', 'drift-right', 'zoom-in'];
-  return presets[seed % presets.length] ?? 'dissolve';
-}
-
-function getTransitionConfig(preset: TransitionPreset): {
-  durationMs: number;
-  subtitleDelayMs: number;
-  incoming: { opacity: number; translateX: number; translateY: number; scale: number };
-  outgoing: { opacity: number; translateX: number; translateY: number; scale: number };
-} {
-  switch (preset) {
-    case 'chapter-fade':
-      return {
-        durationMs: 520,
-        subtitleDelayMs: 0,
-        incoming: { opacity: 0, translateX: 0, translateY: 16, scale: 0.985 },
-        outgoing: { opacity: 0, translateX: 0, translateY: -10, scale: 1.015 },
-      };
-    case 'drift-left':
-      return {
-        durationMs: 420,
-        subtitleDelayMs: 260,
-        incoming: { opacity: 0, translateX: 22, translateY: 0, scale: 1.02 },
-        outgoing: { opacity: 0, translateX: -18, translateY: 0, scale: 0.995 },
-      };
-    case 'drift-right':
-      return {
-        durationMs: 420,
-        subtitleDelayMs: 260,
-        incoming: { opacity: 0, translateX: -22, translateY: 0, scale: 1.02 },
-        outgoing: { opacity: 0, translateX: 18, translateY: 0, scale: 0.995 },
-      };
-    case 'zoom-in':
-      return {
-        durationMs: 460,
-        subtitleDelayMs: 300,
-        incoming: { opacity: 0, translateX: 0, translateY: 0, scale: 1.08 },
-        outgoing: { opacity: 0, translateX: 0, translateY: 0, scale: 0.96 },
-      };
-    case 'montage-rise':
-      return {
-        durationMs: 520,
-        subtitleDelayMs: 0,
-        incoming: { opacity: 0, translateX: 0, translateY: 22, scale: 0.98 },
-        outgoing: { opacity: 0, translateX: 0, translateY: -18, scale: 1.02 },
-      };
-    case 'dissolve':
-    default:
-      return {
-        durationMs: 380,
-        subtitleDelayMs: 220,
-        incoming: { opacity: 0, translateX: 0, translateY: 0, scale: 1.01 },
-        outgoing: { opacity: 0, translateX: 0, translateY: 0, scale: 1 },
-      };
-  }
-}
-
-function pickCollagePhotos(chapterPhotos: SlideshowProps['photos']): SlideshowProps['photos'] {
-  if (chapterPhotos.length <= 3) {
-    return chapterPhotos;
-  }
-
-  const middleIndex = Math.floor(chapterPhotos.length / 2);
-  const selected = [
-    chapterPhotos[0],
-    chapterPhotos[middleIndex],
-    chapterPhotos[chapterPhotos.length - 1],
-  ].filter(Boolean);
-
-  return Array.from(new Map(selected.map((photo) => [photo.id, photo])).values());
-}
-
-function buildScenes(
-  photos: SlideshowProps['photos'],
-  chapters: EventChapter[] | undefined,
-): SlideshowScene[] {
-  if (photos.length === 0) {
-    return [];
-  }
-
-  const safeChapters = [...(chapters || [])].sort(
-    (left, right) => left.photoStartIndex - right.photoStartIndex,
-  );
-  if (safeChapters.length === 0) {
-    return photos.map((photo, photoIndex) => {
-      const subtitle = buildPhotoSubtitle(photo, null);
-      return {
-        id: `photo-${photo.id}`,
-        type: 'photo' as const,
-        chapter: null,
-        photo,
-        photos: [photo],
-        photoIndex,
-        title: '',
-        body: subtitle,
-        minimumDurationMs: subtitle
-          ? computeReadingDuration(subtitle, 2400, 4600)
-          : DEFAULT_SLIDE_DURATION_MS,
-        transitionPreset: getPhotoTransitionPreset(photoIndex, null),
-        subtitleDelayMs: 240,
-      };
-    });
-  }
-
-  const chapterStartMap = new Map<number, EventChapter>();
-  const chapterEndMap = new Map<number, EventChapter>();
-  const chapterByPhotoIndex = new Map<number, EventChapter>();
-
-  for (const chapter of safeChapters) {
-    chapterStartMap.set(chapter.photoStartIndex, chapter);
-    chapterEndMap.set(chapter.photoEndIndex, chapter);
-    for (let index = chapter.photoStartIndex; index <= chapter.photoEndIndex; index += 1) {
-      chapterByPhotoIndex.set(index, chapter);
-    }
-  }
-
-  const scenes: SlideshowScene[] = [];
-
-  for (let photoIndex = 0; photoIndex < photos.length; photoIndex += 1) {
-    const chapterAtStart = chapterStartMap.get(photoIndex);
-    if (chapterAtStart) {
-      const chapterPhotos = photos.slice(
-        chapterAtStart.photoStartIndex,
-        chapterAtStart.photoEndIndex + 1,
-      );
-      const introText =
-        normalizeText(chapterAtStart.chapterIntro) ||
-        normalizeText(chapterAtStart.slideshowCaption);
-      if (introText) {
-        scenes.push({
-          id: `chapter-intro-${chapterAtStart.id}`,
-          type: 'chapter-intro',
-          chapter: chapterAtStart,
-          photo: chapterPhotos[0] ?? null,
-          photos: chapterPhotos.slice(0, 1),
-          photoIndex,
-          title: getChapterTitle(chapterAtStart),
-          body: introText,
-          minimumDurationMs: computeReadingDuration(introText, 2800, 5000),
-          transitionPreset: 'chapter-fade',
-          subtitleDelayMs: 0,
-        });
-      }
-
-      const collagePhotos = pickCollagePhotos(chapterPhotos);
-      if (collagePhotos.length >= 2) {
-        scenes.push({
-          id: `chapter-collage-${chapterAtStart.id}`,
-          type: 'collage',
-          chapter: chapterAtStart,
-          photo: collagePhotos[0] ?? null,
-          photos: collagePhotos,
-          photoIndex,
-          title: getChapterTitle(chapterAtStart),
-          body: normalizeText(chapterAtStart.slideshowCaption) || null,
-          minimumDurationMs: 3600,
-          transitionPreset: 'montage-rise',
-          subtitleDelayMs: 0,
-        });
-      }
-    }
-
-    const chapter = chapterByPhotoIndex.get(photoIndex) ?? null;
-    const photo = photos[photoIndex];
-    const subtitle = buildPhotoSubtitle(photo, chapter);
-
-    scenes.push({
-      id: `photo-${photo.id}`,
-      type: 'photo',
-      chapter,
-      photo,
-      photos: [photo],
-      photoIndex,
-      title: '',
-      body: subtitle,
-      minimumDurationMs: subtitle
-        ? computeReadingDuration(subtitle, 2400, 4600)
-        : DEFAULT_SLIDE_DURATION_MS,
-      transitionPreset: getPhotoTransitionPreset(photoIndex, chapter),
-      subtitleDelayMs: 240,
-    });
-
-    const chapterAtEnd = chapterEndMap.get(photoIndex);
-    if (chapterAtEnd) {
-      const chapterPhotos = photos.slice(
-        chapterAtEnd.photoStartIndex,
-        chapterAtEnd.photoEndIndex + 1,
-      );
-      const summaryText = normalizeText(chapterAtEnd.chapterSummary);
-      if (summaryText) {
-        scenes.push({
-          id: `chapter-summary-${chapterAtEnd.id}`,
-          type: 'chapter-summary',
-          chapter: chapterAtEnd,
-          photo: chapterPhotos[chapterPhotos.length - 1] ?? chapterPhotos[0] ?? null,
-          photos: chapterPhotos.slice(-1),
-          photoIndex,
-          title: getChapterTitle(chapterAtEnd),
-          body: summaryText,
-          minimumDurationMs: computeReadingDuration(summaryText, 2600, 4400),
-          transitionPreset: 'chapter-fade',
-          subtitleDelayMs: 0,
-        });
-      }
-    }
-  }
-
-  return scenes;
-}
-
-function getSceneHeaderLabel(scene: SlideshowScene | null, totalPhotos: number): string {
-  if (!scene) {
-    return totalPhotos > 0 ? `1 / ${totalPhotos}` : '旅行片段';
-  }
-  if (scene.type === 'photo') {
-    return `${scene.photoIndex + 1} / ${totalPhotos}`;
-  }
-  return getChapterTitle(scene.chapter);
-}
-
 function CollageTile({
   photo,
   style,
+  tileRadius,
 }: {
   photo?: SlideshowProps['photos'][number];
   style?: object;
+  tileRadius: number;
 }) {
   const uri = getPhotoUri(photo);
 
   if (!uri) {
     return (
-      <View style={[styles.collageTile, styles.collageFallbackTile, style]}>
+      <View
+        style={[
+          styles.collageTile,
+          { borderRadius: tileRadius },
+          styles.collageFallbackTile,
+          style,
+        ]}
+      >
         <MaterialCommunityIcons name="image-outline" size={18} color="#D6B897" />
       </View>
     );
   }
 
-  return <Image source={{ uri }} style={[styles.collageTile, style]} resizeMode="cover" />;
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.collageTile, { borderRadius: tileRadius }, style]}
+      resizeMode="cover"
+    />
+  );
 }
 
-function CollageSceneLayout({ photos }: { photos: SlideshowProps['photos'] }) {
-  if (photos.length <= 1) {
-    return (
-      <View style={styles.collageWrap}>
-        <CollageTile photo={photos[0]} style={styles.collageSingle} />
-      </View>
-    );
-  }
-
-  if (photos.length === 2) {
-    return (
-      <View style={styles.collageWrap}>
-        <CollageTile photo={photos[0]} style={styles.collageHalf} />
-        <CollageTile photo={photos[1]} style={styles.collageHalf} />
-      </View>
-    );
-  }
-
+function CollageSceneLayout({
+  photos,
+  tileRadius,
+  slots,
+}: {
+  photos: SlideshowProps['photos'];
+  tileRadius: number;
+  slots: SlideshowVideoLayoutContract['montageRects']['single'];
+}) {
   return (
-    <View style={styles.collageWrap}>
-      <CollageTile photo={photos[0]} style={styles.collageLead} />
-      <View style={styles.collageStack}>
-        <CollageTile photo={photos[1]} style={styles.collageStackItem} />
-        <CollageTile photo={photos[2]} style={styles.collageStackItem} />
-      </View>
+    <View style={styles.collageStage}>
+      {slots.map((slot, index) => (
+        <CollageTile
+          key={`${photos[index]?.id || 'empty'}-${index}`}
+          photo={photos[index]}
+          tileRadius={tileRadius}
+          style={[
+            styles.collageSlot,
+            {
+              left: slot.x,
+              top: slot.y,
+              width: slot.width,
+              height: slot.height,
+            },
+          ]}
+        />
+      ))}
     </View>
   );
 }
@@ -464,9 +170,7 @@ function SceneLayer({
   scene,
   eventTitle,
   photoUri,
-  photoSceneLayout,
-  viewportWidth,
-  viewportHeight,
+  layoutContract,
   motionStyle,
   onPhotoLoad,
   onPhotoError,
@@ -474,30 +178,30 @@ function SceneLayer({
   scene: SlideshowScene;
   eventTitle: string;
   photoUri: string | null;
-  photoSceneLayout: {
-    stageLeftRatio: number;
-    stageTopRatio: number;
-    stageWidthRatio: number;
-    stageHeightRatio: number;
-  };
-  viewportWidth: number;
-  viewportHeight: number;
+  layoutContract: SlideshowVideoLayoutContract;
   motionStyle?: object;
   onPhotoLoad?: (event: any) => void;
   onPhotoError?: () => void;
 }) {
-  if (scene.type === 'photo') {
-    const photoStageStyle = {
-      position: 'absolute' as const,
-      left: viewportWidth * photoSceneLayout.stageLeftRatio,
-      top: viewportHeight * photoSceneLayout.stageTopRatio,
-      width: viewportWidth * photoSceneLayout.stageWidthRatio,
-      height: viewportHeight * photoSceneLayout.stageHeightRatio,
-    };
+  const stageStyle = {
+    position: 'absolute' as const,
+    left: layoutContract.stageRect.x,
+    top: layoutContract.stageRect.y,
+    width: layoutContract.stageRect.width,
+    height: layoutContract.stageRect.height,
+  };
+  const titleSafeStyle = {
+    position: 'absolute' as const,
+    left: layoutContract.titleSafeArea.x,
+    top: layoutContract.titleSafeArea.y,
+    width: layoutContract.titleSafeArea.width,
+    height: layoutContract.titleSafeArea.height,
+  };
 
+  if (scene.type === 'photo-frame') {
     return (
-      <View style={styles.photoFrame}>
-        <View style={[styles.photoStage, photoStageStyle]}>
+      <View style={styles.canvasScene}>
+        <View style={[stageStyle, styles.photoStage, { borderRadius: layoutContract.stageRadius }]}>
           {photoUri ? (
             motionStyle ? (
               <MotionImage
@@ -522,53 +226,71 @@ function SceneLayer({
               <Text style={styles.photoMissingText}>当前照片暂时不可用</Text>
             </View>
           )}
-          <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.08)']}
-            style={styles.photoStageShade}
+        </View>
+      </View>
+    );
+  }
+
+  if (scene.type === 'montage-frame') {
+    return (
+      <View style={styles.canvasScene}>
+        <View style={titleSafeStyle}>
+          {scene.eyebrow ? <Text style={styles.sceneEyebrow}>{scene.eyebrow}</Text> : null}
+          <Text
+            style={[
+              styles.sceneTitle,
+              styles.serifTitle,
+              {
+                fontSize: layoutContract.typography.titleSize,
+                lineHeight: layoutContract.typography.titleLineHeight,
+              },
+            ]}
+          >
+            {scene.title || eventTitle}
+          </Text>
+        </View>
+        <View
+          style={[styles.montageStage, stageStyle, { borderRadius: layoutContract.stageRadius }]}
+        >
+          <CollageSceneLayout
+            photos={scene.photos.slice(0, 3)}
+            tileRadius={layoutContract.tileRadius}
+            slots={
+              scene.photos.length <= 1
+                ? layoutContract.montageRects.single
+                : scene.photos.length === 2
+                  ? layoutContract.montageRects.pair
+                  : layoutContract.montageRects.trio
+            }
           />
         </View>
       </View>
     );
   }
 
-  if (scene.type === 'collage') {
-    return (
-      <View style={styles.collageSceneWrap}>
-        <View style={styles.collageSceneCard}>
-          <View style={styles.chapterSceneMetaRow}>
-            <Text style={styles.chapterSceneEyebrow}>{getSceneTypeLabel(scene)}</Text>
-            <View style={styles.chapterSceneDivider} />
-            <Text style={styles.chapterSceneMetaText}>{scene.photos.length} 张照片</Text>
-          </View>
-          <Text style={styles.chapterSceneTitle}>{scene.title || eventTitle}</Text>
-          {scene.body ? <Text style={styles.collageSceneBody}>{scene.body}</Text> : null}
-          <CollageSceneLayout photos={scene.photos.slice(0, 3)} />
-        </View>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.chapterSceneWrap}>
-      <LinearGradient
-        colors={['rgba(28,18,12,0.38)', 'rgba(28,18,12,0.72)', 'rgba(20,13,9,0.92)']}
-        style={styles.chapterSceneCard}
-      >
-        {photoUri ? (
-          <View style={styles.chapterSceneImageFrame}>
-            <Image source={{ uri: photoUri }} style={styles.chapterSceneImage} resizeMode="cover" />
-          </View>
-        ) : null}
-        <View style={styles.chapterSceneMetaRow}>
-          <Text style={styles.chapterSceneEyebrow}>{getSceneTypeLabel(scene)}</Text>
-          <View style={styles.chapterSceneDivider} />
-          <Text style={styles.chapterSceneMetaText}>
-            {scene.chapter ? `第 ${scene.chapter.chapterIndex} 章` : '旅行片段'}
-          </Text>
+    <View style={styles.canvasScene}>
+      <View style={titleSafeStyle}>
+        {scene.eyebrow ? <Text style={styles.sceneEyebrow}>{scene.eyebrow}</Text> : null}
+        <Text
+          style={[
+            styles.sceneTitle,
+            styles.serifTitle,
+            {
+              fontSize: layoutContract.typography.titleSize,
+              lineHeight: layoutContract.typography.titleLineHeight,
+            },
+          ]}
+        >
+          {scene.title || eventTitle}
+        </Text>
+      </View>
+      {photoUri ? (
+        <View style={styles.titlePlateImageHint}>
+          <Image source={{ uri: photoUri }} style={styles.titlePlateImage} resizeMode="cover" />
+          <View style={styles.titlePlateImageShade} />
         </View>
-        <Text style={styles.chapterSceneTitle}>{scene.title || eventTitle}</Text>
-        {scene.body ? <Text style={styles.chapterSceneBody}>{scene.body}</Text> : null}
-      </LinearGradient>
+      ) : null}
     </View>
   );
 }
@@ -586,8 +308,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [slideDurationMs, setSlideDurationMs] = useState(DEFAULT_SLIDE_DURATION_MS);
+  const [aspectMode, setAspectMode] = useState<VideoAspectMode>('auto');
   const [musicStatus, setMusicStatus] = useState<MusicSourceStatus>('loading');
-  const [footerHeight, setFooterHeight] = useState(144);
+  const [footerHeight, setFooterHeight] = useState(212);
   const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
   const [photoAspectRatios, setPhotoAspectRatios] = useState<Record<string, number>>({});
   const [audioPlan, setAudioPlan] = useState<SlideshowAudioPlan | null>(null);
@@ -595,6 +318,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [seekPreviewMs, setSeekPreviewMs] = useState<number | null>(null);
   const [progressTrackWidth, setProgressTrackWidth] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<SlideshowExportProgress>({
+    label: '正在准备导出环境...',
+    progress: 0,
+  });
 
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -607,6 +334,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const seekShouldResumeRef = useRef(false);
   const pendingSeekMsRef = useRef<number | null>(null);
   const currentTimelinePositionRef = useRef(0);
+  const closingRef = useRef(false);
 
   const incomingOpacity = useRef(new RNAnimated.Value(1)).current;
   const incomingTranslateX = useRef(new RNAnimated.Value(0)).current;
@@ -649,7 +377,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     if (!currentScene) {
       return slideDurationMs;
     }
-    if (currentScene.type === 'photo') {
+    if (currentScene.type === 'photo-frame') {
       return Math.max(slideDurationMs, currentScene.minimumDurationMs);
     }
     return currentScene.minimumDurationMs;
@@ -675,7 +403,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     if (!target.scene) {
       return null;
     }
-    if (target.scene.type === 'photo') {
+    if (target.scene.type === 'photo-frame') {
       return `${target.scene.photoIndex + 1} / ${photos.length}`;
     }
     return getChapterTitle(target.scene.chapter);
@@ -685,10 +413,11 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     () => getSceneHeaderLabel(currentScene, photos.length),
     [currentScene, photos.length],
   );
-  const currentSubtitle = currentScene?.type === 'photo' ? currentScene.body : null;
+  const currentSubtitle = currentScene?.body ?? null;
+  const exportBlocked = event.slideshowFreshness === 'stale' || event.hasPendingStructureChanges;
 
   const formattedShotTime = useMemo(() => {
-    if (currentScene?.type !== 'photo' || !currentScenePhoto?.shootTime) {
+    if (currentScene?.type !== 'photo-frame' || !currentScenePhoto?.shootTime) {
       return null;
     }
     try {
@@ -702,11 +431,66 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     () => buildSlideshowCompositionProfile(photos, photoAspectRatios),
     [photoAspectRatios, photos],
   );
-  const photoSceneLayout = useMemo(
-    () => getSlideshowPhotoSceneLayout(compositionProfile.orientation),
-    [compositionProfile.orientation],
+  const headerTop = insets.top + 12;
+  const footerBottom = insets.bottom + 20;
+  const previewBounds = useMemo(() => {
+    const top = headerTop + 72;
+    const bottom = viewportHeight - footerBottom - footerHeight - 24;
+    const maxWidth = Math.max(220, viewportWidth - 24);
+    const maxHeight = Math.max(220, bottom - top);
+    return {
+      top,
+      bottom,
+      maxWidth,
+      maxHeight,
+    };
+  }, [footerBottom, footerHeight, headerTop, viewportHeight, viewportWidth]);
+  const previewCanvasSize = useMemo(
+    () =>
+      fitAspectRatioWithinBounds({
+        maxWidth: previewBounds.maxWidth,
+        maxHeight: previewBounds.maxHeight,
+        resolvedAspectRatio:
+          aspectMode === 'landscape'
+            ? '16:9'
+            : aspectMode === 'portrait'
+              ? '9:16'
+              : compositionProfile.orientation === 'landscape-dominant'
+                ? '16:9'
+                : '9:16',
+      }),
+    [aspectMode, compositionProfile.orientation, previewBounds.maxHeight, previewBounds.maxWidth],
   );
-  const subtitleTop = viewportHeight * photoSceneLayout.subtitleTopRatio;
+  const layoutContract = useMemo(
+    () =>
+      buildSlideshowVideoLayoutContract({
+        aspectMode,
+        compositionProfile,
+        canvasWidth: previewCanvasSize.width,
+        canvasHeight: previewCanvasSize.height,
+      }),
+    [aspectMode, compositionProfile, previewCanvasSize.height, previewCanvasSize.width],
+  );
+  const previewCanvasFrame = useMemo(() => {
+    const left = (viewportWidth - previewCanvasSize.width) / 2;
+    const verticalSpace = Math.max(
+      0,
+      previewBounds.bottom - previewBounds.top - previewCanvasSize.height,
+    );
+    const top = previewBounds.top + verticalSpace / 2;
+    return {
+      left,
+      top,
+      width: previewCanvasSize.width,
+      height: previewCanvasSize.height,
+    };
+  }, [
+    previewBounds.bottom,
+    previewBounds.top,
+    previewCanvasSize.height,
+    previewCanvasSize.width,
+    viewportWidth,
+  ]);
 
   const motionStyle = useAnimatedStyle(() => ({
     transform: [
@@ -979,6 +763,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
       setShowResumePrompt(false);
       setIsExporting(true);
+      setExportProgress({ label: '正在准备导出环境...', progress: 0.08 });
       resetControlAutoHide();
 
       try {
@@ -988,7 +773,14 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
           scenes,
           slideDurationMs,
           includeSubtitles,
+          aspectMode,
+          onProgress: (nextProgress) => {
+            setExportProgress(nextProgress);
+          },
         });
+        if (closingRef.current) {
+          return;
+        }
         Alert.alert(
           '导出完成',
           result.assetId
@@ -996,12 +788,17 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             : `视频已生成：${result.fileUri}`,
         );
       } catch (error) {
+        if (closingRef.current) {
+          return;
+        }
         Alert.alert('导出失败', error instanceof Error ? error.message : '请稍后再试');
       } finally {
-        setIsExporting(false);
+        if (!closingRef.current) {
+          setIsExporting(false);
+        }
       }
     },
-    [event, isExporting, photos, resetControlAutoHide, scenes, slideDurationMs],
+    [aspectMode, event, isExporting, photos, resetControlAutoHide, scenes, slideDurationMs],
   );
 
   const openExportOptions = useCallback(() => {
@@ -1009,7 +806,12 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return;
     }
 
-    Alert.alert('导出视频', '选择导出版本', [
+    if (exportBlocked) {
+      Alert.alert('内容待更新', '当前可先预览旧版本，待系统更新完成后再导出视频。');
+      return;
+    }
+
+    Alert.alert('导出视频', `当前比例：${layoutContract.resolvedAspectRatio}`, [
       { text: '取消', style: 'cancel' },
       {
         text: '无字幕',
@@ -1024,7 +826,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         },
       },
     ]);
-  }, [isExporting, runExport]);
+  }, [exportBlocked, isExporting, layoutContract.resolvedAspectRatio, runExport]);
 
   const togglePlayPause = useCallback(() => {
     setPlaybackState((prev) =>
@@ -1049,45 +851,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [resetControlAutoHide]);
 
   useEffect(() => {
-    if (currentScene?.type !== 'photo') {
-      motionScale.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.cubic) });
-      motionTranslateX.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
-      motionTranslateY.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
-      return;
-    }
-
-    const direction = currentScene.photoIndex % 4;
-    const startScale = direction % 2 === 0 ? 1.04 : 1.08;
-    const endScale = direction % 2 === 0 ? 1.12 : 1.15;
-    const startX = direction === 0 ? -10 : direction === 1 ? 10 : direction === 2 ? -6 : 6;
-    const endX = direction === 0 ? 8 : direction === 1 ? -8 : direction === 2 ? 6 : -6;
-    const startY = direction < 2 ? -8 : 8;
-    const endY = direction < 2 ? 8 : -8;
-
-    motionScale.value = startScale;
-    motionTranslateX.value = startX;
-    motionTranslateY.value = startY;
-
-    motionScale.value = withTiming(endScale, {
-      duration: activeSlideDurationMs + 240,
-      easing: Easing.out(Easing.cubic),
-    });
-    motionTranslateX.value = withTiming(endX, {
-      duration: activeSlideDurationMs + 240,
-      easing: Easing.linear,
-    });
-    motionTranslateY.value = withTiming(endY, {
-      duration: activeSlideDurationMs + 240,
-      easing: Easing.linear,
-    });
-  }, [
-    activeSlideDurationMs,
-    currentScene?.photoIndex,
-    currentScene?.type,
-    motionScale,
-    motionTranslateX,
-    motionTranslateY,
-  ]);
+    motionScale.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.cubic) });
+    motionTranslateX.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
+    motionTranslateY.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.cubic) });
+  }, [currentScene?.id, motionScale, motionTranslateX, motionTranslateY]);
 
   useEffect(() => {
     if (subtitleTimerRef.current) {
@@ -1107,7 +874,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       }),
     ]).start();
 
-    if (currentScene?.type !== 'photo' || !currentSubtitle) {
+    if (!currentScene || !currentSubtitle) {
       return;
     }
 
@@ -1137,6 +904,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       }
     };
   }, [
+    currentScene,
     currentScene?.id,
     currentScene?.subtitleDelayMs,
     currentScene?.transitionPreset,
@@ -1182,6 +950,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     let cancelled = false;
 
     const loadAudioPlan = async () => {
+      if (closingRef.current) {
+        return;
+      }
       if (timeline.length === 0) {
         setAudioPlan(null);
         setMusicStatus('none');
@@ -1222,8 +993,35 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     } catch {}
   }, []);
 
+  const handleClose = useCallback(() => {
+    closingRef.current = true;
+    playbackStateRef.current = PlaybackState.Paused;
+    setPlaybackState(PlaybackState.Paused);
+    setShowResumePrompt(false);
+    if (controlsTimerRef.current) {
+      clearTimeout(controlsTimerRef.current);
+    }
+    if (subtitleTimerRef.current) {
+      clearTimeout(subtitleTimerRef.current);
+    }
+
+    const activeSound = soundRef.current;
+    const prefetchedSound = prefetchedSoundRef.current;
+    soundRef.current = null;
+    prefetchedSoundRef.current = null;
+    loadedAudioSegmentRef.current = null;
+    prefetchedAudioSegmentRef.current = null;
+
+    void Promise.all([cleanupSound(activeSound), cleanupSound(prefetchedSound)]).finally(() => {
+      onClose();
+    });
+  }, [cleanupSound, onClose]);
+
   const preloadAudioSegment = useCallback(
     async (segment: SlideshowAudioSegment | null) => {
+      if (closingRef.current) {
+        return;
+      }
       if (!segment) {
         return;
       }
@@ -1243,6 +1041,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             volume: 0,
           },
         );
+        if (closingRef.current) {
+          await cleanupSound(sound);
+          return;
+        }
         const previousPrefetchedSound = prefetchedSoundRef.current;
         prefetchedSoundRef.current = sound;
         prefetchedAudioSegmentRef.current = segment;
@@ -1256,6 +1058,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
   const syncAudioToTimeline = useCallback(
     async (positionMs: number, options?: { force?: boolean }) => {
+      if (closingRef.current) {
+        return;
+      }
       if (audioSyncInFlightRef.current) {
         return;
       }
@@ -1272,11 +1077,18 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
           if (!soundRef.current || loadedAudioSegmentRef.current?.id !== 'fallback-loop') {
             await cleanupSound(soundRef.current);
+            if (closingRef.current) {
+              return;
+            }
             const { sound } = await Audio.Sound.createAsync(sources[0].source, {
               shouldPlay: false,
               isLooping: true,
               volume: 1,
             });
+            if (closingRef.current) {
+              await cleanupSound(sound);
+              return;
+            }
             soundRef.current = sound;
             loadedAudioSegmentRef.current = {
               id: 'fallback-loop',
@@ -1318,6 +1130,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             sound = prefetchedSound;
           } else {
             await cleanupSound(soundRef.current);
+            if (closingRef.current) {
+              return;
+            }
             const { sound: nextSound } = await Audio.Sound.createAsync(
               { uri: activeSegment.sourceUrl },
               {
@@ -1326,6 +1141,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
                 volume: 1,
               },
             );
+            if (closingRef.current) {
+              await cleanupSound(nextSound);
+              return;
+            }
             soundRef.current = nextSound;
             loadedAudioSegmentRef.current = activeSegment;
             sound = nextSound;
@@ -1338,6 +1157,10 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         }
 
         const status = await sound.getStatusAsync();
+        if (closingRef.current) {
+          await sound.pauseAsync().catch(() => undefined);
+          return;
+        }
         if (!status.isLoaded) {
           return;
         }
@@ -1405,6 +1228,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
   useEffect(() => {
     return () => {
+      closingRef.current = true;
       void cleanupSound(soundRef.current);
       void cleanupSound(prefetchedSoundRef.current);
       soundRef.current = null;
@@ -1421,9 +1245,6 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     return Math.max(0, Math.min(displayedTimelinePositionMs / totalTimelineMs, 1));
   }, [displayedTimelinePositionMs, totalTimelineMs]);
 
-  const headerTop = insets.top + 12;
-  const footerBottom = insets.bottom + 20;
-
   const onFooterLayout = useCallback(
     (layoutEvent: LayoutChangeEvent) => {
       const height = layoutEvent.nativeEvent.layout.height;
@@ -1439,7 +1260,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       <View style={styles.emptyContainer}>
         <MaterialCommunityIcons name="image-off-outline" size={36} color="#B89C7B" />
         <Text style={styles.emptyText}>该事件暂无可播放照片</Text>
-        <Pressable style={styles.closeButton} onPress={onClose}>
+        <Pressable style={styles.closeButton} onPress={handleClose}>
           <Text style={styles.closeButtonText}>返回</Text>
         </Pressable>
       </View>
@@ -1461,92 +1282,116 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         resetControlAutoHide();
       }}
     >
-      <View style={styles.imageWrap}>
-        {currentScenePhotoUri ? (
-          <Image
-            source={{ uri: currentScenePhotoUri }}
-            style={styles.photoBackdrop}
-            resizeMode="cover"
-            blurRadius={24}
-          />
-        ) : null}
-        <View style={styles.photoBackdropTint} />
+      <View
+        style={[
+          styles.previewCanvas,
+          {
+            left: previewCanvasFrame.left,
+            top: previewCanvasFrame.top,
+            width: previewCanvasFrame.width,
+            height: previewCanvasFrame.height,
+          },
+        ]}
+      >
+        <View style={styles.canvasSurface}>
+          {previousScene ? (
+            <RNAnimated.View style={[styles.sceneLayer, outgoingLayerStyle]}>
+              <SceneLayer
+                scene={previousScene}
+                eventTitle={event.title}
+                photoUri={previousScenePhotoUri}
+                layoutContract={layoutContract}
+              />
+            </RNAnimated.View>
+          ) : null}
 
-        {previousScene ? (
-          <RNAnimated.View style={[styles.sceneLayer, outgoingLayerStyle]}>
-            <SceneLayer
-              scene={previousScene}
-              eventTitle={event.title}
-              photoUri={previousScenePhotoUri}
-              photoSceneLayout={photoSceneLayout}
-              viewportWidth={viewportWidth}
-              viewportHeight={viewportHeight}
-            />
-          </RNAnimated.View>
-        ) : null}
-
-        {currentScene ? (
-          <RNAnimated.View style={[styles.sceneLayer, incomingLayerStyle]}>
-            <SceneLayer
-              scene={currentScene}
-              eventTitle={event.title}
-              photoUri={currentScenePhotoUri}
-              photoSceneLayout={photoSceneLayout}
-              viewportWidth={viewportWidth}
-              viewportHeight={viewportHeight}
-              motionStyle={currentScene.type === 'photo' ? motionStyle : undefined}
-              onPhotoLoad={(imageEvent) => {
-                if (!currentScenePhoto?.id) {
-                  return;
-                }
-                const { width, height } = imageEvent.nativeEvent.source;
-                if (width > 0 && height > 0) {
-                  setPhotoAspectRatios((previous) => ({
+          {currentScene ? (
+            <RNAnimated.View style={[styles.sceneLayer, incomingLayerStyle]}>
+              <SceneLayer
+                scene={currentScene}
+                eventTitle={event.title}
+                photoUri={currentScenePhotoUri}
+                layoutContract={layoutContract}
+                motionStyle={currentScene.type === 'photo-frame' ? motionStyle : undefined}
+                onPhotoLoad={(imageEvent) => {
+                  if (!currentScenePhoto?.id) {
+                    return;
+                  }
+                  const { width, height } = imageEvent.nativeEvent.source;
+                  if (width > 0 && height > 0) {
+                    setPhotoAspectRatios((previous) => ({
+                      ...previous,
+                      [currentScenePhoto.id]: width / height,
+                    }));
+                  }
+                }}
+                onPhotoError={() => {
+                  if (!currentScenePhoto?.id) {
+                    return;
+                  }
+                  setFailedCandidateIndices((previous) => ({
                     ...previous,
-                    [currentScenePhoto.id]: width / height,
+                    [currentScenePhoto.id]: (previous[currentScenePhoto.id] ?? 0) + 1,
                   }));
-                }
-              }}
-              onPhotoError={() => {
-                if (!currentScenePhoto?.id) {
-                  return;
-                }
-                setFailedCandidateIndices((previous) => ({
-                  ...previous,
-                  [currentScenePhoto.id]: (previous[currentScenePhoto.id] ?? 0) + 1,
-                }));
-              }}
-            />
-          </RNAnimated.View>
-        ) : null}
+                }}
+              />
+            </RNAnimated.View>
+          ) : null}
 
-        <View style={styles.photoShade} />
-      </View>
-
-      {currentScene?.type === 'photo' && currentSubtitle ? (
-        <RNAnimated.View
-          pointerEvents="none"
-          style={[styles.subtitleWrap, { top: subtitleTop }, subtitleAnimatedStyle]}
-        >
           <LinearGradient
-            colors={['rgba(20,13,9,0)', 'rgba(20,13,9,0.28)', 'rgba(20,13,9,0)']}
+            pointerEvents="none"
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.38)']}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
-            style={styles.subtitleBand}
-          >
-            <Text numberOfLines={2} style={styles.subtitleText}>
-              {currentSubtitle}
-            </Text>
-          </LinearGradient>
-        </RNAnimated.View>
-      ) : null}
+            style={[
+              styles.subtitleOverlay,
+              {
+                left: layoutContract.subtitleOverlayRect.x,
+                top: layoutContract.subtitleOverlayRect.y,
+                width: layoutContract.subtitleOverlayRect.width,
+                height: layoutContract.subtitleOverlayRect.height,
+              },
+            ]}
+          />
+
+          {currentSubtitle ? (
+            <RNAnimated.View
+              pointerEvents="none"
+              style={[
+                styles.subtitleWrap,
+                {
+                  left: layoutContract.subtitleSafeArea.x,
+                  top: layoutContract.subtitleSafeArea.y,
+                  width: layoutContract.subtitleSafeArea.width,
+                },
+                subtitleAnimatedStyle,
+              ]}
+            >
+              <View style={styles.subtitleTextWrap}>
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    styles.subtitleText,
+                    {
+                      fontSize: layoutContract.typography.subtitleSize,
+                      lineHeight: layoutContract.typography.subtitleLineHeight,
+                    },
+                  ]}
+                >
+                  {currentSubtitle}
+                </Text>
+              </View>
+            </RNAnimated.View>
+          ) : null}
+        </View>
+      </View>
 
       {controlsVisible ? (
         <>
           <View style={styles.header}>
             <View style={[styles.headerInner, { top: headerTop }]}>
               <Pressable
-                onPress={onClose}
+                onPress={handleClose}
                 style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
               >
                 <MaterialCommunityIcons name="close" size={20} color="#FFF8F0" />
@@ -1557,7 +1402,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
                 disabled={isExporting}
                 style={({ pressed }) => [
                   styles.iconBtn,
-                  isExporting && styles.iconBtnDisabled,
+                  (isExporting || exportBlocked) && styles.iconBtnDisabled,
                   pressed && styles.pressed,
                 ]}
               >
@@ -1570,7 +1415,22 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             </View>
           </View>
 
+          {exportBlocked ? (
+            <View style={[styles.staleBanner, { top: headerTop + 54 }]}>
+              <MaterialCommunityIcons name="update" size={14} color="#F5D28F" />
+              <Text style={styles.staleBannerText}>内容待更新，可先预览旧版本</Text>
+            </View>
+          ) : null}
+
           <View style={[styles.footer, { bottom: footerBottom }]} onLayout={onFooterLayout}>
+            <Text style={styles.previewLabel}>
+              成片预览 · {layoutContract.resolvedAspectRatio}
+              {aspectMode === 'auto'
+                ? ' · 自动'
+                : aspectMode === 'landscape'
+                  ? ' · 横版'
+                  : ' · 竖版'}
+            </Text>
             {formattedShotTime ? <Text style={styles.metaText}>{formattedShotTime}</Text> : null}
             {currentScene?.chapter ? (
               <Text style={styles.metaText}>{getChapterTitle(currentScene.chapter)}</Text>
@@ -1629,6 +1489,38 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
                 ) : null}
               </View>
             ) : null}
+
+            <View style={styles.aspectModeRow}>
+              {(
+                [
+                  { value: 'auto', label: '自动' },
+                  { value: 'landscape', label: '16:9' },
+                  { value: 'portrait', label: '9:16' },
+                ] as const
+              ).map((option) => (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    setAspectMode(option.value);
+                    resetControlAutoHide();
+                  }}
+                  style={({ pressed }) => [
+                    styles.aspectPill,
+                    aspectMode === option.value && styles.aspectPillActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.aspectPillText,
+                      aspectMode === option.value && styles.aspectPillTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
 
             <View style={styles.speedRow}>
               {SPEED_OPTIONS_MS.map((value) => (
@@ -1700,6 +1592,24 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
           </Pressable>
         </View>
       ) : null}
+
+      {isExporting ? (
+        <View pointerEvents="none" style={styles.exportOverlay}>
+          <View style={styles.exportCard}>
+            <ActivityIndicator size="small" color="#F8F8F2" />
+            <Text style={styles.exportTitle}>正在导出视频</Text>
+            <Text style={styles.exportText}>{exportProgress.label}</Text>
+            <View style={styles.exportProgressTrack}>
+              <View
+                style={[
+                  styles.exportProgressFill,
+                  { width: `${Math.max(8, Math.round(exportProgress.progress * 100))}%` },
+                ]}
+              />
+            </View>
+          </View>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -1707,209 +1617,100 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#140F0D',
+    backgroundColor: '#000000',
   },
-  imageWrap: {
-    ...StyleSheet.absoluteFillObject,
+  previewCanvas: {
+    position: 'absolute',
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: 'rgba(248,248,242,0.08)',
+  },
+  canvasSurface: {
+    flex: 1,
+    backgroundColor: '#000000',
   },
   sceneLayer: {
     ...StyleSheet.absoluteFillObject,
   },
-  photoBackdrop: {
+  canvasScene: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.54,
-    transform: [{ scale: 1.08 }],
-  },
-  photoBackdropTint: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(20,13,9,0.42)',
-  },
-  photoFrame: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-    paddingVertical: 22,
   },
   photoStage: {
-    borderRadius: 28,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,244,230,0.14)',
-    backgroundColor: 'rgba(10,8,7,0.64)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.24,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 18 },
+    backgroundColor: '#000000',
+    overflow: 'hidden',
   },
   photoStageImage: {
     width: '100%',
     height: '100%',
   },
-  photoStageShade: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  photoShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(12,8,6,0.18)',
-  },
   photoMissingState: {
     width: '88%',
     aspectRatio: 0.88,
-    borderRadius: 28,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: 'rgba(255,248,240,0.08)',
+    backgroundColor: 'rgba(248,248,242,0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255,240,222,0.18)',
+    borderColor: 'rgba(248,248,242,0.08)',
   },
   photoMissingText: {
-    color: '#F4E6D8',
+    color: '#D4D4D0',
     fontSize: 14,
     fontWeight: '700',
   },
-  chapterSceneWrap: {
+  sceneEyebrow: {
+    color: '#CA8A04',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textAlign: 'center',
+  },
+  sceneTitle: {
+    marginTop: 14,
+    color: '#F8F8F2',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  serifTitle: {
+    fontFamily: 'serif',
+  },
+  titlePlateImageHint: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 26,
-  },
-  chapterSceneCard: {
-    width: '100%',
-    maxWidth: 420,
-    borderRadius: 28,
-    paddingHorizontal: 24,
-    paddingVertical: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(240,216,191,0.22)',
-    alignItems: 'center',
-    backgroundColor: 'rgba(35,24,18,0.38)',
-    shadowColor: '#000',
-    shadowOpacity: 0.22,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 16 },
+    opacity: 0.28,
     overflow: 'hidden',
   },
-  chapterSceneImageFrame: {
-    width: '100%',
-    height: 172,
-    borderRadius: 20,
-    overflow: 'hidden',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,242,224,0.16)',
-    backgroundColor: 'rgba(255,248,240,0.06)',
-  },
-  chapterSceneImage: {
+  titlePlateImage: {
     width: '100%',
     height: '100%',
   },
-  chapterSceneMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  chapterSceneEyebrow: {
-    color: '#E7C5A0',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-  },
-  chapterSceneDivider: {
-    width: 22,
-    height: 1,
-    backgroundColor: 'rgba(240,216,191,0.28)',
-  },
-  chapterSceneMetaText: {
-    color: '#E8D4BE',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.4,
-  },
-  chapterSceneTitle: {
-    marginTop: 10,
-    color: '#FFF7EE',
-    fontSize: 30,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  chapterSceneBody: {
-    marginTop: 14,
-    color: '#F4E7D8',
-    fontSize: 17,
-    lineHeight: 28,
-    textAlign: 'center',
-  },
-  collageSceneWrap: {
+  titlePlateImageShade: {
     ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.66)',
   },
-  collageSceneCard: {
-    width: '100%',
-    maxWidth: 440,
-    borderRadius: 30,
-    paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(242,223,198,0.18)',
-    backgroundColor: 'rgba(27,18,14,0.78)',
-    shadowColor: '#000',
-    shadowOpacity: 0.28,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 18 },
+  montageStage: {
+    backgroundColor: '#000000',
+    overflow: 'hidden',
   },
-  collageSceneBody: {
-    marginTop: 10,
-    marginBottom: 18,
-    color: '#F2E2D1',
-    fontSize: 15,
-    lineHeight: 24,
-    textAlign: 'center',
-  },
-  collageWrap: {
-    width: '100%',
-    flexDirection: 'row',
-    gap: 10,
-    minHeight: 244,
+  collageStage: {
+    ...StyleSheet.absoluteFillObject,
   },
   collageTile: {
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,248,240,0.08)',
+    backgroundColor: 'rgba(248,248,242,0.06)',
     overflow: 'hidden',
+  },
+  collageSlot: {
+    position: 'absolute',
   },
   collageFallbackTile: {
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(242,223,198,0.12)',
-  },
-  collageSingle: {
-    flex: 1,
-    minHeight: 260,
-  },
-  collageHalf: {
-    flex: 1,
-    minHeight: 244,
-  },
-  collageLead: {
-    flex: 1.18,
-    minHeight: 244,
-  },
-  collageStack: {
-    flex: 0.92,
-    gap: 10,
-  },
-  collageStackItem: {
-    flex: 1,
-    minHeight: 117,
+    borderColor: 'rgba(248,248,242,0.08)',
   },
   header: {
     position: 'absolute',
@@ -1944,23 +1745,49 @@ const styles = StyleSheet.create({
   iconBtnDisabled: {
     opacity: 0.74,
   },
+  staleBanner: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(31,23,18,0.72)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  staleBannerText: {
+    color: '#F8E5BF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   subtitleWrap: {
     position: 'absolute',
-    left: 24,
-    right: 24,
+    zIndex: 3,
   },
-  subtitleBand: {
-    paddingVertical: 14,
+  subtitleOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
+  },
+  subtitleTextWrap: {
+    paddingVertical: 4,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
   subtitleText: {
-    color: '#FFF8F0',
-    fontSize: 20,
-    lineHeight: 29,
-    fontWeight: '700',
+    color: '#FAF7F2',
+    fontWeight: '500',
     textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.75)',
+    letterSpacing: 0.1,
+    textShadowColor: 'rgba(0,0,0,0.72)',
+    textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 10,
   },
   footer: {
@@ -1969,9 +1796,17 @@ const styles = StyleSheet.create({
     right: 18,
     gap: 8,
   },
-  metaText: {
-    color: '#EAD8C5',
+  previewLabel: {
+    color: '#F8F8F2',
     fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  metaText: {
+    color: 'rgba(248,248,242,0.68)',
+    fontSize: 12,
+    textAlign: 'center',
   },
   progressWrap: {
     gap: 6,
@@ -2009,14 +1844,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   progressTimeText: {
-    color: '#F0E2D4',
+    color: '#F8F8F2',
     fontSize: 11,
     fontWeight: '700',
   },
   progressPreviewText: {
-    color: '#E7C5A0',
+    color: '#CA8A04',
     fontSize: 11,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  aspectModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  aspectPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,248,242,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,248,242,0.08)',
+  },
+  aspectPillActive: {
+    backgroundColor: 'rgba(202,138,4,0.16)',
+    borderColor: 'rgba(202,138,4,0.44)',
+  },
+  aspectPillText: {
+    color: 'rgba(248,248,242,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  aspectPillTextActive: {
+    color: '#F8F8F2',
   },
   speedRow: {
     flexDirection: 'row',
@@ -2082,6 +1943,43 @@ const styles = StyleSheet.create({
   resumeBtnText: {
     color: '#FFF8F0',
     fontWeight: '700',
+  },
+  exportOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportCard: {
+    width: 250,
+    borderRadius: 18,
+    backgroundColor: 'rgba(12,12,12,0.9)',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    alignItems: 'center',
+    gap: 8,
+  },
+  exportTitle: {
+    color: '#F8F8F2',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  exportText: {
+    color: 'rgba(248,248,242,0.72)',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  exportProgressTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,248,242,0.12)',
+    overflow: 'hidden',
+    marginTop: 2,
+  },
+  exportProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#CA8A04',
   },
   emptyContainer: {
     flex: 1,

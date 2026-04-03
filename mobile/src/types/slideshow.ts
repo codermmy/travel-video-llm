@@ -6,13 +6,25 @@ export type SlideshowPhoto = EventPhotoItem;
 
 export type SlideshowEventContext = Pick<
   EventRecord,
-  'id' | 'title' | 'emotionTag' | 'musicUrl' | 'storyText' | 'fullStory'
+  | 'id'
+  | 'title'
+  | 'emotionTag'
+  | 'musicUrl'
+  | 'storyText'
+  | 'fullStory'
+  | 'storyFreshness'
+  | 'slideshowFreshness'
+  | 'hasPendingStructureChanges'
 > & {
   chapters?: EventChapter[];
   photoGroups?: PhotoGroup[];
 };
 
-export type SlideshowSceneType = 'chapter-intro' | 'photo' | 'chapter-summary' | 'collage';
+export type VideoAspectMode = 'auto' | 'landscape' | 'portrait';
+export type ResolvedVideoAspectRatio = '16:9' | '9:16';
+
+export type SlideshowSceneType = 'title-plate' | 'photo-frame' | 'montage-frame';
+export type SlideshowSceneNarrativeRole = 'chapter-intro' | 'chapter-summary' | 'photo' | 'montage';
 
 export type TransitionPreset =
   | 'chapter-fade'
@@ -25,10 +37,12 @@ export type TransitionPreset =
 export type SlideshowScene = {
   id: string;
   type: SlideshowSceneType;
+  narrativeRole: SlideshowSceneNarrativeRole;
   chapter: EventChapter | null;
   photo: SlideshowPhoto | null;
   photos: SlideshowPhoto[];
   photoIndex: number;
+  eyebrow: string | null;
   title: string;
   body: string | null;
   minimumDurationMs: number;
@@ -58,6 +72,45 @@ export type SlideshowPhotoSceneLayout = {
   stageHeightRatio: number;
   subtitleTopRatio: number;
   subtitleHorizontalPaddingRatio: number;
+};
+
+export type SlideshowRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type SlideshowVideoTypography = {
+  eyebrowSize: number;
+  titleSize: number;
+  titleLineHeight: number;
+  subtitleSize: number;
+  subtitleLineHeight: number;
+  metaSize: number;
+};
+
+export type SlideshowVideoLayoutContract = {
+  aspectMode: VideoAspectMode;
+  resolvedAspectRatio: ResolvedVideoAspectRatio;
+  canvas: {
+    width: number;
+    height: number;
+  };
+  titleSafeArea: SlideshowRect;
+  stageRect: SlideshowRect;
+  subtitleSafeArea: SlideshowRect;
+  subtitleOverlayRect: SlideshowRect;
+  subtitleOverlayHeight: number;
+  stageGap: number;
+  stageRadius: number;
+  tileRadius: number;
+  montageRects: {
+    single: SlideshowRect[];
+    pair: SlideshowRect[];
+    trio: SlideshowRect[];
+  };
+  typography: SlideshowVideoTypography;
 };
 
 export type SlideshowAudioManifestTrack = {

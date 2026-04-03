@@ -17,6 +17,9 @@ export default function SlideshowScreen() {
           musicUrl: null,
           storyText: null,
           fullStory: null,
+          storyFreshness: 'fresh',
+          slideshowFreshness: 'fresh',
+          hasPendingStructureChanges: false,
           chapters: [],
           photoGroups: [],
         }}

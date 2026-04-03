@@ -369,7 +369,7 @@ function buildSignalProfile(
 
   photos.forEach((photo) => applyPhotoSignals(profile, photo));
 
-  const natureSceneCount = timeline.filter((scene) => scene.type !== 'photo').length;
+  const natureSceneCount = timeline.filter((scene) => scene.type !== 'photo-frame').length;
   if (natureSceneCount > 0) {
     addSceneTags(profile, ['montage'], 0.4 * natureSceneCount);
   }

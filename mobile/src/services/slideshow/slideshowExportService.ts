@@ -5,27 +5,29 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 
 import { buildSlideshowAudioPlan } from '@/services/slideshow/slideshowAudioService';
-import { getSlideshowPhotoSceneLayout } from '@/services/slideshow/slideshowCompositionLayout';
 import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
 import {
   buildSceneTimeline,
   getSceneDisplayPhoto,
   getTimelineTotalDurationMs,
 } from '@/services/slideshow/slideshowSceneBuilder';
+import {
+  buildSlideshowVideoLayoutContract,
+  getCanvasSizeForAspectRatio,
+  resolveVideoAspectRatio,
+} from '@/services/slideshow/slideshowVideoContract';
 import type {
   SlideshowAudioSegment,
   SlideshowEventContext,
   SlideshowPhoto,
-  SlideshowPhotoSceneLayout,
   SlideshowScene,
   SlideshowTimelineScene,
-  CompositionOrientation,
+  SlideshowVideoLayoutContract,
+  VideoAspectMode,
 } from '@/types/slideshow';
 import { getPhotoOriginalCandidates } from '@/utils/mediaRefs';
 
 const EXPORT_MAX_DURATION_MS = 120_000;
-const EXPORT_WIDTH = 1080;
-const EXPORT_HEIGHT = 1920;
 const PHOTO_FLOOR_MS = 1800;
 const PHOTO_SUBTITLE_FLOOR_MS = 2200;
 const AUXILIARY_FLOOR_MS = 2200;
@@ -35,6 +37,7 @@ const EXPORT_AUDIO_DIR = `${EXPORT_CACHE_DIR}/audio`;
 type NativeExportScene = {
   id: string;
   type: string;
+  eyebrow: string | null;
   title: string;
   body: string | null;
   photoUri: string | null;
@@ -57,8 +60,9 @@ type NativeAudioSegment = SlideshowAudioSegment;
 
 type NativeExportConfig = {
   eventTitle: string;
-  compositionOrientation: CompositionOrientation;
-  photoSceneLayout: SlideshowPhotoSceneLayout;
+  aspectMode: VideoAspectMode;
+  resolvedAspectRatio: '16:9' | '9:16';
+  layoutContract: SlideshowVideoLayoutContract;
   outputWidth: number;
   outputHeight: number;
   outputPath: string;
@@ -74,9 +78,14 @@ type NativeExportResult = {
   durationMs: number;
 };
 
+export type SlideshowExportProgress = {
+  label: string;
+  progress: number;
+};
+
 type NativeTravelSlideshowExportModule = {
   isAvailable(): boolean;
-  exportAsync(config: NativeExportConfig): Promise<NativeExportResult>;
+  exportAsync(configJson: string): Promise<NativeExportResult>;
 };
 
 const nativeTravelSlideshowExportModule =
@@ -126,7 +135,7 @@ function createTimelineFromDurations(
 }
 
 function getMinimumExportDurationMs(scene: SlideshowScene): number {
-  if (scene.type === 'photo') {
+  if (scene.type === 'photo-frame') {
     return scene.body ? PHOTO_SUBTITLE_FLOOR_MS : PHOTO_FLOOR_MS;
   }
   return AUXILIARY_FLOOR_MS;
@@ -192,7 +201,8 @@ function prunePhotoScenes(
     const removablePhotoIndices = nextScenes
       .map((scene, index) => ({ scene, index }))
       .filter(
-        ({ scene, index }) => scene.type === 'photo' && index > 0 && index < nextScenes.length - 1,
+        ({ scene, index }) =>
+          scene.type === 'photo-frame' && index > 0 && index < nextScenes.length - 1,
       )
       .map(({ index }) => index);
 
@@ -236,7 +246,7 @@ function compressExportTimeline(
 
   const photoIndices = workingScenes
     .map((scene, index) => ({ scene, index }))
-    .filter(({ scene }) => scene.type === 'photo')
+    .filter(({ scene }) => scene.type === 'photo-frame')
     .map(({ index }) => index);
   remainingReductionMs -= shrinkDurations(
     durationsMs,
@@ -248,7 +258,7 @@ function compressExportTimeline(
   if (remainingReductionMs > 0) {
     const auxiliaryIndices = workingScenes
       .map((scene, index) => ({ scene, index }))
-      .filter(({ scene }) => scene.type !== 'photo')
+      .filter(({ scene }) => scene.type !== 'photo-frame')
       .map(({ index }) => index);
     remainingReductionMs -= shrinkDurations(
       durationsMs,
@@ -272,7 +282,10 @@ async function ensureExportCacheDir(): Promise<void> {
   await FileSystem.makeDirectoryAsync(EXPORT_AUDIO_DIR, { intermediates: true });
 }
 
-async function resizeForExport(sourceUri: string): Promise<string> {
+async function resizeForExport(
+  sourceUri: string,
+  outputSize: { width: number; height: number },
+): Promise<string> {
   const meta = await ImageManipulator.manipulateAsync(sourceUri, [], {
     compress: 1,
     format: ImageManipulator.SaveFormat.JPEG,
@@ -280,11 +293,11 @@ async function resizeForExport(sourceUri: string): Promise<string> {
 
   const actions =
     meta.width >= meta.height
-      ? meta.width > EXPORT_WIDTH
-        ? [{ resize: { width: EXPORT_WIDTH } }]
+      ? meta.width > outputSize.width
+        ? [{ resize: { width: outputSize.width } }]
         : []
-      : meta.height > EXPORT_HEIGHT
-        ? [{ resize: { height: EXPORT_HEIGHT } }]
+      : meta.height > outputSize.height
+        ? [{ resize: { height: outputSize.height } }]
         : [];
 
   if (actions.length === 0) {
@@ -301,6 +314,8 @@ async function resizeForExport(sourceUri: string): Promise<string> {
 async function preparePhotoAssetMap(
   timeline: SlideshowTimelineScene[],
   photos: SlideshowPhoto[],
+  outputSize: { width: number; height: number },
+  onProgress?: (progress: number) => void,
 ): Promise<Map<string, string>> {
   const assetMap = new Map<string, string>();
   const uniqueUris = new Set<string>();
@@ -315,13 +330,17 @@ async function preparePhotoAssetMap(
     });
   });
 
-  for (const sourceUri of uniqueUris) {
+  const uriList = Array.from(uniqueUris);
+  for (const [index, sourceUri] of uriList.entries()) {
     try {
-      const resizedUri = await resizeForExport(sourceUri);
+      const resizedUri = await resizeForExport(sourceUri, outputSize);
       assetMap.set(sourceUri, resizedUri);
     } catch (error) {
       console.warn('Failed to prepare export photo asset:', sourceUri, error);
       assetMap.set(sourceUri, sourceUri);
+    }
+    if (uriList.length > 0) {
+      onProgress?.((index + 1) / uriList.length);
     }
   }
 
@@ -335,13 +354,17 @@ function getAudioCachePath(segment: SlideshowAudioSegment): string {
 
 async function cacheAudioSegmentsLocally(
   segments: SlideshowAudioSegment[],
+  onProgress?: (progress: number) => void,
 ): Promise<SlideshowAudioSegment[]> {
   const cachedBySourceUrl = new Map<string, string>();
   const nextSegments: SlideshowAudioSegment[] = [];
 
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     if (!/^https?:\/\//i.test(segment.sourceUrl)) {
       nextSegments.push(segment);
+      if (segments.length > 0) {
+        onProgress?.((index + 1) / segments.length);
+      }
       continue;
     }
 
@@ -373,9 +396,19 @@ async function cacheAudioSegmentsLocally(
       ...segment,
       sourceUrl: localUri,
     });
+    if (segments.length > 0) {
+      onProgress?.((index + 1) / segments.length);
+    }
   }
 
   return nextSegments;
+}
+
+function emitProgress(
+  callback: ((progress: SlideshowExportProgress) => void) | undefined,
+  progress: SlideshowExportProgress,
+): void {
+  callback?.(progress);
 }
 
 function getMappedPhotoUri(
@@ -394,7 +427,7 @@ function getMappedPhotoUri(
 
 function buildSubtitleCues(timeline: SlideshowTimelineScene[]): NativeSubtitleCue[] {
   return timeline
-    .filter((scene) => scene.type === 'photo' && Boolean(scene.body))
+    .filter((scene) => Boolean(scene.body))
     .map((scene) => ({
       startMs: Math.min(scene.endMs, scene.startMs + scene.subtitleDelayMs),
       endMs: scene.endMs,
@@ -411,6 +444,7 @@ function buildNativeScenes(
   return timeline.map((scene) => ({
     id: scene.id,
     type: scene.type,
+    eyebrow: scene.eyebrow,
     title: scene.title,
     body: scene.body,
     photoUri: getMappedPhotoUri(getSceneDisplayPhoto(scene, photos), assetMap),
@@ -454,8 +488,11 @@ export async function exportSlideshowVideo(params: {
   scenes: SlideshowScene[];
   slideDurationMs: number;
   includeSubtitles: boolean;
+  aspectMode: VideoAspectMode;
+  onProgress?: (progress: SlideshowExportProgress) => void;
 }): Promise<NativeExportResult & { assetId: string | null }> {
   const nativeModule = ensureNativeExportAvailable();
+  emitProgress(params.onProgress, { label: '正在准备导出环境...', progress: 0.08 });
   await ensureExportCacheDir();
 
   const exportTimeline = compressExportTimeline(
@@ -463,21 +500,48 @@ export async function exportSlideshowVideo(params: {
     params.slideDurationMs,
     EXPORT_MAX_DURATION_MS,
   );
+  emitProgress(params.onProgress, { label: '正在分析视频比例...', progress: 0.16 });
   const compositionProfile = buildSlideshowCompositionProfile(params.photos);
-  const assetMap = await preparePhotoAssetMap(exportTimeline, params.photos);
+  const resolvedAspectRatio = resolveVideoAspectRatio(params.aspectMode, compositionProfile);
+  const outputSize = getCanvasSizeForAspectRatio(resolvedAspectRatio);
+  const layoutContract = buildSlideshowVideoLayoutContract({
+    aspectMode: params.aspectMode,
+    compositionProfile,
+    canvasWidth: outputSize.width,
+    canvasHeight: outputSize.height,
+  });
+  emitProgress(params.onProgress, { label: '正在整理照片素材...', progress: 0.24 });
+  const assetMap = await preparePhotoAssetMap(
+    exportTimeline,
+    params.photos,
+    outputSize,
+    (value) => {
+      emitProgress(params.onProgress, {
+        label: '正在整理照片素材...',
+        progress: 0.24 + value * 0.26,
+      });
+    },
+  );
+  emitProgress(params.onProgress, { label: '正在匹配配乐片段...', progress: 0.54 });
   const audioPlan = await buildSlideshowAudioPlan({
     event: params.event,
     photos: params.photos,
     timeline: exportTimeline,
   });
-  const cachedAudioSegments = await cacheAudioSegmentsLocally(audioPlan.segments);
+  const cachedAudioSegments = await cacheAudioSegmentsLocally(audioPlan.segments, (value) => {
+    emitProgress(params.onProgress, {
+      label: '正在缓存配乐资源...',
+      progress: 0.54 + value * 0.12,
+    });
+  });
 
   const config: NativeExportConfig = {
     eventTitle: params.event.title,
-    compositionOrientation: compositionProfile.orientation,
-    photoSceneLayout: getSlideshowPhotoSceneLayout(compositionProfile.orientation),
-    outputWidth: EXPORT_WIDTH,
-    outputHeight: EXPORT_HEIGHT,
+    aspectMode: params.aspectMode,
+    resolvedAspectRatio,
+    layoutContract,
+    outputWidth: outputSize.width,
+    outputHeight: outputSize.height,
     outputPath: buildOutputPath(params.event.title),
     includeSubtitles: params.includeSubtitles,
     totalDurationMs: getTimelineTotalDurationMs(exportTimeline),
@@ -486,21 +550,28 @@ export async function exportSlideshowVideo(params: {
     audioSegments: cachedAudioSegments,
   };
 
+  emitProgress(params.onProgress, {
+    label: `正在生成 ${resolvedAspectRatio} 成片...`,
+    progress: 0.72,
+  });
   logExportDebug('export_start', {
     eventId: params.event.id,
-    compositionOrientation: compositionProfile.orientation,
+    aspectMode: params.aspectMode,
+    resolvedAspectRatio,
     includeSubtitles: params.includeSubtitles,
     sceneCount: config.scenes.length,
     subtitleCount: config.subtitles.length,
     audioSegmentCount: config.audioSegments.length,
     totalDurationMs: config.totalDurationMs,
   });
-  const result = await nativeModule.exportAsync(config);
+  const result = await nativeModule.exportAsync(JSON.stringify(config));
+  emitProgress(params.onProgress, { label: '正在保存到系统相册...', progress: 0.92 });
   logExportDebug('export_done', {
     fileUri: result.fileUri,
     durationMs: result.durationMs,
   });
   const assetId = await saveAndShareExport(result.fileUri);
+  emitProgress(params.onProgress, { label: '导出完成', progress: 1 });
   return {
     ...result,
     assetId,
