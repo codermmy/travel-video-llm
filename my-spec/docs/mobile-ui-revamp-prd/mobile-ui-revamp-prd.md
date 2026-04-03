@@ -240,6 +240,21 @@ Danger / 赤陶红: #C15D4D
   - 卡片采用“细边框 + 极轻阴影”而非厚重投影
   - 一屏内卡片层级不超过三层
 
+##### 5.2.1.1 共享组件复用约束
+
+- 以下共享组件已经冻结，后续页面必须优先复用，不再就地发明新样式：
+  - `PageContent`
+  - `PageHeader`
+  - `SurfaceCard`
+  - `InlineBanner`
+  - `ActionButton`
+  - `BottomSheetScaffold`
+  - `EmptyStateCard`
+  - `MetricPill`
+  - `StateChip`
+  - `FilterChip`
+  - `ListItemRow`
+
 #### 5.2.2 页面级视觉要求
 
 - 回忆首页：
@@ -657,6 +672,31 @@ Danger / 赤陶红: #C15D4D
 
 说明：
 - 视频播放页 / 幻灯片播放器页面不在本轮实现 Task 范围内，除非后续单独开需求。
+
+### 9.2 执行子 PRD 索引
+
+说明：
+- 总 PRD 继续作为唯一产品基线，负责范围、页面编号、验收口径和总任务状态。
+- 子 PRD 只负责执行，不得私自改动总方向、页面范围或验收标准。
+- 建议默认按串行顺序执行，只有共享文件边界完全不重叠时才允许并行。
+
+- 串行顺序 0：基础契约
+  - [00-foundation-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/00-foundation-prd.md)
+- 串行顺序 1：首页与主入口
+  - [01-home-shell-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/01-home-shell-prd.md)
+- 串行顺序 2：地图链路
+  - [02-map-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/02-map-prd.md)
+- 串行顺序 3：事件详情链路
+  - [03-event-detail-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/03-event-detail-prd.md)
+- 串行顺序 4：照片与补导入链路
+  - [04-photo-import-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/04-photo-import-prd.md)
+- 串行顺序 5：设备中心与任务中心
+  - [05-profile-task-center-prd.md](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/execution-prds/05-profile-task-center-prd.md)
+
+执行规则：
+- 每轮只允许选择一份子 PRD 作为当前实现边界。
+- 只有对应页面与 [mobile-ui-wireframes.html](/Users/maoyuan/code/travel-video-llm/my-spec/docs/mobile-ui-revamp-prd/mobile-ui-wireframes.html) 逐页对照通过后，才允许回写总 PRD 的 checkbox。
+- 若某轮实现需要修改基础 token、共享卡片、共享 Sheet、Tab 壳层或统一状态语言，先回到 `00-foundation-prd` 收口，再继续后续页面。
 
 ## 10. 验收标准
 

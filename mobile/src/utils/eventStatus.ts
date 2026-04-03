@@ -1,5 +1,52 @@
 import type { EventRecord, EventStatus } from '@/types/event';
 import { JourneyPalette } from '@/styles/colors';
+import type { JourneyStateKind } from '@/utils/statusLanguage';
+
+export type JourneyStatusMeta = {
+  label: string;
+  tone: JourneyStateKind;
+  color: string;
+  soft: string;
+};
+
+const STATUS_TONE_META: Record<
+  JourneyStateKind,
+  {
+    color: string;
+    soft: string;
+  }
+> = {
+  ready: {
+    color: JourneyPalette.success,
+    soft: JourneyPalette.successSoft,
+  },
+  processing: {
+    color: JourneyPalette.accent,
+    soft: JourneyPalette.accentSoft,
+  },
+  importing: {
+    color: JourneyPalette.accentWarm,
+    soft: JourneyPalette.accentWarmSoft,
+  },
+  stale: {
+    color: JourneyPalette.warning,
+    soft: JourneyPalette.warningSoft,
+  },
+  failed: {
+    color: JourneyPalette.danger,
+    soft: JourneyPalette.dangerSoft,
+  },
+};
+
+function createStatusMeta(tone: JourneyStateKind, label: string): JourneyStatusMeta {
+  const meta = STATUS_TONE_META[tone];
+  return {
+    tone,
+    label,
+    color: meta.color,
+    soft: meta.soft,
+  };
+}
 
 export function getEventStatusMeta(
   event: Pick<
@@ -10,67 +57,38 @@ export function getEventStatusMeta(
     | 'slideshowFreshness'
     | 'hasPendingStructureChanges'
   >,
-): {
-  label: string;
-  color: string;
-  soft: string;
-} {
+): JourneyStatusMeta {
   if (event.status === 'ai_failed') {
-    return { label: '生成失败', color: JourneyPalette.danger, soft: JourneyPalette.dangerSoft };
-  }
-  if (event.status === 'ai_processing') {
-    return {
-      label: '故事生成中',
-      color: JourneyPalette.accent,
-      soft: JourneyPalette.accentSoft,
-    };
-  }
-  if (event.status === 'ai_pending') {
-    return { label: '故事待生成', color: JourneyPalette.inkSoft, soft: '#EEE8DE' };
+    return createStatusMeta('failed', '生成失败');
   }
   if (
     event.storyFreshness === 'stale' ||
     event.slideshowFreshness === 'stale' ||
     event.hasPendingStructureChanges
   ) {
-    return {
-      label: '待更新',
-      color: JourneyPalette.warning,
-      soft: JourneyPalette.warningSoft,
-    };
-  }
-  if (event.status === 'generated') {
-    return {
-      label: '已完成',
-      color: JourneyPalette.success,
-      soft: JourneyPalette.successSoft,
-    };
+    return createStatusMeta('stale', '待更新');
   }
   if (event.status === 'waiting_for_vision') {
-    return { label: '整理中', color: JourneyPalette.inkSoft, soft: '#EEE8DE' };
+    return createStatusMeta('importing', '导入中');
+  }
+  if (event.status === 'ai_pending' || event.status === 'ai_processing') {
+    return createStatusMeta('processing', '整理中');
   }
   if (event.visionSummary.processing > 0 || event.visionSummary.completed > 0) {
-    return { label: '分析中', color: JourneyPalette.accent, soft: JourneyPalette.accentSoft };
+    return createStatusMeta('processing', '分析中');
   }
   if (event.visionSummary.unsupported > 0) {
-    return {
-      label: '端侧识别不可用',
-      color: JourneyPalette.warning,
-      soft: JourneyPalette.warningSoft,
-    };
+    return createStatusMeta('failed', '分析失败');
   }
-  return { label: '待分析', color: JourneyPalette.inkSoft, soft: '#EEE8DE' };
+  return createStatusMeta('ready', '已完成');
 }
 
 export function getEventDetailStatusMeta(status: EventStatus): { label: string; color: string } {
   if (status === 'waiting_for_vision') {
-    return { label: '等待端侧分析', color: JourneyPalette.inkSoft };
+    return { label: '导入中', color: JourneyPalette.accentWarm };
   }
-  if (status === 'ai_pending') {
-    return { label: '待生成', color: JourneyPalette.inkSoft };
-  }
-  if (status === 'ai_processing') {
-    return { label: 'AI 生成中', color: JourneyPalette.accent };
+  if (status === 'ai_pending' || status === 'ai_processing') {
+    return { label: '整理中', color: JourneyPalette.accent };
   }
   if (status === 'generated') {
     return { label: '已完成', color: JourneyPalette.success };
@@ -78,5 +96,5 @@ export function getEventDetailStatusMeta(status: EventStatus): { label: string; 
   if (status === 'ai_failed') {
     return { label: '生成失败', color: JourneyPalette.danger };
   }
-  return { label: '已聚类（待AI）', color: JourneyPalette.inkSoft };
+  return { label: '待更新', color: JourneyPalette.warning };
 }

@@ -4,6 +4,7 @@ import {
   Alert,
   Animated as RNAnimated,
   AppState,
+  type AppStateStatus,
   Image,
   type LayoutChangeEvent,
   Pressable,
@@ -13,8 +14,8 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { Audio, type AVPlaybackSource } from 'expo-av';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Audio, ResizeMode, Video, type AVPlaybackSource, type AVPlaybackStatus } from 'expo-av';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -42,28 +43,29 @@ import {
   getAudioVolumeAtPosition,
 } from '@/services/slideshow/slideshowAudioService';
 import {
+  buildSlideshowRenderTimeline,
   exportSlideshowVideo,
+  generateSlideshowPreviewVideo,
   type SlideshowExportProgress,
 } from '@/services/slideshow/slideshowExportService';
 import { buildSlideshowCompositionProfile } from '@/services/slideshow/slideshowCompositionProfile';
 import {
   buildScenes,
-  buildSceneTimeline,
   findTimelineSceneAtPosition,
   getChapterTitle,
   getSceneDisplayPhoto,
   getSceneHeaderLabel,
-  getTransitionConfig,
   getTimelineTotalDurationMs,
 } from '@/services/slideshow/slideshowSceneBuilder';
 import {
   buildSlideshowVideoLayoutContract,
+  getCanvasSizeForAspectRatio,
   fitAspectRatioWithinBounds,
+  resolveVideoAspectRatio,
 } from '@/services/slideshow/slideshowVideoContract';
 
 const MotionImage = createAnimatedComponent(Image);
 
-const SPEED_OPTIONS_MS = [2200, 3200, 4800] as const;
 const DEFAULT_SLIDE_DURATION_MS = 3200;
 const CONTROL_AUTO_HIDE_MS = 3000;
 const DEFAULT_LOCAL_BGM = require('../../../assets/audio/default-bgm.wav');
@@ -91,6 +93,62 @@ function getMusicStatusText(status: MusicSourceStatus): string {
     default:
       return '音乐：加载中';
   }
+}
+
+function scaleValue(value: number, scale: number): number {
+  return Math.round(value * scale);
+}
+
+function scaleRect(
+  rect: SlideshowVideoLayoutContract['stageRect'],
+  scaleX: number,
+  scaleY: number,
+): SlideshowVideoLayoutContract['stageRect'] {
+  return {
+    x: scaleValue(rect.x, scaleX),
+    y: scaleValue(rect.y, scaleY),
+    width: scaleValue(rect.width, scaleX),
+    height: scaleValue(rect.height, scaleY),
+  };
+}
+
+function scaleLayoutContract(
+  contract: SlideshowVideoLayoutContract,
+  canvasWidth: number,
+  canvasHeight: number,
+): SlideshowVideoLayoutContract {
+  const scaleX = canvasWidth / contract.canvas.width;
+  const scaleY = canvasHeight / contract.canvas.height;
+  const typographyScale = Math.min(scaleX, scaleY);
+
+  return {
+    ...contract,
+    canvas: {
+      width: canvasWidth,
+      height: canvasHeight,
+    },
+    titleSafeArea: scaleRect(contract.titleSafeArea, scaleX, scaleY),
+    stageRect: scaleRect(contract.stageRect, scaleX, scaleY),
+    subtitleSafeArea: scaleRect(contract.subtitleSafeArea, scaleX, scaleY),
+    subtitleOverlayRect: scaleRect(contract.subtitleOverlayRect, scaleX, scaleY),
+    subtitleOverlayHeight: scaleValue(contract.subtitleOverlayHeight, scaleY),
+    stageGap: scaleValue(contract.stageGap, scaleX),
+    stageRadius: scaleValue(contract.stageRadius, scaleX),
+    tileRadius: scaleValue(contract.tileRadius, scaleX),
+    montageRects: {
+      single: contract.montageRects.single.map((rect) => scaleRect(rect, scaleX, scaleY)),
+      pair: contract.montageRects.pair.map((rect) => scaleRect(rect, scaleX, scaleY)),
+      trio: contract.montageRects.trio.map((rect) => scaleRect(rect, scaleX, scaleY)),
+    },
+    typography: {
+      eyebrowSize: scaleValue(contract.typography.eyebrowSize, typographyScale),
+      titleSize: scaleValue(contract.typography.titleSize, typographyScale),
+      titleLineHeight: scaleValue(contract.typography.titleLineHeight, typographyScale),
+      subtitleSize: scaleValue(contract.typography.subtitleSize, typographyScale),
+      subtitleLineHeight: scaleValue(contract.typography.subtitleLineHeight, typographyScale),
+      metaSize: scaleValue(contract.typography.metaSize, typographyScale),
+    },
+  };
 }
 
 function formatDurationLabel(ms: number): string {
@@ -201,32 +259,32 @@ function SceneLayer({
   if (scene.type === 'photo-frame') {
     return (
       <View style={styles.canvasScene}>
-        <View style={[stageStyle, styles.photoStage, { borderRadius: layoutContract.stageRadius }]}>
-          {photoUri ? (
-            motionStyle ? (
-              <MotionImage
-                source={{ uri: photoUri }}
-                style={[styles.photoStageImage, motionStyle]}
-                resizeMode="contain"
-                onLoad={onPhotoLoad}
-                onError={onPhotoError}
-              />
-            ) : (
-              <Image
-                source={{ uri: photoUri }}
-                style={styles.photoStageImage}
-                resizeMode="contain"
-                onLoad={onPhotoLoad}
-                onError={onPhotoError}
-              />
-            )
+        {photoUri ? (
+          motionStyle ? (
+            <MotionImage
+              source={{ uri: photoUri }}
+              style={[styles.photoCanvasImage, motionStyle]}
+              resizeMode="contain"
+              onLoad={onPhotoLoad}
+              onError={onPhotoError}
+            />
           ) : (
+            <Image
+              source={{ uri: photoUri }}
+              style={styles.photoCanvasImage}
+              resizeMode="contain"
+              onLoad={onPhotoLoad}
+              onError={onPhotoError}
+            />
+          )
+        ) : (
+          <View style={styles.photoMissingCanvas}>
             <View style={styles.photoMissingState}>
               <MaterialCommunityIcons name="image-broken-variant" size={34} color="#E7D2BB" />
               <Text style={styles.photoMissingText}>当前照片暂时不可用</Text>
             </View>
-          )}
-        </View>
+          </View>
+        )}
       </View>
     );
   }
@@ -234,21 +292,6 @@ function SceneLayer({
   if (scene.type === 'montage-frame') {
     return (
       <View style={styles.canvasScene}>
-        <View style={titleSafeStyle}>
-          {scene.eyebrow ? <Text style={styles.sceneEyebrow}>{scene.eyebrow}</Text> : null}
-          <Text
-            style={[
-              styles.sceneTitle,
-              styles.serifTitle,
-              {
-                fontSize: layoutContract.typography.titleSize,
-                lineHeight: layoutContract.typography.titleLineHeight,
-              },
-            ]}
-          >
-            {scene.title || eventTitle}
-          </Text>
-        </View>
         <View
           style={[styles.montageStage, stageStyle, { borderRadius: layoutContract.stageRadius }]}
         >
@@ -307,8 +350,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const [progressVisible, setProgressVisible] = useState(true);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [slideDurationMs, setSlideDurationMs] = useState(DEFAULT_SLIDE_DURATION_MS);
-  const [aspectMode, setAspectMode] = useState<VideoAspectMode>('auto');
+  const [isLandscapePlayback, setIsLandscapePlayback] = useState(false);
   const [musicStatus, setMusicStatus] = useState<MusicSourceStatus>('loading');
   const [footerHeight, setFooterHeight] = useState(212);
   const [failedCandidateIndices, setFailedCandidateIndices] = useState<Record<string, number>>({});
@@ -322,6 +364,17 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     label: '正在准备导出环境...',
     progress: 0,
   });
+  const [previewVideoStatus, setPreviewVideoStatus] = useState<
+    'idle' | 'generating' | 'ready' | 'failed'
+  >('idle');
+  const [previewVideoUri, setPreviewVideoUri] = useState<string | null>(null);
+  const [previewVideoDurationMs, setPreviewVideoDurationMs] = useState(0);
+  const [previewVideoProgress, setPreviewVideoProgress] = useState<SlideshowExportProgress>({
+    label: '正在准备视频预览...',
+    progress: 0,
+  });
+  const [previewPositionMs, setPreviewPositionMs] = useState(0);
+  const [orientationLockCaptured, setOrientationLockCaptured] = useState(false);
 
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subtitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -335,6 +388,14 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const pendingSeekMsRef = useRef<number | null>(null);
   const currentTimelinePositionRef = useRef(0);
   const closingRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const previewVideoRef = useRef<Video | null>(null);
+  const previewGenerationRunRef = useRef(0);
+  const pendingPreviewStartPositionRef = useRef<number | null>(null);
+  const previewReadyKeyRef = useRef<string | null>(null);
+  const previewInFlightKeyRef = useRef<string | null>(null);
+  const previousOrientationLockRef = useRef<ScreenOrientation.OrientationLock | null>(null);
+  const orientationLockCapturedRef = useRef(false);
 
   const incomingOpacity = useRef(new RNAnimated.Value(1)).current;
   const incomingTranslateX = useRef(new RNAnimated.Value(0)).current;
@@ -350,9 +411,55 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const motionScale = useSharedValue(1);
   const motionTranslateX = useSharedValue(0);
   const motionTranslateY = useSharedValue(0);
+  const slideDurationMs = DEFAULT_SLIDE_DURATION_MS;
+  const aspectMode: VideoAspectMode = 'auto';
 
-  const currentScene = scenes[currentSceneIndex] ?? null;
-  const previousScene = previousSceneIndex !== null ? (scenes[previousSceneIndex] ?? null) : null;
+  const timeline = useMemo(
+    () => buildSlideshowRenderTimeline(scenes, slideDurationMs),
+    [scenes, slideDurationMs],
+  );
+  const previewRequestKey = useMemo(
+    () =>
+      JSON.stringify({
+        eventId: event.id,
+        title: event.title,
+        aspectMode,
+        slideDurationMs,
+        storyText: event.storyText ?? null,
+        fullStory: event.fullStory ?? null,
+        photoIds: photos.map((photo) => photo.id),
+        photoUris: photos.map((photo) => photo.localUri ?? photo.photoUrl ?? null),
+        scenes: scenes.map((scene) => ({
+          id: scene.id,
+          type: scene.type,
+          title: scene.title,
+          body: scene.body,
+          photoIndex: scene.photoIndex,
+          photoIds: scene.photos.map((photo) => photo.id),
+        })),
+      }),
+    [
+      aspectMode,
+      event.fullStory,
+      event.id,
+      event.storyText,
+      event.title,
+      photos,
+      scenes,
+      slideDurationMs,
+    ],
+  );
+  const previewVideoEligible = photos.length > 0 && timeline.length > 0;
+  const previewVideoActive =
+    previewVideoStatus === 'ready' &&
+    Boolean(previewVideoUri) &&
+    previewReadyKeyRef.current === previewRequestKey;
+  const realtimePlaybackEnabled = previewVideoStatus === 'failed';
+  const playbackInteractive = previewVideoActive || realtimePlaybackEnabled;
+  const waitingForPreview = previewVideoEligible && !playbackInteractive;
+
+  const currentScene = timeline[currentSceneIndex] ?? null;
+  const previousScene = previousSceneIndex !== null ? (timeline[previousSceneIndex] ?? null) : null;
 
   const currentScenePhoto = useMemo(
     () => getSceneDisplayPhoto(currentScene, photos),
@@ -373,29 +480,32 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     [previousScenePhoto, failedCandidateIndices],
   );
 
-  const activeSlideDurationMs = useMemo(() => {
-    if (!currentScene) {
-      return slideDurationMs;
-    }
-    if (currentScene.type === 'photo-frame') {
-      return Math.max(slideDurationMs, currentScene.minimumDurationMs);
-    }
-    return currentScene.minimumDurationMs;
-  }, [currentScene, slideDurationMs]);
-  const timeline = useMemo(
-    () => buildSceneTimeline(scenes, slideDurationMs),
-    [scenes, slideDurationMs],
-  );
+  const activeSlideDurationMs = currentScene?.durationMs ?? slideDurationMs;
   const totalTimelineMs = useMemo(() => getTimelineTotalDurationMs(timeline), [timeline]);
-  const currentTimelinePositionMs = useMemo(() => {
+  const realtimeTimelinePositionMs = useMemo(() => {
     const sceneStartMs = timeline[currentSceneIndex]?.startMs ?? 0;
     return Math.max(0, Math.min(sceneStartMs + elapsedMs, totalTimelineMs));
   }, [currentSceneIndex, elapsedMs, timeline, totalTimelineMs]);
+  const currentTimelinePositionMs = previewVideoActive
+    ? Math.max(0, Math.min(previewPositionMs, previewVideoDurationMs || totalTimelineMs))
+    : realtimeTimelinePositionMs;
   const displayedTimelinePositionMs =
     isSeeking && seekPreviewMs !== null ? seekPreviewMs : currentTimelinePositionMs;
+  const activeSceneTarget = useMemo(
+    () => findTimelineSceneAtPosition(timeline, currentTimelinePositionMs),
+    [currentTimelinePositionMs, timeline],
+  );
+  const activeScene = activeSceneTarget.scene ?? currentScene;
+  const activeScenePhoto = useMemo(
+    () => getSceneDisplayPhoto(activeScene, photos),
+    [activeScene, photos],
+  );
   const currentAudioSegment = useMemo(
-    () => getAudioSegmentAtPosition(audioPlan, currentTimelinePositionMs),
-    [audioPlan, currentTimelinePositionMs],
+    () =>
+      realtimePlaybackEnabled
+        ? getAudioSegmentAtPosition(audioPlan, currentTimelinePositionMs)
+        : null,
+    [audioPlan, currentTimelinePositionMs, realtimePlaybackEnabled],
   );
   const previewSceneLabel = useMemo(() => {
     const previewPositionMs = displayedTimelinePositionMs;
@@ -410,33 +520,43 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [displayedTimelinePositionMs, photos.length, timeline]);
 
   const sceneHeaderLabel = useMemo(
-    () => getSceneHeaderLabel(currentScene, photos.length),
-    [currentScene, photos.length],
+    () => getSceneHeaderLabel(activeScene, photos.length),
+    [activeScene, photos.length],
   );
-  const currentSubtitle = currentScene?.body ?? null;
+  const currentSubtitle = realtimePlaybackEnabled ? (activeScene?.body ?? null) : null;
   const exportBlocked = event.slideshowFreshness === 'stale' || event.hasPendingStructureChanges;
 
   const formattedShotTime = useMemo(() => {
-    if (currentScene?.type !== 'photo-frame' || !currentScenePhoto?.shootTime) {
+    if (activeScene?.type !== 'photo-frame' || !activeScenePhoto?.shootTime) {
       return null;
     }
     try {
-      return formatDateTime(currentScenePhoto.shootTime);
+      return formatDateTime(activeScenePhoto.shootTime);
     } catch {
-      return currentScenePhoto.shootTime;
+      return activeScenePhoto.shootTime;
     }
-  }, [currentScene?.type, currentScenePhoto?.shootTime]);
+  }, [activeScene?.type, activeScenePhoto?.shootTime]);
 
   const compositionProfile = useMemo(
     () => buildSlideshowCompositionProfile(photos, photoAspectRatios),
     [photoAspectRatios, photos],
   );
+  const isCompactPlayback = isLandscapePlayback || viewportWidth > viewportHeight;
   const headerTop = insets.top + 12;
   const footerBottom = insets.bottom + 20;
+  const immersiveLandscapePlayback = isLandscapePlayback;
   const previewBounds = useMemo(() => {
-    const top = headerTop + 72;
-    const bottom = viewportHeight - footerBottom - footerHeight - 24;
-    const maxWidth = Math.max(220, viewportWidth - 24);
+    if (immersiveLandscapePlayback) {
+      return {
+        top: 0,
+        bottom: viewportHeight,
+        maxWidth: Math.max(220, viewportWidth),
+        maxHeight: Math.max(220, viewportHeight),
+      };
+    }
+    const top = headerTop + (isCompactPlayback ? 56 : 72);
+    const bottom = viewportHeight - footerBottom - footerHeight - (isCompactPlayback ? 12 : 24);
+    const maxWidth = Math.max(220, viewportWidth - (isCompactPlayback ? 12 : 24));
     const maxHeight = Math.max(220, bottom - top);
     return {
       top,
@@ -444,33 +564,48 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       maxWidth,
       maxHeight,
     };
-  }, [footerBottom, footerHeight, headerTop, viewportHeight, viewportWidth]);
+  }, [
+    footerBottom,
+    footerHeight,
+    headerTop,
+    immersiveLandscapePlayback,
+    isCompactPlayback,
+    viewportHeight,
+    viewportWidth,
+  ]);
+  const resolvedAspectRatio = useMemo(
+    () => resolveVideoAspectRatio(aspectMode, compositionProfile),
+    [aspectMode, compositionProfile],
+  );
   const previewCanvasSize = useMemo(
     () =>
       fitAspectRatioWithinBounds({
         maxWidth: previewBounds.maxWidth,
         maxHeight: previewBounds.maxHeight,
-        resolvedAspectRatio:
-          aspectMode === 'landscape'
-            ? '16:9'
-            : aspectMode === 'portrait'
-              ? '9:16'
-              : compositionProfile.orientation === 'landscape-dominant'
-                ? '16:9'
-                : '9:16',
+        resolvedAspectRatio,
       }),
-    [aspectMode, compositionProfile.orientation, previewBounds.maxHeight, previewBounds.maxWidth],
+    [previewBounds.maxHeight, previewBounds.maxWidth, resolvedAspectRatio],
   );
-  const layoutContract = useMemo(
-    () =>
-      buildSlideshowVideoLayoutContract({
-        aspectMode,
-        compositionProfile,
-        canvasWidth: previewCanvasSize.width,
-        canvasHeight: previewCanvasSize.height,
-      }),
-    [aspectMode, compositionProfile, previewCanvasSize.height, previewCanvasSize.width],
+  const exportCanvasSize = useMemo(
+    () => getCanvasSizeForAspectRatio(resolvedAspectRatio),
+    [resolvedAspectRatio],
   );
+  const layoutContract = useMemo(() => {
+    const baseContract = buildSlideshowVideoLayoutContract({
+      aspectMode,
+      compositionProfile,
+      canvasWidth: exportCanvasSize.width,
+      canvasHeight: exportCanvasSize.height,
+    });
+    return scaleLayoutContract(baseContract, previewCanvasSize.width, previewCanvasSize.height);
+  }, [
+    aspectMode,
+    compositionProfile,
+    exportCanvasSize.height,
+    exportCanvasSize.width,
+    previewCanvasSize.height,
+    previewCanvasSize.width,
+  ]);
   const previewCanvasFrame = useMemo(() => {
     const left = (viewportWidth - previewCanvasSize.width) / 2;
     const verticalSpace = Math.max(
@@ -539,7 +674,87 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, [currentTimelinePositionMs]);
 
   useEffect(() => {
-    if (scenes.length === 0) {
+    let cancelled = false;
+
+    if (!previewVideoEligible) {
+      return;
+    }
+    if (previewReadyKeyRef.current === previewRequestKey && previewVideoUri) {
+      return;
+    }
+    if (previewInFlightKeyRef.current === previewRequestKey) {
+      return;
+    }
+
+    const runId = previewGenerationRunRef.current + 1;
+    previewGenerationRunRef.current = runId;
+    previewInFlightKeyRef.current = previewRequestKey;
+
+    const fallbackTarget = findTimelineSceneAtPosition(
+      timeline,
+      currentTimelinePositionRef.current,
+    );
+    if (fallbackTarget.scene) {
+      setPreviousSceneIndex(null);
+      setCurrentSceneIndex(fallbackTarget.sceneIndex);
+      setElapsedMs(fallbackTarget.sceneElapsedMs);
+    }
+    setPreviewPositionMs(0);
+    setPreviewVideoStatus('generating');
+    setPreviewVideoUri(null);
+    setPreviewVideoDurationMs(0);
+    setPreviewVideoProgress({ label: '正在准备视频预览...', progress: 0.08 });
+
+    void generateSlideshowPreviewVideo({
+      event,
+      photos,
+      scenes,
+      slideDurationMs,
+      aspectMode,
+      onProgress: (nextProgress) => {
+        if (!cancelled && previewGenerationRunRef.current === runId) {
+          setPreviewVideoProgress(nextProgress);
+        }
+      },
+    })
+      .then((result) => {
+        if (cancelled || closingRef.current || previewGenerationRunRef.current !== runId) {
+          return;
+        }
+        previewInFlightKeyRef.current = null;
+        previewReadyKeyRef.current = previewRequestKey;
+        pendingPreviewStartPositionRef.current = currentTimelinePositionRef.current;
+        setPreviewVideoUri(result.fileUri);
+        setPreviewVideoDurationMs(result.durationMs);
+        setPreviewVideoStatus('ready');
+        setPreviewVideoProgress({ label: '预览视频已就绪', progress: 1 });
+      })
+      .catch((error) => {
+        if (cancelled || closingRef.current || previewGenerationRunRef.current !== runId) {
+          return;
+        }
+        previewInFlightKeyRef.current = null;
+        setPreviewVideoStatus('failed');
+        setPreviewVideoDurationMs(0);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    aspectMode,
+    event,
+    photos,
+    previewRequestKey,
+    previewVideoEligible,
+    previewVideoUri,
+    scenes,
+    slideDurationMs,
+    timeline,
+  ]);
+
+  useEffect(() => {
+    if (timeline.length === 0) {
       if (currentSceneIndex !== 0) {
         setCurrentSceneIndex(0);
       }
@@ -549,19 +764,19 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return;
     }
 
-    if (currentSceneIndex > scenes.length - 1) {
+    if (currentSceneIndex > timeline.length - 1) {
       setCurrentSceneIndex(0);
     }
-  }, [currentSceneIndex, previousSceneIndex, scenes.length]);
+  }, [currentSceneIndex, previousSceneIndex, timeline.length]);
 
   useEffect(() => {
-    if (scenes.length === 0) {
+    if (timeline.length === 0) {
       return;
     }
 
     const currentPhoto = getSceneDisplayPhoto(currentScene, photos);
-    const nextScene = scenes[(currentSceneIndex + 1) % scenes.length];
-    const prevScene = scenes[(currentSceneIndex - 1 + scenes.length) % scenes.length];
+    const nextScene = timeline[(currentSceneIndex + 1) % timeline.length];
+    const prevScene = timeline[(currentSceneIndex - 1 + timeline.length) % timeline.length];
     const nextPhoto = getSceneDisplayPhoto(nextScene, photos);
     const prevPhoto = getSceneDisplayPhoto(prevScene, photos);
 
@@ -574,90 +789,38 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       .forEach((uri) => {
         void Image.prefetch(uri);
       });
-  }, [currentScene, currentSceneIndex, failedCandidateIndices, photos, scenes]);
+  }, [currentScene, currentSceneIndex, failedCandidateIndices, photos, timeline]);
 
   const resetControlAutoHide = useCallback(() => {
     if (controlsTimerRef.current) {
       clearTimeout(controlsTimerRef.current);
     }
     setControlsVisible(true);
-    setProgressVisible(true);
+    setProgressVisible(playbackInteractive);
+    if (!playbackInteractive) {
+      return;
+    }
     controlsTimerRef.current = setTimeout(() => {
       setControlsVisible(false);
       setProgressVisible(false);
     }, CONTROL_AUTO_HIDE_MS);
-  }, []);
+  }, [playbackInteractive]);
 
   const animateSceneTransition = useCallback(
     (nextIndex: number, nextElapsedMs = 0) => {
-      const nextScene = scenes[nextIndex];
-      const config = getTransitionConfig(nextScene?.transitionPreset ?? 'dissolve');
-
-      setPreviousSceneIndex(currentSceneIndex);
+      setPreviousSceneIndex(null);
       setCurrentSceneIndex(nextIndex);
       setElapsedMs(nextElapsedMs);
-
-      incomingOpacity.setValue(config.incoming.opacity);
-      incomingTranslateX.setValue(config.incoming.translateX);
-      incomingTranslateY.setValue(config.incoming.translateY);
-      incomingScale.setValue(config.incoming.scale);
-
-      outgoingOpacity.setValue(1);
+      incomingOpacity.setValue(1);
+      incomingTranslateX.setValue(0);
+      incomingTranslateY.setValue(0);
+      incomingScale.setValue(1);
+      outgoingOpacity.setValue(0);
       outgoingTranslateX.setValue(0);
       outgoingTranslateY.setValue(0);
       outgoingScale.setValue(1);
-
-      RNAnimated.parallel([
-        RNAnimated.timing(incomingOpacity, {
-          toValue: 1,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(incomingTranslateX, {
-          toValue: 0,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(incomingTranslateY, {
-          toValue: 0,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(incomingScale, {
-          toValue: 1,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(outgoingOpacity, {
-          toValue: config.outgoing.opacity,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(outgoingTranslateX, {
-          toValue: config.outgoing.translateX,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(outgoingTranslateY, {
-          toValue: config.outgoing.translateY,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(outgoingScale, {
-          toValue: config.outgoing.scale,
-          duration: config.durationMs,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setPreviousSceneIndex(null);
-        outgoingOpacity.setValue(0);
-        outgoingTranslateX.setValue(0);
-        outgoingTranslateY.setValue(0);
-        outgoingScale.setValue(1);
-      });
     },
     [
-      currentSceneIndex,
       incomingOpacity,
       incomingScale,
       incomingTranslateX,
@@ -666,38 +829,113 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       outgoingScale,
       outgoingTranslateX,
       outgoingTranslateY,
-      scenes,
     ],
   );
 
   const jumpToScene = useCallback(
     (nextIndex: number, options?: { showControls?: boolean }) => {
-      if (scenes.length === 0) {
+      if (timeline.length === 0) {
         return;
       }
-      const normalized = (nextIndex + scenes.length) % scenes.length;
-      animateSceneTransition(normalized);
+      const normalized = (nextIndex + timeline.length) % timeline.length;
+      if (previewVideoActive) {
+        const targetPositionMs = timeline[normalized]?.startMs ?? 0;
+        setPreviewPositionMs(targetPositionMs);
+        const seekAction = previewVideoRef.current?.setPositionAsync(targetPositionMs);
+        void seekAction?.catch((error) => {
+          console.warn('Failed to seek preview video scene:', error);
+        });
+      } else {
+        animateSceneTransition(normalized);
+      }
       if (options?.showControls) {
         resetControlAutoHide();
       }
     },
-    [animateSceneTransition, resetControlAutoHide, scenes.length],
+    [animateSceneTransition, previewVideoActive, resetControlAutoHide, timeline],
   );
 
   const onNextAuto = useCallback(() => {
     jumpToScene(currentSceneIndex + 1);
   }, [currentSceneIndex, jumpToScene]);
+  const activeSceneIndex =
+    activeSceneTarget.sceneIndex >= 0 ? activeSceneTarget.sceneIndex : currentSceneIndex;
 
   const onNextByUser = useCallback(() => {
-    jumpToScene(currentSceneIndex + 1, { showControls: true });
-  }, [currentSceneIndex, jumpToScene]);
+    jumpToScene(activeSceneIndex + 1, { showControls: true });
+  }, [activeSceneIndex, jumpToScene]);
 
   const onPreviousByUser = useCallback(() => {
-    jumpToScene(currentSceneIndex - 1, { showControls: true });
-  }, [currentSceneIndex, jumpToScene]);
+    jumpToScene(activeSceneIndex - 1, { showControls: true });
+  }, [activeSceneIndex, jumpToScene]);
+
+  const syncPreviewVideoPosition = useCallback(
+    async (targetPositionMs: number, options?: { shouldPlay?: boolean }) => {
+      const targetPosition = Math.max(
+        0,
+        Math.min(targetPositionMs, previewVideoDurationMs || totalTimelineMs),
+      );
+      setPreviewPositionMs(targetPosition);
+      try {
+        await previewVideoRef.current?.setPositionAsync(targetPosition);
+        if (options?.shouldPlay === true) {
+          await previewVideoRef.current?.playAsync();
+        } else if (options?.shouldPlay === false) {
+          await previewVideoRef.current?.pauseAsync();
+        }
+      } catch (error) {
+        console.warn('Failed to sync preview video position:', error);
+      }
+    },
+    [previewVideoDurationMs, totalTimelineMs],
+  );
+
+  const handlePreviewVideoLoad = useCallback(
+    (status: AVPlaybackStatus) => {
+      if (!status.isLoaded) {
+        return;
+      }
+      const durationMs = status.durationMillis ?? previewVideoDurationMs ?? totalTimelineMs;
+      if (durationMs > 0) {
+        setPreviewVideoDurationMs(durationMs);
+      }
+      const pendingStartMs = pendingPreviewStartPositionRef.current;
+      pendingPreviewStartPositionRef.current = null;
+      if (typeof pendingStartMs === 'number') {
+        void syncPreviewVideoPosition(pendingStartMs, {
+          shouldPlay: playbackStateRef.current === PlaybackState.Playing,
+        });
+      } else if (playbackStateRef.current === PlaybackState.Playing) {
+        void previewVideoRef.current?.playAsync().catch(() => undefined);
+      }
+    },
+    [previewVideoDurationMs, syncPreviewVideoPosition, totalTimelineMs],
+  );
+
+  const handlePreviewPlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
+    if (!status.isLoaded) {
+      return;
+    }
+    setPreviewPositionMs(status.positionMillis ?? 0);
+    const durationMillis = typeof status.durationMillis === 'number' ? status.durationMillis : null;
+    if (durationMillis && durationMillis > 0) {
+      setPreviewVideoDurationMs((previous) =>
+        previous === durationMillis ? previous : durationMillis,
+      );
+    }
+  }, []);
 
   const applyTimelineSeek = useCallback(
     (targetPositionMs: number, options?: { showControls?: boolean }) => {
+      if (previewVideoActive) {
+        void syncPreviewVideoPosition(targetPositionMs, {
+          shouldPlay: seekShouldResumeRef.current,
+        });
+        if (options?.showControls) {
+          resetControlAutoHide();
+        }
+        return;
+      }
       const target = findTimelineSceneAtPosition(timeline, targetPositionMs);
       if (!target.scene) {
         return;
@@ -711,7 +949,14 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         resetControlAutoHide();
       }
     },
-    [animateSceneTransition, currentSceneIndex, resetControlAutoHide, timeline],
+    [
+      animateSceneTransition,
+      currentSceneIndex,
+      previewVideoActive,
+      resetControlAutoHide,
+      syncPreviewVideoPosition,
+      timeline,
+    ],
   );
 
   const updateSeekPreviewFromLocation = useCallback(
@@ -732,13 +977,16 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       seekShouldResumeRef.current = playbackStateRef.current === PlaybackState.Playing;
       if (seekShouldResumeRef.current) {
         setPlaybackState(PlaybackState.Paused);
+        if (previewVideoActive) {
+          void previewVideoRef.current?.pauseAsync().catch(() => undefined);
+        }
       }
       setShowResumePrompt(false);
       setIsSeeking(true);
       updateSeekPreviewFromLocation(locationX);
       resetControlAutoHide();
     },
-    [resetControlAutoHide, updateSeekPreviewFromLocation],
+    [previewVideoActive, resetControlAutoHide, updateSeekPreviewFromLocation],
   );
 
   const commitSeek = useCallback(() => {
@@ -806,8 +1054,13 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       return;
     }
 
+    if (waitingForPreview) {
+      Alert.alert('预览生成中', '请等待当前预览准备完成后再导出视频。');
+      return;
+    }
+
     if (exportBlocked) {
-      Alert.alert('内容待更新', '当前可先预览旧版本，待系统更新完成后再导出视频。');
+      Alert.alert('内容待更新', '当前内容已发生变化，请等待最新预览生成完成后再导出视频。');
       return;
     }
 
@@ -826,29 +1079,136 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         },
       },
     ]);
-  }, [exportBlocked, isExporting, layoutContract.resolvedAspectRatio, runExport]);
+  }, [
+    exportBlocked,
+    isExporting,
+    layoutContract.resolvedAspectRatio,
+    runExport,
+    waitingForPreview,
+  ]);
 
   const togglePlayPause = useCallback(() => {
-    setPlaybackState((prev) =>
-      prev === PlaybackState.Playing ? PlaybackState.Paused : PlaybackState.Playing,
-    );
+    const nextState =
+      playbackState === PlaybackState.Playing ? PlaybackState.Paused : PlaybackState.Playing;
+    setPlaybackState(nextState);
+    if (previewVideoActive) {
+      const playbackAction =
+        nextState === PlaybackState.Playing
+          ? previewVideoRef.current?.playAsync()
+          : previewVideoRef.current?.pauseAsync();
+      void playbackAction?.catch((error) => {
+        console.warn('Failed to toggle preview video playback:', error);
+      });
+    }
+    resetControlAutoHide();
+  }, [playbackState, previewVideoActive, resetControlAutoHide]);
+
+  const toggleLandscapePlayback = useCallback(() => {
+    setIsLandscapePlayback((previous) => !previous);
     resetControlAutoHide();
   }, [resetControlAutoHide]);
 
   useEffect(() => {
     StatusBar.setHidden(true, 'fade');
     resetControlAutoHide();
+    const subtitleTimer = subtitleTimerRef.current;
 
     return () => {
       StatusBar.setHidden(false, 'fade');
       if (controlsTimerRef.current) {
         clearTimeout(controlsTimerRef.current);
       }
-      if (subtitleTimerRef.current) {
-        clearTimeout(subtitleTimerRef.current);
+      if (subtitleTimer) {
+        clearTimeout(subtitleTimer);
       }
     };
   }, [resetControlAutoHide]);
+
+  useEffect(() => {
+    if (!playbackInteractive) {
+      return;
+    }
+    resetControlAutoHide();
+  }, [playbackInteractive, resetControlAutoHide]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const rememberOrientationLock = async () => {
+      try {
+        previousOrientationLockRef.current = await ScreenOrientation.getOrientationLockAsync();
+      } catch (error) {
+        previousOrientationLockRef.current = null;
+        if (!cancelled) {
+          console.warn('Failed to read previous slideshow orientation lock:', error);
+        }
+      } finally {
+        orientationLockCapturedRef.current = true;
+        if (!cancelled) {
+          setOrientationLockCaptured(true);
+        }
+      }
+    };
+
+    void rememberOrientationLock();
+
+    return () => {
+      cancelled = true;
+      if (!orientationLockCapturedRef.current) {
+        return;
+      }
+      const restoreOrientationLock = async () => {
+        const previousOrientationLock = previousOrientationLockRef.current;
+        if (previousOrientationLock !== null) {
+          await ScreenOrientation.lockAsync(previousOrientationLock);
+          return;
+        }
+        await ScreenOrientation.unlockAsync();
+      };
+      void restoreOrientationLock().catch(() => undefined);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!orientationLockCaptured) {
+      return;
+    }
+
+    const applyOrientationLock = async () => {
+      try {
+        await ScreenOrientation.lockAsync(
+          isLandscapePlayback
+            ? ScreenOrientation.OrientationLock.LANDSCAPE
+            : ScreenOrientation.OrientationLock.PORTRAIT_UP,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Failed to update slideshow orientation lock:', error);
+        }
+      }
+    };
+
+    void applyOrientationLock();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLandscapePlayback, orientationLockCaptured]);
+
+  useEffect(() => {
+    if (!previewVideoActive || isSeeking) {
+      return;
+    }
+    const playbackAction =
+      playbackState === PlaybackState.Playing
+        ? previewVideoRef.current?.playAsync()
+        : previewVideoRef.current?.pauseAsync();
+    void playbackAction?.catch((error) => {
+      console.warn('Failed to sync preview video playback state:', error);
+    });
+  }, [isSeeking, playbackState, previewVideoActive, previewVideoUri]);
 
   useEffect(() => {
     motionScale.value = withTiming(1, { duration: 180, easing: Easing.out(Easing.cubic) });
@@ -861,74 +1221,43 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       clearTimeout(subtitleTimerRef.current);
     }
 
-    RNAnimated.parallel([
-      RNAnimated.timing(subtitleOpacity, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-      RNAnimated.timing(subtitleTranslateY, {
-        toValue: 10,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
     if (!currentScene || !currentSubtitle) {
+      subtitleOpacity.setValue(0);
+      subtitleTranslateY.setValue(0);
       return;
     }
 
-    const delayMs =
-      currentScene.subtitleDelayMs ||
-      getTransitionConfig(currentScene.transitionPreset).subtitleDelayMs;
-    subtitleTimerRef.current = setTimeout(() => {
-      subtitleOpacity.setValue(0);
-      subtitleTranslateY.setValue(10);
-      RNAnimated.parallel([
-        RNAnimated.timing(subtitleOpacity, {
-          toValue: 1,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-        RNAnimated.timing(subtitleTranslateY, {
-          toValue: 0,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }, delayMs);
-
-    return () => {
-      if (subtitleTimerRef.current) {
-        clearTimeout(subtitleTimerRef.current);
-      }
-    };
-  }, [
-    currentScene,
-    currentScene?.id,
-    currentScene?.subtitleDelayMs,
-    currentScene?.transitionPreset,
-    currentScene?.type,
-    currentSubtitle,
-    subtitleOpacity,
-    subtitleTranslateY,
-  ]);
+    subtitleOpacity.setValue(1);
+    subtitleTranslateY.setValue(0);
+  }, [currentScene, currentScene?.id, currentSubtitle, subtitleOpacity, subtitleTranslateY]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active' && playbackState === PlaybackState.Playing) {
+      appStateRef.current = state;
+      if (state !== 'active' && playbackInteractive && playbackState === PlaybackState.Playing) {
         setPlaybackState(PlaybackState.Paused);
         setShowResumePrompt(true);
+        if (previewVideoActive) {
+          void previewVideoRef.current?.pauseAsync().catch(() => undefined);
+        }
+        if (realtimePlaybackEnabled) {
+          void soundRef.current?.pauseAsync().catch(() => undefined);
+        }
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [playbackState]);
+  }, [playbackInteractive, playbackState, previewVideoActive, realtimePlaybackEnabled]);
 
   useEffect(() => {
-    if (playbackState !== PlaybackState.Playing || scenes.length === 0 || isSeeking) {
+    if (
+      !realtimePlaybackEnabled ||
+      playbackState !== PlaybackState.Playing ||
+      timeline.length === 0 ||
+      isSeeking
+    ) {
       return;
     }
 
@@ -944,13 +1273,25 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [activeSlideDurationMs, isSeeking, onNextAuto, playbackState, scenes.length]);
+  }, [
+    activeSlideDurationMs,
+    isSeeking,
+    onNextAuto,
+    playbackState,
+    realtimePlaybackEnabled,
+    timeline.length,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadAudioPlan = async () => {
       if (closingRef.current) {
+        return;
+      }
+      if (!realtimePlaybackEnabled) {
+        setAudioPlan(null);
+        setMusicStatus('none');
         return;
       }
       if (timeline.length === 0) {
@@ -979,7 +1320,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     return () => {
       cancelled = true;
     };
-  }, [event, photos, timeline]);
+  }, [event, photos, realtimePlaybackEnabled, timeline]);
 
   const cleanupSound = useCallback(async (sound: Audio.Sound | null) => {
     if (!sound) {
@@ -992,6 +1333,16 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
       await sound.unloadAsync();
     } catch {}
   }, []);
+
+  useEffect(() => {
+    const activeSound = soundRef.current;
+    const prefetchedSound = prefetchedSoundRef.current;
+    soundRef.current = null;
+    prefetchedSoundRef.current = null;
+    loadedAudioSegmentRef.current = null;
+    prefetchedAudioSegmentRef.current = null;
+    void Promise.all([cleanupSound(activeSound), cleanupSound(prefetchedSound)]);
+  }, [cleanupSound, realtimePlaybackEnabled]);
 
   const handleClose = useCallback(() => {
     closingRef.current = true;
@@ -1007,12 +1358,17 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
 
     const activeSound = soundRef.current;
     const prefetchedSound = prefetchedSoundRef.current;
+    const activePreviewVideo = previewVideoRef.current;
     soundRef.current = null;
     prefetchedSoundRef.current = null;
     loadedAudioSegmentRef.current = null;
     prefetchedAudioSegmentRef.current = null;
 
-    void Promise.all([cleanupSound(activeSound), cleanupSound(prefetchedSound)]).finally(() => {
+    void Promise.all([
+      cleanupSound(activeSound),
+      cleanupSound(prefetchedSound),
+      activePreviewVideo?.pauseAsync().catch(() => undefined),
+    ]).finally(() => {
       onClose();
     });
   }, [cleanupSound, onClose]);
@@ -1059,6 +1415,12 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   const syncAudioToTimeline = useCallback(
     async (positionMs: number, options?: { force?: boolean }) => {
       if (closingRef.current) {
+        return;
+      }
+      if (appStateRef.current !== 'active') {
+        return;
+      }
+      if (!realtimePlaybackEnabled) {
         return;
       }
       if (audioSyncInFlightRef.current) {
@@ -1196,7 +1558,14 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         audioSyncInFlightRef.current = false;
       }
     },
-    [audioPlan, cleanupSound, musicStatus, preloadAudioSegment, totalTimelineMs],
+    [
+      audioPlan,
+      cleanupSound,
+      musicStatus,
+      preloadAudioSegment,
+      realtimePlaybackEnabled,
+      totalTimelineMs,
+    ],
   );
 
   useEffect(() => {
@@ -1209,28 +1578,37 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
   }, []);
 
   useEffect(() => {
-    if (isSeeking) {
+    if (!realtimePlaybackEnabled || isSeeking) {
       return;
     }
     void syncAudioToTimeline(currentTimelinePositionRef.current, { force: true });
-  }, [audioPlan?.strategy, currentAudioSegment?.id, isSeeking, playbackState, syncAudioToTimeline]);
+  }, [
+    audioPlan?.strategy,
+    currentAudioSegment?.id,
+    isSeeking,
+    playbackState,
+    realtimePlaybackEnabled,
+    syncAudioToTimeline,
+  ]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (isSeeking || scenes.length === 0) {
+      if (!realtimePlaybackEnabled || isSeeking || timeline.length === 0) {
         return;
       }
       void syncAudioToTimeline(currentTimelinePositionRef.current);
     }, 250);
 
     return () => clearInterval(interval);
-  }, [isSeeking, scenes.length, syncAudioToTimeline]);
+  }, [isSeeking, realtimePlaybackEnabled, syncAudioToTimeline, timeline.length]);
 
   useEffect(() => {
+    const previewVideo = previewVideoRef.current;
     return () => {
       closingRef.current = true;
       void cleanupSound(soundRef.current);
       void cleanupSound(prefetchedSoundRef.current);
+      void previewVideo?.pauseAsync().catch(() => undefined);
       soundRef.current = null;
       prefetchedSoundRef.current = null;
       loadedAudioSegmentRef.current = null;
@@ -1255,7 +1633,7 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     [footerHeight],
   );
 
-  if (photos.length === 0 || scenes.length === 0) {
+  if (photos.length === 0 || timeline.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <MaterialCommunityIcons name="image-off-outline" size={36} color="#B89C7B" />
@@ -1271,6 +1649,9 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
     <Pressable
       style={styles.container}
       onPress={() => {
+        if (waitingForPreview) {
+          return;
+        }
         if (controlsVisible || progressVisible) {
           if (controlsTimerRef.current) {
             clearTimeout(controlsTimerRef.current);
@@ -1294,94 +1675,111 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
         ]}
       >
         <View style={styles.canvasSurface}>
-          {previousScene ? (
-            <RNAnimated.View style={[styles.sceneLayer, outgoingLayerStyle]}>
-              <SceneLayer
-                scene={previousScene}
-                eventTitle={event.title}
-                photoUri={previousScenePhotoUri}
-                layoutContract={layoutContract}
-              />
-            </RNAnimated.View>
-          ) : null}
+          {previewVideoActive && previewVideoUri ? (
+            <Video
+              ref={previewVideoRef}
+              source={{ uri: previewVideoUri }}
+              style={styles.previewVideo}
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay={false}
+              isLooping
+              onLoad={handlePreviewVideoLoad}
+              onPlaybackStatusUpdate={handlePreviewPlaybackStatusUpdate}
+            />
+          ) : realtimePlaybackEnabled ? (
+            <>
+              {previousScene ? (
+                <RNAnimated.View style={[styles.sceneLayer, outgoingLayerStyle]}>
+                  <SceneLayer
+                    scene={previousScene}
+                    eventTitle={event.title}
+                    photoUri={previousScenePhotoUri}
+                    layoutContract={layoutContract}
+                  />
+                </RNAnimated.View>
+              ) : null}
 
-          {currentScene ? (
-            <RNAnimated.View style={[styles.sceneLayer, incomingLayerStyle]}>
-              <SceneLayer
-                scene={currentScene}
-                eventTitle={event.title}
-                photoUri={currentScenePhotoUri}
-                layoutContract={layoutContract}
-                motionStyle={currentScene.type === 'photo-frame' ? motionStyle : undefined}
-                onPhotoLoad={(imageEvent) => {
-                  if (!currentScenePhoto?.id) {
-                    return;
-                  }
-                  const { width, height } = imageEvent.nativeEvent.source;
-                  if (width > 0 && height > 0) {
-                    setPhotoAspectRatios((previous) => ({
-                      ...previous,
-                      [currentScenePhoto.id]: width / height,
-                    }));
-                  }
-                }}
-                onPhotoError={() => {
-                  if (!currentScenePhoto?.id) {
-                    return;
-                  }
-                  setFailedCandidateIndices((previous) => ({
-                    ...previous,
-                    [currentScenePhoto.id]: (previous[currentScenePhoto.id] ?? 0) + 1,
-                  }));
-                }}
-              />
-            </RNAnimated.View>
-          ) : null}
+              {currentScene ? (
+                <RNAnimated.View style={[styles.sceneLayer, incomingLayerStyle]}>
+                  <SceneLayer
+                    scene={currentScene}
+                    eventTitle={event.title}
+                    photoUri={currentScenePhotoUri}
+                    layoutContract={layoutContract}
+                    motionStyle={currentScene.type === 'photo-frame' ? motionStyle : undefined}
+                    onPhotoLoad={(imageEvent) => {
+                      if (!currentScenePhoto?.id) {
+                        return;
+                      }
+                      const { width, height } = imageEvent.nativeEvent.source;
+                      if (width > 0 && height > 0) {
+                        setPhotoAspectRatios((previous) => ({
+                          ...previous,
+                          [currentScenePhoto.id]: width / height,
+                        }));
+                      }
+                    }}
+                    onPhotoError={() => {
+                      if (!currentScenePhoto?.id) {
+                        return;
+                      }
+                      setFailedCandidateIndices((previous) => ({
+                        ...previous,
+                        [currentScenePhoto.id]: (previous[currentScenePhoto.id] ?? 0) + 1,
+                      }));
+                    }}
+                  />
+                </RNAnimated.View>
+              ) : null}
 
-          <LinearGradient
-            pointerEvents="none"
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0.38)']}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={[
-              styles.subtitleOverlay,
-              {
-                left: layoutContract.subtitleOverlayRect.x,
-                top: layoutContract.subtitleOverlayRect.y,
-                width: layoutContract.subtitleOverlayRect.width,
-                height: layoutContract.subtitleOverlayRect.height,
-              },
-            ]}
-          />
-
-          {currentSubtitle ? (
-            <RNAnimated.View
-              pointerEvents="none"
-              style={[
-                styles.subtitleWrap,
-                {
-                  left: layoutContract.subtitleSafeArea.x,
-                  top: layoutContract.subtitleSafeArea.y,
-                  width: layoutContract.subtitleSafeArea.width,
-                },
-                subtitleAnimatedStyle,
-              ]}
-            >
-              <View style={styles.subtitleTextWrap}>
-                <Text
-                  numberOfLines={2}
+              {currentSubtitle ? (
+                <RNAnimated.View
+                  pointerEvents="none"
                   style={[
-                    styles.subtitleText,
+                    styles.subtitleWrap,
                     {
-                      fontSize: layoutContract.typography.subtitleSize,
-                      lineHeight: layoutContract.typography.subtitleLineHeight,
+                      left: layoutContract.subtitleSafeArea.x,
+                      top: layoutContract.subtitleSafeArea.y,
+                      width: layoutContract.subtitleSafeArea.width,
                     },
+                    subtitleAnimatedStyle,
                   ]}
                 >
-                  {currentSubtitle}
-                </Text>
+                  <View style={styles.subtitleTextWrap}>
+                    <Text
+                      numberOfLines={2}
+                      style={[
+                        styles.subtitleText,
+                        {
+                          fontSize: layoutContract.typography.subtitleSize,
+                          lineHeight: layoutContract.typography.subtitleLineHeight,
+                        },
+                      ]}
+                    >
+                      {currentSubtitle}
+                    </Text>
+                  </View>
+                </RNAnimated.View>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.previewWaitingSurface} />
+          )}
+
+          {waitingForPreview ? (
+            <View pointerEvents="none" style={styles.previewStatusCard}>
+              <ActivityIndicator size="small" color="#F8F8F2" />
+              <Text style={styles.previewStatusTitle}>正在生成预览视频</Text>
+              <Text style={styles.previewStatusText}>{previewVideoProgress.label}</Text>
+              <View style={styles.previewStatusTrack}>
+                <View
+                  style={[
+                    styles.previewStatusFill,
+                    { width: `${Math.max(8, Math.round(previewVideoProgress.progress * 100))}%` },
+                  ]}
+                />
               </View>
-            </RNAnimated.View>
+            </View>
           ) : null}
         </View>
       </View>
@@ -1396,13 +1794,15 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
               >
                 <MaterialCommunityIcons name="close" size={20} color="#FFF8F0" />
               </Pressable>
-              <Text style={styles.counterText}>{sceneHeaderLabel}</Text>
+              <Text style={styles.counterText}>
+                {playbackInteractive ? sceneHeaderLabel : '正在生成预览'}
+              </Text>
               <Pressable
                 onPress={openExportOptions}
-                disabled={isExporting}
+                disabled={isExporting || exportBlocked || waitingForPreview}
                 style={({ pressed }) => [
                   styles.iconBtn,
-                  (isExporting || exportBlocked) && styles.iconBtnDisabled,
+                  (isExporting || exportBlocked || waitingForPreview) && styles.iconBtnDisabled,
                   pressed && styles.pressed,
                 ]}
               >
@@ -1415,33 +1815,59 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
             </View>
           </View>
 
-          {exportBlocked ? (
+          {playbackInteractive && exportBlocked ? (
             <View style={[styles.staleBanner, { top: headerTop + 54 }]}>
               <MaterialCommunityIcons name="update" size={14} color="#F5D28F" />
-              <Text style={styles.staleBannerText}>内容待更新，可先预览旧版本</Text>
+              <Text style={styles.staleBannerText}>内容已更新，请先等待最新预览重新生成</Text>
+            </View>
+          ) : null}
+
+          {realtimePlaybackEnabled ? (
+            <View
+              style={[
+                styles.staleBanner,
+                styles.fallbackPlaybackBanner,
+                { top: headerTop + (exportBlocked ? 94 : 54) },
+              ]}
+            >
+              <MaterialCommunityIcons name="movie-open-play-outline" size={14} color="#D8ECFF" />
+              <Text style={styles.staleBannerText}>预览生成失败，已切换为实时播放兜底</Text>
             </View>
           ) : null}
 
           <View style={[styles.footer, { bottom: footerBottom }]} onLayout={onFooterLayout}>
-            <Text style={styles.previewLabel}>
-              成片预览 · {layoutContract.resolvedAspectRatio}
-              {aspectMode === 'auto'
-                ? ' · 自动'
-                : aspectMode === 'landscape'
-                  ? ' · 横版'
-                  : ' · 竖版'}
-            </Text>
-            {formattedShotTime ? <Text style={styles.metaText}>{formattedShotTime}</Text> : null}
-            {currentScene?.chapter ? (
-              <Text style={styles.metaText}>{getChapterTitle(currentScene.chapter)}</Text>
+            {!isCompactPlayback ? (
+              <>
+                <Text style={styles.previewLabel}>
+                  {previewVideoActive
+                    ? '预览视频'
+                    : realtimePlaybackEnabled
+                      ? '实时预览'
+                      : '正在准备预览'}
+                  {' · '}
+                  {layoutContract.resolvedAspectRatio}
+                  {' · '}
+                  {realtimePlaybackEnabled ? '失败兜底' : '自动'}
+                </Text>
+                {playbackInteractive && formattedShotTime ? (
+                  <Text style={styles.metaText}>{formattedShotTime}</Text>
+                ) : null}
+                {playbackInteractive && activeScene?.chapter ? (
+                  <Text style={styles.metaText}>{getChapterTitle(activeScene.chapter)}</Text>
+                ) : null}
+                {realtimePlaybackEnabled ? (
+                  <Text style={styles.metaText}>{getMusicStatusText(musicStatus)}</Text>
+                ) : waitingForPreview ? (
+                  <Text style={styles.metaText}>生成完成后将自动开始播放</Text>
+                ) : null}
+                {realtimePlaybackEnabled && currentAudioSegment?.title ? (
+                  <Text numberOfLines={1} style={styles.metaText}>
+                    配乐片段：{currentAudioSegment.title}
+                  </Text>
+                ) : null}
+              </>
             ) : null}
-            <Text style={styles.metaText}>{getMusicStatusText(musicStatus)}</Text>
-            {currentAudioSegment?.title ? (
-              <Text numberOfLines={1} style={styles.metaText}>
-                配乐片段：{currentAudioSegment.title}
-              </Text>
-            ) : null}
-            {progressVisible ? (
+            {playbackInteractive && progressVisible ? (
               <View style={styles.progressWrap}>
                 <View
                   style={styles.progressTouchArea}
@@ -1490,89 +1916,42 @@ export function SlideshowPlayer({ photos, event, onClose }: SlideshowProps) {
               </View>
             ) : null}
 
-            <View style={styles.aspectModeRow}>
-              {(
-                [
-                  { value: 'auto', label: '自动' },
-                  { value: 'landscape', label: '16:9' },
-                  { value: 'portrait', label: '9:16' },
-                ] as const
-              ).map((option) => (
+            {playbackInteractive ? (
+              <View style={styles.controlsRow}>
                 <Pressable
-                  key={option.value}
-                  onPress={() => {
-                    setAspectMode(option.value);
-                    resetControlAutoHide();
-                  }}
-                  style={({ pressed }) => [
-                    styles.aspectPill,
-                    aspectMode === option.value && styles.aspectPillActive,
-                    pressed && styles.pressed,
-                  ]}
+                  onPress={toggleLandscapePlayback}
+                  style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
                 >
-                  <Text
-                    style={[
-                      styles.aspectPillText,
-                      aspectMode === option.value && styles.aspectPillTextActive,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
+                  <MaterialCommunityIcons
+                    name={isLandscapePlayback ? 'crop-portrait' : 'crop-landscape'}
+                    size={22}
+                    color="#FFF8F0"
+                  />
                 </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.speedRow}>
-              {SPEED_OPTIONS_MS.map((value) => (
                 <Pressable
-                  key={value}
-                  onPress={() => {
-                    setSlideDurationMs(value);
-                    setElapsedMs(0);
-                    resetControlAutoHide();
-                  }}
-                  style={({ pressed }) => [
-                    styles.speedPill,
-                    slideDurationMs === value && styles.speedPillActive,
-                    pressed && styles.pressed,
-                  ]}
+                  onPress={onPreviousByUser}
+                  style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
                 >
-                  <Text
-                    style={[
-                      styles.speedPillText,
-                      slideDurationMs === value && styles.speedPillTextActive,
-                    ]}
-                  >
-                    {Number(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}s
-                  </Text>
+                  <MaterialCommunityIcons name="skip-previous" size={24} color="#FFF8F0" />
                 </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.controlsRow}>
-              <Pressable
-                onPress={onPreviousByUser}
-                style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
-              >
-                <MaterialCommunityIcons name="skip-previous" size={24} color="#FFF8F0" />
-              </Pressable>
-              <Pressable
-                onPress={togglePlayPause}
-                style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
-              >
-                <MaterialCommunityIcons
-                  name={playbackState === PlaybackState.Playing ? 'pause' : 'play'}
-                  size={24}
-                  color="#FFF8F0"
-                />
-              </Pressable>
-              <Pressable
-                onPress={onNextByUser}
-                style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
-              >
-                <MaterialCommunityIcons name="skip-next" size={24} color="#FFF8F0" />
-              </Pressable>
-            </View>
+                <Pressable
+                  onPress={togglePlayPause}
+                  style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
+                >
+                  <MaterialCommunityIcons
+                    name={playbackState === PlaybackState.Playing ? 'pause' : 'play'}
+                    size={24}
+                    color="#FFF8F0"
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={onNextByUser}
+                  style={({ pressed }) => [styles.controlBtn, pressed && styles.pressed]}
+                >
+                  <MaterialCommunityIcons name="skip-next" size={24} color="#FFF8F0" />
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </>
       ) : null}
@@ -1621,15 +2000,19 @@ const styles = StyleSheet.create({
   },
   previewCanvas: {
     position: 'absolute',
-    borderRadius: 18,
     overflow: 'hidden',
     backgroundColor: '#000000',
-    borderWidth: 1,
-    borderColor: 'rgba(248,248,242,0.08)',
   },
   canvasSurface: {
     flex: 1,
     backgroundColor: '#000000',
+  },
+  previewWaitingSurface: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000000',
+  },
+  previewVideo: {
+    ...StyleSheet.absoluteFillObject,
   },
   sceneLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -1643,9 +2026,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     overflow: 'hidden',
   },
+  photoCanvasImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
   photoStageImage: {
     width: '100%',
     height: '100%',
+  },
+  photoMissingCanvas: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   photoMissingState: {
     width: '88%',
@@ -1725,6 +2116,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   counterText: {
     color: '#FFF7EE',
     fontSize: 14,
@@ -1764,31 +2159,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  fallbackPlaybackBanner: {
+    backgroundColor: 'rgba(25, 66, 108, 0.84)',
+  },
   subtitleWrap: {
     position: 'absolute',
     zIndex: 3,
   },
-  subtitleOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
-  },
   subtitleTextWrap: {
-    paddingVertical: 4,
-    paddingHorizontal: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   subtitleText: {
-    color: '#FAF7F2',
-    fontWeight: '500',
+    color: '#F6F1E8',
+    fontWeight: '600',
     textAlign: 'center',
-    letterSpacing: 0.1,
-    textShadowColor: 'rgba(0,0,0,0.72)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
+    letterSpacing: 0.2,
+  },
+  previewStatusCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 18,
+    borderRadius: 16,
+    backgroundColor: 'rgba(12,12,12,0.82)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    gap: 4,
+  },
+  previewStatusTitle: {
+    color: '#F8F8F2',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  previewStatusText: {
+    color: 'rgba(248,248,242,0.72)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  previewStatusTrack: {
+    width: '100%',
+    height: 6,
+    marginTop: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,248,242,0.12)',
+    overflow: 'hidden',
+  },
+  previewStatusFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#CA8A04',
   },
   footer: {
     position: 'absolute',

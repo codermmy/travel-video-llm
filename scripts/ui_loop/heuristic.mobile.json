@@ -1,0 +1,50 @@
+{
+  "engine": "codex",
+  "model": "gpt-5.4",
+  "repo_root": "/Users/maoyuan/code/travel-video-llm",
+  "agent_root": "mobile",
+  "run_root": "/tmp/travel-video-llm-ui-loop-heuristic",
+  "goal": "持续把 Travel Video LLM 的 Expo 移动端产品体验和 UI 拉向顶级旅行记忆产品：更清晰的价值表达、更真实的状态系统、更低的认知负担、更成熟的视觉节奏和更强的任务完成效率。",
+  "target_description": "Travel Video LLM 的 React Native / Expo 移动端产品与 UI，重点围绕回忆首页、地图、事件详情、照片和导入链路。",
+  "context_files": [
+    "my-spec/docs/mobile-ui-autonomous-loop-context.md"
+  ],
+  "editable_paths": [
+    "app",
+    "src",
+    "package.json",
+    "package-lock.json",
+    "app.json",
+    "app.config.ts"
+  ],
+  "focus_paths": [
+    "src/screens/memories-screen.tsx",
+    "app/(tabs)/index.tsx",
+    "app/(tabs)/map.tsx",
+    "app/events/[eventId].tsx",
+    "app/(tabs)/profile.tsx",
+    "src/components/ui/revamp.tsx",
+    "src/styles/theme.ts",
+    "src/styles/colors.ts"
+  ],
+  "guardrails": [
+    "把自己当成顶级产品负责人、交互设计师、视觉设计师和体验总监联合体。",
+    "不要为了视觉风格牺牲任务完成率和理解成本。",
+    "不要新增后端接口，不扩大业务范围。",
+    "优先优化产品逻辑、任务路径、状态真实度、层级和文案，而不是零散美化。",
+    "每轮只处理 1 到 3 个最高杠杆问题。"
+  ],
+  "duration_hours": 12,
+  "max_rounds": 30,
+  "max_phase_retries": 2,
+  "transient_phase_retries": 6,
+  "transient_retry_backoff_seconds": 25,
+  "phase_timeout_seconds": 2400,
+  "stagnation_limit": 4,
+  "target_score": 9.0,
+  "min_score_delta": 0.1,
+  "max_issues_per_round": 3,
+  "sleep_seconds": 10,
+  "dangerously_bypass_sandbox": false,
+  "validation_commands": []
+}

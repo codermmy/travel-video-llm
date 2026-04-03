@@ -99,34 +99,25 @@ function EventJourneyChapterCardBase({
         onPress={onToggle}
         style={({ pressed }) => [styles.headerPressable, pressed && styles.pressed]}
       >
-        <View style={styles.headerRow}>
-          <View style={styles.headerCopy}>
-            <View style={styles.eyebrowRow}>
-              <View style={styles.indexBadge}>
-                <Text style={styles.indexBadgeText}>第 {chapter.chapterIndex} 章</Text>
-              </View>
-              <View style={styles.countBadge}>
-                <MaterialCommunityIcons
-                  name="image-multiple-outline"
-                  size={12}
-                  color={JourneyPalette.accent}
-                />
-                <Text style={styles.countBadgeText}>{photos.length} 张</Text>
-              </View>
-            </View>
-            <Text style={styles.title}>{title}</Text>
-            <Text numberOfLines={2} style={styles.teaser}>
-              {teaserText}
-            </Text>
-          </View>
-          <MaterialCommunityIcons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={20}
-            color={JourneyPalette.inkSoft}
-          />
+        <View style={styles.previewCell}>
+          <ChapterPreviewCollage photos={photos} />
         </View>
 
-        <ChapterPreviewCollage photos={photos} />
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>第 {chapter.chapterIndex} 段</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text numberOfLines={2} style={styles.teaser}>
+            {teaserText}
+          </Text>
+          <View style={styles.footerRow}>
+            <Text style={styles.photoMeta}>{photos.length} 张照片</Text>
+            <MaterialCommunityIcons
+              name={expanded ? 'chevron-up' : 'chevron-down'}
+              size={18}
+              color={JourneyPalette.inkSoft}
+            />
+          </View>
+        </View>
       </Pressable>
 
       {expanded ? (
@@ -145,69 +136,57 @@ function EventJourneyChapterCardBase({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 26,
+    borderRadius: 22,
     backgroundColor: JourneyPalette.card,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
     overflow: 'hidden',
   },
   headerPressable: {
-    padding: 18,
-    gap: 16,
-  },
-  headerRow: {
     flexDirection: 'row',
     gap: 12,
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    padding: 14,
+  },
+  previewCell: {
+    width: 118,
   },
   headerCopy: {
     flex: 1,
-    gap: 8,
+    gap: 6,
   },
-  eyebrowRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  indexBadge: {
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accentSoft,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  indexBadgeText: {
-    color: JourneyPalette.accent,
+  eyebrow: {
+    color: JourneyPalette.mutedStrong,
     fontSize: 11,
     fontWeight: '800',
-  },
-  countBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  countBadgeText: {
-    color: JourneyPalette.accent,
-    fontSize: 11,
-    fontWeight: '800',
+    letterSpacing: 0.4,
   },
   title: {
     color: JourneyPalette.ink,
-    fontSize: 21,
+    fontSize: 17,
     fontWeight: '800',
   },
   teaser: {
     color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 23,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  footerRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  photoMeta: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 11,
+    fontWeight: '700',
   },
   previewWrap: {
-    height: 176,
+    height: 94,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   previewWrapEmpty: {
     alignItems: 'center',
@@ -217,19 +196,19 @@ const styles = StyleSheet.create({
   },
   singlePreview: {
     width: '100%',
-    borderRadius: 18,
+    borderRadius: 16,
   },
   previewLead: {
     flex: 1.15,
-    borderRadius: 18,
+    borderRadius: 16,
   },
   previewStack: {
     flex: 0.85,
-    gap: 8,
+    gap: 6,
   },
   previewStackItem: {
     flex: 1,
-    borderRadius: 18,
+    borderRadius: 16,
   },
   previewImage: {
     width: '100%',
@@ -249,15 +228,15 @@ const styles = StyleSheet.create({
   expandedContent: {
     borderTopWidth: 1,
     borderTopColor: JourneyPalette.line,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 20,
-    gap: 16,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 16,
+    gap: 14,
   },
   description: {
     color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 20,
   },
   pressed: {
     opacity: 0.94,

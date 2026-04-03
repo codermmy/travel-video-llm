@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Image,
   Pressable,
@@ -9,6 +8,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -18,8 +18,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { EventPhotoItem } from '@/types/event';
 import { formatDateTime } from '@/utils/dateUtils';
 import { getPhotoOriginalCandidates, getPreferredPhotoThumbnailUri } from '@/utils/mediaRefs';
-
-const { width, height } = Dimensions.get('window');
 
 type PhotoViewerProps = {
   photos: EventPhotoItem[];
@@ -36,6 +34,7 @@ function formatGps(photo: EventPhotoItem): string | null {
 }
 
 export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerProps) {
+  const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(
     Math.min(Math.max(initialIndex, 0), Math.max(photos.length - 1, 0)),
   );
@@ -46,7 +45,7 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
   useEffect(() => {
     StatusBar.setHidden(true, 'fade');
     const timer = setTimeout(() => {
-      if (initialIndex > 0) {
+      if (initialIndex > 0 && photos.length > 0) {
         listRef.current?.scrollToIndex({
           index: Math.min(initialIndex, Math.max(photos.length - 1, 0)),
           animated: false,
@@ -61,6 +60,10 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
   }, [initialIndex, photos.length]);
 
   useEffect(() => {
+    setCurrentIndex((previous) => Math.min(previous, Math.max(photos.length - 1, 0)));
+  }, [photos.length]);
+
+  useEffect(() => {
     stripRef.current?.scrollTo({
       x: Math.max(currentIndex - 1, 0) * 76,
       animated: true,
@@ -68,6 +71,10 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
   }, [currentIndex]);
 
   const currentPhoto = photos[currentIndex];
+  const currentImageFailed = Boolean(
+    currentPhoto &&
+    getPhotoOriginalCandidates(currentPhoto)[failedCandidateIndices[currentPhoto.id] ?? 0] == null,
+  );
 
   const footerText = useMemo(() => {
     if (!currentPhoto?.shootTime) {
@@ -98,6 +105,9 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
   }, [currentPhoto, gpsText]);
 
   const onMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (width <= 0) {
+      return;
+    }
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
     setCurrentIndex(Math.min(Math.max(nextIndex, 0), Math.max(photos.length - 1, 0)));
   };
@@ -114,64 +124,77 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
         </Pressable>
         <View style={styles.topChip}>
           <Text style={styles.topChipText}>
-            {Math.max(currentIndex + 1, 1)} / {Math.max(photos.length, 1)}
+            {photos.length > 0 ? currentIndex + 1 : 0} / {photos.length}
           </Text>
         </View>
       </View>
 
-      <FlatList
-        ref={listRef}
-        data={photos}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        initialScrollIndex={Math.min(initialIndex, Math.max(photos.length - 1, 0))}
-        getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-        showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={onMomentumEnd}
-        renderItem={({ item }) => {
-          const uriCandidates = getPhotoOriginalCandidates(item);
-          const uri = uriCandidates[failedCandidateIndices[item.id] ?? 0] ?? null;
+      {photos.length > 0 ? (
+        <FlatList
+          ref={listRef}
+          data={photos}
+          keyExtractor={(item) => item.id}
+          horizontal
+          pagingEnabled
+          initialScrollIndex={Math.min(initialIndex, Math.max(photos.length - 1, 0))}
+          getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={onMomentumEnd}
+          renderItem={({ item }) => {
+            const uriCandidates = getPhotoOriginalCandidates(item);
+            const uri = uriCandidates[failedCandidateIndices[item.id] ?? 0] ?? null;
 
-          return (
-            <View style={styles.slide}>
-              <View style={styles.stageFrame}>
-                {uri ? (
-                  <Image
-                    source={{ uri }}
-                    style={styles.image}
-                    resizeMode="contain"
-                    onError={() => {
-                      setFailedCandidateIndices((prev) => ({
-                        ...prev,
-                        [item.id]: (prev[item.id] ?? 0) + 1,
-                      }));
-                    }}
-                  />
-                ) : (
-                  <View style={styles.errorPlaceholder}>
-                    <View style={styles.errorIconWrap}>
-                      <MaterialCommunityIcons
-                        name="image-broken-variant"
-                        size={28}
-                        color="#A9B7D6"
-                      />
+            return (
+              <View style={[styles.slide, { width, height }]}>
+                <View style={[styles.stageFrame, { width }]}>
+                  {uri ? (
+                    <Image
+                      source={{ uri }}
+                      style={[styles.image, { width, height: height * 0.7 }]}
+                      resizeMode="contain"
+                      onError={() => {
+                        setFailedCandidateIndices((prev) => ({
+                          ...prev,
+                          [item.id]: (prev[item.id] ?? 0) + 1,
+                        }));
+                      }}
+                    />
+                  ) : (
+                    <View style={[styles.errorPlaceholder, { width: width * 0.76 }]}>
+                      <View style={styles.errorIconWrap}>
+                        <MaterialCommunityIcons
+                          name="image-broken-variant"
+                          size={28}
+                          color="#A9B7D6"
+                        />
+                      </View>
+                      <Text style={styles.errorTitle}>图片加载失败</Text>
+                      <Text style={styles.errorText}>本地候选地址已失效，可以稍后再试。</Text>
                     </View>
-                    <Text style={styles.errorTitle}>图片加载失败</Text>
-                    <Text style={styles.errorText}>本地候选地址已失效，可以稍后再试。</Text>
-                  </View>
-                )}
+                  )}
+                </View>
               </View>
-            </View>
-          );
-        }}
-      />
+            );
+          }}
+        />
+      ) : (
+        <View style={styles.emptyStage}>
+          <View style={styles.errorIconWrap}>
+            <MaterialCommunityIcons name="image-off-outline" size={28} color="#A9B7D6" />
+          </View>
+          <Text style={styles.errorTitle}>没有可查看的照片</Text>
+          <Text style={styles.errorText}>返回上一页后可以从事件详情继续补图。</Text>
+        </View>
+      )}
 
-      <View style={styles.bottomPanel}>
+      <View style={[styles.bottomPanel, photos.length === 0 && styles.bottomPanelMuted]}>
         <View style={styles.metaBlock}>
           {footerText ? <Text style={styles.metaTitle}>{footerText}</Text> : null}
-          {locationText ? <Text style={styles.metaLine}>{locationText}</Text> : null}
+          {locationText ? <Text style={styles.metaLine}>地点 / GPS · {locationText}</Text> : null}
           {captionText ? <Text style={styles.captionText}>{captionText}</Text> : null}
+          {!footerText && !locationText && !captionText ? (
+            <Text style={styles.metaLine}>照片元信息会在这里展示</Text>
+          ) : null}
         </View>
 
         <ScrollView
@@ -212,6 +235,15 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
           })}
         </ScrollView>
       </View>
+
+      {currentImageFailed ? (
+        <View style={styles.failureBanner}>
+          <Text style={styles.failureBannerTitle}>加载失败兜底</Text>
+          <Text style={styles.failureBannerText}>
+            当前图片的本地候选地址已失效，查看器会保持清晰失败占位，而不是黑屏。
+          </Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -248,25 +280,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   slide: {
-    width,
-    height,
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 24,
     paddingBottom: 188,
   },
   stageFrame: {
-    width: width,
     alignItems: 'center',
     justifyContent: 'center',
   },
   image: {
-    width,
-    height: height * 0.7,
+    maxWidth: '100%',
   },
   errorPlaceholder: {
-    width: width * 0.76,
-    minHeight: width * 0.72,
+    minHeight: 260,
     borderRadius: 26,
     borderWidth: 1,
     borderColor: 'rgba(149, 173, 223, 0.16)',
@@ -308,6 +335,17 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 14,
   },
+  bottomPanelMuted: {
+    backgroundColor: 'rgba(9, 17, 31, 0.72)',
+  },
+  emptyStage: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 188,
+    gap: 8,
+  },
   metaBlock: {
     gap: 4,
   },
@@ -327,6 +365,29 @@ const styles = StyleSheet.create({
   },
   filmstrip: {
     gap: 10,
+  },
+  failureBanner: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 174,
+    borderRadius: 18,
+    backgroundColor: 'rgba(14,22,38,0.76)',
+    borderWidth: 1,
+    borderColor: 'rgba(151,181,255,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  failureBannerTitle: {
+    color: '#EEF4FF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  failureBannerText: {
+    color: 'rgba(227,235,255,0.76)',
+    fontSize: 12,
+    lineHeight: 18,
   },
   thumbCell: {
     width: 64,

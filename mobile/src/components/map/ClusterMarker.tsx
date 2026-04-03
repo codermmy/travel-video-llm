@@ -1,58 +1,51 @@
-import { useRef } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { JourneyPalette } from '@/styles/colors';
+import type { JourneyStateKind } from '@/utils/statusLanguage';
 
 type ClusterMarkerProps = {
   coverUrl: string | null;
   clusterCount: number;
   isSelected: boolean;
+  tone: JourneyStateKind;
   onPress: () => void;
-  onDoublePress: () => void;
 };
-
-const DOUBLE_PRESS_DELAY_MS = 280;
 
 export function ClusterMarker({
   coverUrl,
   clusterCount,
   isSelected,
+  tone,
   onPress,
-  onDoublePress,
 }: ClusterMarkerProps) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPressRef = useRef<number>(0);
-
-  const handlePress = () => {
-    const now = Date.now();
-
-    if (now - lastPressRef.current <= DOUBLE_PRESS_DELAY_MS) {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-      onDoublePress();
-    } else {
-      timerRef.current = setTimeout(() => {
-        onPress();
-        timerRef.current = null;
-      }, DOUBLE_PRESS_DELAY_MS);
-    }
-
-    lastPressRef.current = now;
-  };
-
   const isCluster = clusterCount > 1;
+  const toneColor =
+    tone === 'failed'
+      ? JourneyPalette.danger
+      : tone === 'stale'
+        ? JourneyPalette.warning
+        : tone === 'importing' || tone === 'processing'
+          ? JourneyPalette.accent
+          : JourneyPalette.success;
+  const toneSoft =
+    tone === 'failed'
+      ? JourneyPalette.dangerSoft
+      : tone === 'stale'
+        ? JourneyPalette.warningSoft
+        : tone === 'importing' || tone === 'processing'
+          ? JourneyPalette.accentSoft
+          : JourneyPalette.successSoft;
 
   return (
     <View style={styles.container}>
       <Pressable
         style={({ pressed }) => [
           styles.markerWrapper,
+          { borderColor: isSelected ? toneColor : JourneyPalette.line },
           isSelected && styles.markerWrapperSelected,
           pressed && styles.markerWrapperPressed,
         ]}
-        onPress={handlePress}
+        onPress={onPress}
       >
         {coverUrl ? (
           <Image source={{ uri: coverUrl }} style={styles.image} />
@@ -60,8 +53,10 @@ export function ClusterMarker({
           <View style={[styles.image, styles.placeholder]} />
         )}
 
+        <View style={[styles.stateDot, { backgroundColor: toneColor, borderColor: toneSoft }]} />
+
         {isCluster ? (
-          <View style={styles.badgeContainer}>
+          <View style={[styles.badgeContainer, { backgroundColor: toneColor }]}>
             <Text style={styles.badgeText}>{clusterCount}</Text>
           </View>
         ) : null}
@@ -80,18 +75,18 @@ const styles = StyleSheet.create({
   markerWrapper: {
     padding: 4,
     backgroundColor: JourneyPalette.card,
-    borderRadius: 24,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(37, 93, 88, 0.14)',
     shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
     elevation: 5,
   },
   markerWrapperSelected: {
-    transform: [{ scale: 1.16 }],
+    transform: [{ scale: 1.12 }],
     shadowOpacity: 0.28,
+    borderColor: JourneyPalette.accent,
   },
   markerWrapperPressed: {
     transform: [{ scale: 0.96 }],
@@ -109,7 +104,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -6,
     right: -6,
-    backgroundColor: JourneyPalette.accentWarm,
+    backgroundColor: JourneyPalette.accent,
     borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -120,6 +115,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '800',
+  },
+  stateDot: {
+    position: 'absolute',
+    left: -3,
+    bottom: -3,
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    borderWidth: 2,
   },
   arrow: {
     width: 0,

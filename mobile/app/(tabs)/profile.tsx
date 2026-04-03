@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,29 +19,9 @@ import {
   getImportCacheSummary,
   type ImportCacheSummary,
 } from '@/services/album/photoImportService';
+import { loadImportTasks, subscribeImportTasks } from '@/services/import/importTaskService';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 import { JourneyPalette } from '@/styles/colors';
-
-function formatDate(value?: string | null): string {
-  if (!value) {
-    return '暂无';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '暂无';
-  }
-  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-function maskValue(value?: string | null): string {
-  if (!value) {
-    return '-';
-  }
-  if (value.length <= 12) {
-    return value;
-  }
-  return `${value.slice(0, 6)}...${value.slice(-4)}`;
-}
 
 function buildImportSummary(localData: ImportCacheSummary): string {
   if (localData.assetCount <= 0) {
@@ -131,6 +111,7 @@ export default function ProfileScreen() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [localData, setLocalData] = useState<LocalDataSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runningTaskCount, setRunningTaskCount] = useState(0);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -157,6 +138,14 @@ export default function ProfileScreen() {
     }, [loadSettings]),
   );
 
+  useEffect(() => {
+    const unsubscribe = subscribeImportTasks((state) => {
+      setRunningTaskCount(state.runningCount);
+    });
+    void loadImportTasks();
+    return unsubscribe;
+  }, []);
+
   const avatarLetter = useMemo(() => {
     const source = user?.nickname?.trim() || 'D';
     return source.slice(0, 1).toUpperCase();
@@ -166,18 +155,18 @@ export default function ProfileScreen() {
     () => [
       {
         label: '导入记录',
-        value: localData ? String(localData.assetCount) : '0',
+        value: `${localData?.assetCount ?? 0} 条`,
       },
       {
-        label: '最近导入',
-        value: localData?.lastRunAt ? formatDate(localData.lastRunAt) : '暂无',
+        label: '后台任务',
+        value: `${runningTaskCount} 个`,
       },
       {
         label: '隐私保护',
         value: '默认开启',
       },
     ],
-    [localData],
+    [localData?.assetCount, runningTaskCount],
   );
 
   const handleClearLocalCache = useCallback(() => {
@@ -234,10 +223,15 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      contentInsetAdjustmentBehavior="automatic"
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>我的</Text>
-        <Text style={styles.pageSubtitle}>这台设备上的资料与导入记录</Text>
+        <Text style={styles.pageSubtitle}>本机回忆、后台任务与隐私设置都从这里进入</Text>
       </View>
 
       <View style={styles.identityCard}>
@@ -254,8 +248,12 @@ export default function ProfileScreen() {
           )}
 
           <View style={styles.identityCopy}>
-            <Text style={styles.identityTitle}>{user.nickname || '这台设备'}</Text>
-            <Text style={styles.identitySubtitle}>这台设备上的旅行记忆</Text>
+            <Text style={styles.identityTitle}>这台设备的回忆</Text>
+            <Text style={styles.identitySubtitle}>
+              {user.nickname?.trim()
+                ? `${user.nickname} · 昵称、隐私承诺和后台任务入口都集中在这里。`
+                : '昵称、隐私承诺和后台任务入口都集中在这里。'}
+            </Text>
           </View>
           <View style={styles.deviceBadge}>
             <Text style={styles.deviceBadgeText}>本机</Text>
@@ -280,8 +278,12 @@ export default function ProfileScreen() {
           <ListRow
             icon="timeline-clock-outline"
             title="导入任务"
-            subtitle={buildImportSummary(localData)}
-            value="查看"
+            subtitle={
+              runningTaskCount > 0
+                ? `${runningTaskCount} 个后台任务仍在运行，可在这里回看阶段与结果。`
+                : buildImportSummary(localData)
+            }
+            value={runningTaskCount > 0 ? `${runningTaskCount} 任务` : '查看'}
             emphasizeValue
             onPress={() => router.push('/profile/import-tasks')}
           />
@@ -291,7 +293,16 @@ export default function ProfileScreen() {
             title="继续导入"
             subtitle="手动补导入保留为次级入口，不再抢主路径"
             value="入口"
-            onPress={() => router.push('/')}
+            onPress={() =>
+              router.push({
+                pathname: '/',
+                params: {
+                  filter: 'all',
+                  importMode: 'manual',
+                  intentKey: String(Date.now()),
+                },
+              })
+            }
           />
         </View>
       </View>
@@ -308,28 +319,28 @@ export default function ProfileScreen() {
           <View style={styles.groupDivider} />
           <ListRow
             icon="account-edit-outline"
-            title="编辑本机资料"
-            subtitle="可调整昵称等轻量展示信息"
+            title="本机资料"
+            subtitle="昵称等轻量展示信息都在这里维护"
             onPress={() => router.push('/profile/edit')}
           />
           <View style={styles.groupDivider} />
           <ListRow
-            icon="cellphone-key"
-            title="本机标识"
-            value={maskValue(user.device_id || user.id)}
+            icon="account-circle-outline"
+            title="头像来源"
+            subtitle="相册、拍照和权限恢复都从同一条轻量流程进入"
+            value="更新"
+            onPress={() => router.push('/profile/avatar')}
           />
-          <View style={styles.groupDivider} />
-          <ListRow icon="calendar-outline" title="注册时间" value={formatDate(user.created_at)} />
         </View>
       </View>
 
       <View style={styles.sectionBlock}>
-        <GroupHeader title="本地清理" />
+        <GroupHeader title="数据管理" />
         <View style={styles.groupCard}>
           <ListRow
             icon="trash-can-outline"
             title="清理导入记录"
-            subtitle="仅清理本机导入记录，不删除事件与故事"
+            subtitle="危险操作单独分组，仅清理本机导入记录，不删除事件与故事"
             destructive
             loading={cleaning}
             onPress={handleClearLocalCache}
@@ -431,7 +442,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   identityTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },

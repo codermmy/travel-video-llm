@@ -5,15 +5,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
+import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
 import {
   ActionButton,
   BottomSheetScaffold,
-  EmptyStateCard,
   InlineBanner,
   SurfaceCard,
 } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
-import { openAppSettings } from '@/utils/permissionUtils';
 
 const PAGE_SIZE = 90;
 
@@ -24,6 +23,7 @@ type PhotoLibraryPickerModalProps = {
   confirmLabel: string;
   maxSelection?: number;
   confirmLoading?: boolean;
+  permissionContext?: 'manual-import' | 'event-add-photo' | 'avatar-source';
   onClose: () => void;
   onConfirm: (assets: MediaLibrary.Asset[]) => Promise<void> | void;
 };
@@ -43,6 +43,7 @@ export function PhotoLibraryPickerModal({
   confirmLabel,
   maxSelection = 200,
   confirmLoading = false,
+  permissionContext = 'manual-import',
   onClose,
   onConfirm,
 }: PhotoLibraryPickerModalProps) {
@@ -145,6 +146,15 @@ export function PhotoLibraryPickerModal({
     const selectedIdSet = new Set(selectedIds);
     return assets.filter((asset) => selectedIdSet.has(asset.id));
   }, [assets, selectedIds]);
+  const effectiveConfirmLabel = useMemo(() => {
+    if (selectedAssets.length === 0) {
+      return confirmLabel;
+    }
+    if (confirmLabel.includes('导入')) {
+      return `开始导入 ${selectedAssets.length} 张`;
+    }
+    return confirmLabel;
+  }, [confirmLabel, selectedAssets.length]);
 
   const handleSelectAllLoaded = useCallback(() => {
     setSelectedIds(assets.slice(0, maxSelection).map((asset) => asset.id));
@@ -222,53 +232,49 @@ export function PhotoLibraryPickerModal({
             footer={
               <View style={styles.modalActions}>
                 <ActionButton
-                  label="取消"
-                  tone="secondary"
-                  onPress={handleClose}
-                  disabled={!canClose}
-                  style={styles.flexButton}
-                />
-                <ActionButton
-                  label={confirmLabel}
+                  label={effectiveConfirmLabel}
                   onPress={() => {
                     void onConfirm(selectedAssets);
                   }}
                   disabled={selectedAssets.length === 0 || confirmLoading}
-                  style={styles.flexButton}
+                />
+                <ActionButton
+                  label="取消"
+                  tone="secondary"
+                  onPress={handleClose}
+                  disabled={!canClose}
                 />
               </View>
             }
           >
-            <InlineBanner
-              icon="image-multiple-outline"
-              title={
-                selectionMode
-                  ? `已选择 ${selectedIds.length}${maxSelection ? ` / ${maxSelection}` : ''}`
-                  : '手动补导入'
-              }
-              body={
-                selectionMode
-                  ? '保持选择态后可以继续点选补充，也可以像系统相册一样滑动连续选择。'
-                  : '默认先浏览，长按任意一张进入选择态；手动补导入保留为次级入口，但体验应足够顺手。'
-              }
-              tone="neutral"
-              style={styles.topBanner}
-            />
+            {!selectionMode ? (
+              <InlineBanner
+                icon="image-multiple-outline"
+                title="手动补导入"
+                body="默认先浏览，长按任意一张进入选择态；手动补导入保留为次级入口，但体验应足够顺手。"
+                tone="neutral"
+                style={styles.topBanner}
+              />
+            ) : null}
+
+            {selectionMode ? (
+              <SurfaceCard style={styles.selectionBannerCard}>
+                <Text style={styles.selectionBannerTitle}>
+                  已选择 {selectedIds.length}
+                  {maxSelection ? ` / ${maxSelection}` : ''} 张
+                </Text>
+                <Text style={styles.selectionBannerBody}>
+                  补导入是次级入口，但选择体验本身仍然应该像一个完整相册流程。
+                </Text>
+              </SurfaceCard>
+            ) : null}
 
             {permissionDenied ? (
               <View style={styles.modalContent}>
-                <EmptyStateCard
-                  icon="image-lock-outline"
-                  title="没有相册权限"
-                  description="需要开启系统相册权限后才能继续手动补导入或选择当前事件照片。"
-                  action={
-                    <ActionButton
-                      label="打开系统设置"
-                      icon="cog-outline"
-                      onPress={openAppSettings}
-                      fullWidth={false}
-                    />
-                  }
+                <PermissionRecoveryCard
+                  mode="media"
+                  context={permissionContext}
+                  onDismiss={handleClose}
                 />
               </View>
             ) : loadingInitial ? (
@@ -330,6 +336,20 @@ const styles = StyleSheet.create({
   },
   topBanner: {
     marginBottom: 12,
+  },
+  selectionBannerCard: {
+    marginBottom: 12,
+    gap: 6,
+  },
+  selectionBannerTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: JourneyPalette.ink,
+  },
+  selectionBannerBody: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
   },
   gridHeader: {
     paddingTop: 4,
@@ -395,11 +415,8 @@ const styles = StyleSheet.create({
     color: JourneyPalette.inkSoft,
   },
   modalActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 10,
-  },
-  flexButton: {
-    flex: 1,
   },
   disabledAction: {
     opacity: 0.55,

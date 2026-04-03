@@ -1,0 +1,63 @@
+{
+  "engine": "codex",
+  "model": "gpt-5.4",
+  "repo_root": "/Users/maoyuan/code/travel-video-llm",
+  "agent_root": "mobile",
+  "run_root": "/tmp/travel-video-llm-ui-loop",
+  "goal": "持续把 Travel Video LLM 的 Expo 移动端 UI 拉向 2026-04 的移动端返工基线：更真实的状态来源、更低的信息噪音、更强的旅行记忆气质、更高的任务完成效率。",
+  "target_description": "Travel Video LLM 的 React Native / Expo 移动端主界面、地图、事件详情、照片和导入相关 UI。",
+  "context_files": [
+    "my-spec/docs/mobile-ui-autonomous-loop-context.md"
+  ],
+  "editable_paths": [
+    "app",
+    "src",
+    "package.json",
+    "package-lock.json",
+    "app.json",
+    "app.config.ts"
+  ],
+  "focus_paths": [
+    "src/screens/memories-screen.tsx",
+    "app/(tabs)/index.tsx",
+    "app/(tabs)/map.tsx",
+    "app/events/[eventId].tsx",
+    "app/(tabs)/profile.tsx",
+    "src/components/ui/revamp.tsx",
+    "src/styles/theme.ts",
+    "src/styles/colors.ts"
+  ],
+  "guardrails": [
+    "不要新增后端接口。",
+    "不要把返工范围扩大到分享、导出、搜索等低频页。",
+    "不要为了视觉风格牺牲信息理解和任务完成率。",
+    "不要根据事件字段猜测整理状态，优先使用真实任务态。",
+    "不要重写无关业务逻辑，只在当前轮的高杠杆 UI/UX 范围内改动。"
+  ],
+  "duration_hours": 12,
+  "max_rounds": 24,
+  "max_phase_retries": 2,
+  "transient_phase_retries": 4,
+  "transient_retry_backoff_seconds": 20,
+  "phase_timeout_seconds": 2400,
+  "stagnation_limit": 3,
+  "target_score": 8.8,
+  "min_score_delta": 0.15,
+  "max_issues_per_round": 3,
+  "sleep_seconds": 10,
+  "dangerously_bypass_sandbox": false,
+  "validation_commands": [
+    {
+      "name": "lint",
+      "cmd": "npm run lint",
+      "cwd": ".",
+      "allow_failure": false
+    },
+    {
+      "name": "typecheck",
+      "cmd": "npm run typecheck",
+      "cwd": ".",
+      "allow_failure": false
+    }
+  ]
+}

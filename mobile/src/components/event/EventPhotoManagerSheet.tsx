@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,6 +38,7 @@ import { getPreferredPhotoThumbnailUri } from '@/utils/mediaRefs';
 type EventPhotoManagerSheetProps = {
   visible: boolean;
   eventId: string | null;
+  entryMode?: 'browse' | 'move-target';
   onClose: () => void;
   onChanged: (params: { deletedCurrentEvent: boolean }) => void;
 };
@@ -54,6 +55,7 @@ function isNotFoundError(error: unknown): boolean {
 export function EventPhotoManagerSheet({
   visible,
   eventId,
+  entryMode = 'browse',
   onClose,
   onChanged,
 }: EventPhotoManagerSheetProps) {
@@ -71,6 +73,7 @@ export function EventPhotoManagerSheet({
   const [movePickerVisible, setMovePickerVisible] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventLocation, setNewEventLocation] = useState('');
+  const moveEntryHandledRef = useRef(false);
   const selectionMode = selectedPhotoIds.length > 0;
   const canClose = !isActionLoading && !pickerSubmitting;
 
@@ -97,6 +100,7 @@ export function EventPhotoManagerSheet({
       setSelectedPhotoIds([]);
       setMovePickerVisible(false);
       setPickerVisible(false);
+      moveEntryHandledRef.current = false;
       return;
     }
     setSelectedPhotoIds([]);
@@ -104,8 +108,27 @@ export function EventPhotoManagerSheet({
     setPickerVisible(false);
     setNewEventTitle('');
     setNewEventLocation('');
+    moveEntryHandledRef.current = false;
     void loadData();
   }, [loadData, visible]);
+
+  useEffect(() => {
+    if (!visible || entryMode !== 'move-target' || moveEntryHandledRef.current) {
+      return;
+    }
+    if (!event) {
+      return;
+    }
+
+    moveEntryHandledRef.current = true;
+    if (event.photos.length === 0) {
+      setMovePickerVisible(false);
+      return;
+    }
+
+    setSelectedPhotoIds(event.photos.map((photo) => photo.id));
+    setMovePickerVisible(true);
+  }, [entryMode, event, visible]);
 
   const selectableItems = useMemo(
     () =>
@@ -300,7 +323,11 @@ export function EventPhotoManagerSheet({
             <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
             <BottomSheetScaffold
               title="管理照片"
-              hint="把浏览、选择、多选和补导入收进同一条连续流程里。"
+              hint={
+                entryMode === 'move-target'
+                  ? '当前入口会默认带入这组照片，再让你选择目标事件来修正误聚合。'
+                  : '把浏览、选择、多选和补导入收进同一条连续流程里。'
+              }
               onClose={canClose ? handleClose : undefined}
               style={styles.modalSheet}
               footer={
@@ -354,21 +381,79 @@ export function EventPhotoManagerSheet({
                 ) : null
               }
             >
-              <InlineBanner
-                icon="image-multiple-outline"
-                title={
-                  selectionMode
-                    ? `已选择 ${selectedPhotoIds.length} / ${event?.photos.length ?? 0} 张`
-                    : event?.title || '未命名事件'
-                }
-                body={
-                  selectionMode
-                    ? '保持选择态后可以继续滑动多选，再决定移动、移出或删除。'
-                    : '默认先浏览照片，长按任意一张进入选择态；顶部不再堆一排零散动作。'
-                }
-                tone="neutral"
-                style={styles.topBanner}
-              />
+              {selectionMode ? (
+                <SurfaceCard style={styles.selectionBannerCard}>
+                  <Text style={styles.selectionBannerTitle}>
+                    已选择 {selectedPhotoIds.length} / {event?.photos.length ?? 0} 张
+                  </Text>
+                  <Text style={styles.selectionBannerBody}>
+                    长按进入选择态后，可继续滑动多选，再决定移动、移出或删除。
+                  </Text>
+                  <View style={styles.selectionActionRow}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.selectionActionChip,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => setMovePickerVisible(true)}
+                    >
+                      <Text style={styles.selectionActionText}>移动到其他事件</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.selectionActionChip,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => {
+                        void runPhotoMutation(
+                          () => photoApi.reassignPhotosToEvent(selectedPhotoIds, null),
+                          '移出失败',
+                        );
+                      }}
+                    >
+                      <Text style={styles.selectionActionText}>移出当前事件</Text>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.selectionActionChip,
+                        styles.selectionActionChipDanger,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => {
+                        Alert.alert(
+                          '删除照片',
+                          '删除后将无法恢复，选中的照片会从应用数据里移除。',
+                          [
+                            { text: '取消', style: 'cancel' },
+                            {
+                              text: '删除',
+                              style: 'destructive',
+                              onPress: () => {
+                                void runPhotoMutation(
+                                  () => photoApi.deletePhotos(selectedPhotoIds),
+                                  '删除失败',
+                                );
+                              },
+                            },
+                          ],
+                        );
+                      }}
+                    >
+                      <Text style={styles.selectionActionTextDanger}>删除照片</Text>
+                    </Pressable>
+                  </View>
+                </SurfaceCard>
+              ) : null}
+
+              {!selectionMode ? (
+                <InlineBanner
+                  icon="image-multiple-outline"
+                  title={event?.title || '未命名事件'}
+                  body="默认先浏览照片，长按任意一张进入选择态；顶部不再堆一排零散动作。"
+                  tone="neutral"
+                  style={styles.topBanner}
+                />
+              ) : null}
 
               {loading ? (
                 <SurfaceCard style={styles.loadingState}>
@@ -404,6 +489,7 @@ export function EventPhotoManagerSheet({
         hint={`从系统相册挑选照片，直接导入到“${event?.title || '未命名事件'}”。长按开始滑动多选。`}
         confirmLabel="导入到当前事件"
         confirmLoading={pickerSubmitting}
+        permissionContext="event-add-photo"
         onClose={() => {
           if (!canClose) {
             return;
@@ -434,7 +520,7 @@ export function EventPhotoManagerSheet({
             disabled={isActionLoading}
           />
           <BottomSheetScaffold
-            title="移动到其他事件"
+            title="移动目标选择"
             hint={`已选择 ${selectedPhotoIds.length} 张。可以移动到已有事件，或直接新建一个事件承接这些照片。`}
             onClose={isActionLoading ? undefined : () => setMovePickerVisible(false)}
             style={styles.moveSheet}
@@ -560,6 +646,49 @@ const styles = StyleSheet.create({
   },
   topBanner: {
     marginBottom: 12,
+  },
+  selectionBannerCard: {
+    marginBottom: 12,
+    gap: 6,
+  },
+  selectionBannerTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  selectionBannerBody: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  selectionActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
+  },
+  selectionActionChip: {
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: JourneyPalette.cardAlt,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+  },
+  selectionActionChipDanger: {
+    backgroundColor: JourneyPalette.dangerSoft,
+    borderColor: JourneyPalette.dangerBorder,
+  },
+  selectionActionText: {
+    color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  selectionActionTextDanger: {
+    color: JourneyPalette.danger,
+    fontSize: 12,
+    fontWeight: '700',
   },
   toolbarCard: {
     borderRadius: 22,

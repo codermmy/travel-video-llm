@@ -9,36 +9,37 @@ export default function TabLayout() {
       detachInactiveScreens={false}
       screenOptions={{
         tabBarActiveTintColor: JourneyPalette.accent,
-        tabBarInactiveTintColor: JourneyPalette.muted,
+        tabBarInactiveTintColor: JourneyPalette.mutedStrong,
         tabBarActiveBackgroundColor: JourneyPalette.accentSoft,
         headerShown: false,
         lazy: false,
         freezeOnBlur: false,
+        tabBarHideOnKeyboard: true,
         sceneStyle: {
           backgroundColor: JourneyPalette.cardAlt,
         },
         tabBarStyle: {
-          height: 84,
+          height: 88,
           paddingTop: 10,
-          paddingBottom: 12,
+          paddingBottom: 14,
           paddingHorizontal: 14,
-          backgroundColor: 'rgba(251,253,255,0.98)',
+          backgroundColor: JourneyPalette.overlay,
           borderTopWidth: 1,
           borderTopColor: JourneyPalette.line,
           shadowColor: JourneyPalette.shadow,
-          shadowOffset: { width: 0, height: -8 },
+          shadowOffset: { width: 0, height: -10 },
           shadowOpacity: 0.08,
-          shadowRadius: 22,
+          shadowRadius: 24,
           elevation: 14,
         },
         tabBarItemStyle: {
-          borderRadius: 20,
+          borderRadius: 22,
           marginHorizontal: 4,
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '800',
-          marginBottom: 2,
+          marginBottom: 3,
         },
       }}
     >

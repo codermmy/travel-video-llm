@@ -4,10 +4,10 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
 import {
   ActionButton,
   BottomSheetScaffold,
-  EmptyStateCard,
   InlineBanner,
   PageContent,
   PageHeader,
@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/revamp';
 import { userApi } from '@/services/api/userApi';
 import { JourneyPalette } from '@/styles/colors';
-import { openAppSettings } from '@/utils/permissionUtils';
 
 const MAX_AVATAR_SIZE = 1024 * 1024;
 
@@ -111,23 +110,13 @@ export default function AvatarScreen() {
         />
 
         {permissionDenied ? (
-          <EmptyStateCard
-            icon={permissionDenied === 'media' ? 'image-lock-outline' : 'camera-off-outline'}
-            title={permissionDenied === 'media' ? '没有相册权限' : '没有相机权限'}
-            description={
-              permissionDenied === 'media'
-                ? '需要开启系统相册权限后才能从相册选择头像。'
-                : '需要开启系统相机权限后才能拍照更新头像。'
-            }
-            action={
-              <ActionButton
-                label="打开系统设置"
-                icon="cog-outline"
-                onPress={openAppSettings}
-                fullWidth={false}
-              />
-            }
-          />
+          <View style={styles.permissionBlock}>
+            <PermissionRecoveryCard
+              mode={permissionDenied}
+              context="avatar-source"
+              onDismiss={() => setPermissionDenied(null)}
+            />
+          </View>
         ) : null}
 
         <SurfaceCard style={styles.previewCard}>
@@ -156,20 +145,32 @@ export default function AvatarScreen() {
           tone="neutral"
         />
 
-        <View style={styles.actionRow}>
-          <ActionButton
-            label={avatarUri ? '重新选择' : '选择头像'}
-            tone="secondary"
-            onPress={() => setSourceSheetVisible(true)}
-            style={styles.flexButton}
-          />
-          <ActionButton
-            label={uploading ? '上传中...' : '上传头像'}
-            onPress={uploadAvatar}
-            disabled={!avatarUri || uploading}
-            style={styles.flexButton}
-          />
-        </View>
+        <SurfaceCard style={styles.sourceSummaryCard}>
+          <SectionLabel title="来源说明" />
+          <View style={styles.sourceSummaryGrid}>
+            <View style={styles.sourceSummaryItem}>
+              <Text style={styles.sourceSummaryTitle}>相册选择</Text>
+              <Text style={styles.sourceSummaryBody}>允许裁切和预览，优先保持低步骤和确定感。</Text>
+            </View>
+            <View style={styles.sourceSummaryItem}>
+              <Text style={styles.sourceSummaryTitle}>拍照更新</Text>
+              <Text style={styles.sourceSummaryBody}>
+                和相册入口并列，但确认动作统一回到头像页完成。
+              </Text>
+            </View>
+          </View>
+        </SurfaceCard>
+
+        <ActionButton
+          label={avatarUri ? '重新选择来源' : '选择头像来源'}
+          tone="secondary"
+          onPress={() => setSourceSheetVisible(true)}
+        />
+        <ActionButton
+          label={uploading ? '上传中...' : '确认上传头像'}
+          onPress={uploadAvatar}
+          disabled={!avatarUri || uploading}
+        />
       </PageContent>
 
       <Modal
@@ -225,6 +226,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 14,
   },
+  sourceSummaryCard: {
+    gap: 12,
+  },
   previewImage: {
     width: 240,
     height: 240,
@@ -254,12 +258,31 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
-  actionRow: {
-    flexDirection: 'row',
+  sourceSummaryGrid: {
     gap: 10,
   },
-  flexButton: {
-    flex: 1,
+  sourceSummaryItem: {
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.cardAlt,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  sourceSummaryTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  sourceSummaryBody: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  permissionBlock: {
+    width: '100%',
+    gap: 10,
   },
   modalBackdrop: {
     flex: 1,

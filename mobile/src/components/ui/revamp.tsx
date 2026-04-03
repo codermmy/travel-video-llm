@@ -7,11 +7,15 @@ import {
   View,
   type PressableStateCallbackType,
   type StyleProp,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { JourneyPalette } from '@/styles/colors';
+import { getJourneyStateAppearance, type JourneyStateKind } from '@/utils/statusLanguage';
+
+export type StatusTone = 'ready' | 'analyzing' | 'importing' | 'stale' | 'failed' | 'neutral';
 
 type PageHeaderProps = {
   title: string;
@@ -72,7 +76,178 @@ type EmptyStateCardProps = {
 type MetricPillProps = {
   value: string;
   label: string;
+  tone?: StatusTone;
+  style?: StyleProp<ViewStyle>;
 };
+
+type StatusPillProps = {
+  label: string;
+  tone?: StatusTone;
+  icon?: keyof typeof MaterialCommunityIcons.glyphMap;
+  style?: StyleProp<ViewStyle>;
+};
+
+type StateChipProps = {
+  state: JourneyStateKind | StatusTone;
+  label?: string;
+  compact?: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+type FilterChipProps = {
+  label: string;
+  count?: number | string;
+  active?: boolean;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+type ListItemRowProps = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  title: string;
+  subtitle?: string;
+  meta?: string;
+  metaTone?: StatusTone;
+  onPress?: () => void;
+  destructive?: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+const statusToneMap: Record<
+  StatusTone,
+  {
+    borderColor: string;
+    backgroundColor: string;
+    textColor: string;
+    iconColor: string;
+  }
+> = {
+  ready: {
+    borderColor: JourneyPalette.successBorder,
+    backgroundColor: JourneyPalette.successSoft,
+    textColor: JourneyPalette.success,
+    iconColor: JourneyPalette.success,
+  },
+  analyzing: {
+    borderColor: '#CADAFF',
+    backgroundColor: JourneyPalette.accentSoft,
+    textColor: JourneyPalette.accent,
+    iconColor: JourneyPalette.accent,
+  },
+  importing: {
+    borderColor: '#FFD3C1',
+    backgroundColor: JourneyPalette.accentWarmSoft,
+    textColor: JourneyPalette.accentWarm,
+    iconColor: JourneyPalette.accentWarm,
+  },
+  stale: {
+    borderColor: JourneyPalette.warningBorder,
+    backgroundColor: JourneyPalette.warningSoft,
+    textColor: JourneyPalette.warning,
+    iconColor: JourneyPalette.warning,
+  },
+  failed: {
+    borderColor: JourneyPalette.dangerBorder,
+    backgroundColor: JourneyPalette.dangerSoft,
+    textColor: JourneyPalette.danger,
+    iconColor: JourneyPalette.danger,
+  },
+  neutral: {
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.cardAlt,
+    textColor: JourneyPalette.inkSoft,
+    iconColor: JourneyPalette.inkSoft,
+  },
+};
+
+const buttonToneMap: Record<
+  ButtonTone,
+  {
+    container: ViewStyle;
+    text: TextStyle;
+    iconColor: string;
+  }
+> = {
+  primary: {
+    container: {
+      backgroundColor: JourneyPalette.accent,
+      borderColor: JourneyPalette.accent,
+    },
+    text: {
+      color: JourneyPalette.white,
+    },
+    iconColor: JourneyPalette.white,
+  },
+  secondary: {
+    container: {
+      backgroundColor: JourneyPalette.card,
+      borderColor: JourneyPalette.line,
+      borderWidth: 1,
+    },
+    text: {
+      color: JourneyPalette.ink,
+    },
+    iconColor: JourneyPalette.ink,
+  },
+  danger: {
+    container: {
+      backgroundColor: JourneyPalette.dangerSoft,
+      borderColor: JourneyPalette.dangerBorder,
+      borderWidth: 1,
+    },
+    text: {
+      color: JourneyPalette.danger,
+    },
+    iconColor: JourneyPalette.danger,
+  },
+};
+
+const bannerTones = {
+  accent: {
+    container: {
+      backgroundColor: JourneyPalette.accentSoft,
+      borderColor: '#D6E3FF',
+    },
+    iconWrap: {
+      backgroundColor: JourneyPalette.white,
+    },
+    iconColor: JourneyPalette.accent,
+  },
+  warm: {
+    container: {
+      backgroundColor: JourneyPalette.accentWarmSoft,
+      borderColor: '#FFD7C9',
+    },
+    iconWrap: {
+      backgroundColor: JourneyPalette.white,
+    },
+    iconColor: JourneyPalette.accentWarm,
+  },
+  danger: {
+    container: {
+      backgroundColor: JourneyPalette.dangerSoft,
+      borderColor: JourneyPalette.dangerBorder,
+    },
+    iconWrap: {
+      backgroundColor: JourneyPalette.white,
+    },
+    iconColor: JourneyPalette.danger,
+  },
+  neutral: {
+    container: {
+      backgroundColor: JourneyPalette.cardMuted,
+      borderColor: JourneyPalette.line,
+    },
+    iconWrap: {
+      backgroundColor: JourneyPalette.white,
+    },
+    iconColor: JourneyPalette.inkSoft,
+  },
+} as const;
+
+export function getStatusToneColors(tone: StatusTone) {
+  return statusToneMap[tone];
+}
 
 export function PageContent({
   children,
@@ -82,7 +257,11 @@ export function PageContent({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <ScrollView style={styles.page} contentContainerStyle={[styles.pageContent, style]}>
+    <ScrollView
+      style={styles.page}
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerStyle={[styles.pageContent, style]}
+    >
       {children}
     </ScrollView>
   );
@@ -138,6 +317,126 @@ export function InlineBanner({
   );
 }
 
+export function StatusPill({ label, tone = 'neutral', icon, style }: StatusPillProps) {
+  const toneStyle = statusToneMap[tone];
+
+  return (
+    <View
+      style={[
+        styles.statusPill,
+        {
+          borderColor: toneStyle.borderColor,
+          backgroundColor: toneStyle.backgroundColor,
+        },
+        style,
+      ]}
+    >
+      {icon ? <MaterialCommunityIcons name={icon} size={13} color={toneStyle.iconColor} /> : null}
+      <Text style={[styles.statusPillText, { color: toneStyle.textColor }]}>{label}</Text>
+    </View>
+  );
+}
+
+export function StateChip({ state, label, compact = false, style }: StateChipProps) {
+  const normalizedState =
+    state === 'analyzing' ? 'processing' : state === 'neutral' ? 'importing' : state;
+  const appearance = getJourneyStateAppearance(normalizedState);
+
+  return (
+    <StatusPill
+      label={label || (compact ? appearance.shortLabel : appearance.label)}
+      tone={normalizedState === 'processing' ? 'analyzing' : normalizedState}
+      icon={appearance.icon}
+      style={[compact && styles.stateChipCompact, style]}
+    />
+  );
+}
+
+export function FilterChip({ label, count, active = false, onPress, style }: FilterChipProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.filterChip,
+        active && styles.filterChipActive,
+        pressed && styles.pressed,
+        style,
+      ]}
+    >
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+      {count !== undefined ? (
+        <View style={[styles.filterCountBadge, active && styles.filterCountBadgeActive]}>
+          <Text style={[styles.filterCountBadgeText, active && styles.filterCountBadgeTextActive]}>
+            {count}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+export function ListItemRow({
+  icon,
+  title,
+  subtitle,
+  meta,
+  metaTone = 'neutral',
+  onPress,
+  destructive = false,
+  style,
+}: ListItemRowProps) {
+  const metaColors = statusToneMap[metaTone];
+
+  return (
+    <Pressable
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.listItemRow,
+        pressed && onPress ? styles.pressedRow : null,
+        style,
+      ]}
+    >
+      <View
+        style={[
+          styles.listItemIconWrap,
+          destructive ? styles.listItemDangerIconWrap : styles.listItemAccentIconWrap,
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={icon}
+          size={18}
+          color={destructive ? JourneyPalette.danger : JourneyPalette.accent}
+        />
+      </View>
+      <View style={styles.listItemCopy}>
+        <Text style={[styles.listItemTitle, destructive && styles.listItemDangerTitle]}>
+          {title}
+        </Text>
+        {subtitle ? <Text style={styles.listItemSubtitle}>{subtitle}</Text> : null}
+      </View>
+      <View style={styles.listItemTrailing}>
+        {meta ? (
+          <View
+            style={[
+              styles.listItemMetaBadge,
+              {
+                borderColor: metaColors.borderColor,
+                backgroundColor: metaColors.backgroundColor,
+              },
+            ]}
+          >
+            <Text style={[styles.listItemMetaText, { color: metaColors.textColor }]}>{meta}</Text>
+          </View>
+        ) : null}
+        {onPress ? (
+          <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 export function ActionButton({
   label,
   onPress,
@@ -148,7 +447,7 @@ export function ActionButton({
   style,
   trailing,
 }: ActionButtonProps) {
-  const toneStyle = buttonTones[tone];
+  const toneStyle = buttonToneMap[tone];
 
   return (
     <Pressable
@@ -163,7 +462,7 @@ export function ActionButton({
         style,
       ]}
     >
-      {icon ? <MaterialCommunityIcons name={icon} size={18} color={toneStyle.text.color} /> : null}
+      {icon ? <MaterialCommunityIcons name={icon} size={18} color={toneStyle.iconColor} /> : null}
       <Text style={[styles.buttonText, toneStyle.text]}>{label}</Text>
       {trailing}
     </Pressable>
@@ -214,88 +513,29 @@ export function EmptyStateCard({ icon, title, description, action, style }: Empt
   );
 }
 
-export function MetricPill({ value, label }: MetricPillProps) {
+export function MetricPill({ value, label, tone = 'neutral', style }: MetricPillProps) {
+  const toneStyle = statusToneMap[tone];
+
   return (
-    <View style={styles.metricPill}>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View
+      style={[
+        styles.metricPill,
+        {
+          borderColor: toneStyle.borderColor,
+          backgroundColor: tone === 'neutral' ? JourneyPalette.cardAlt : toneStyle.backgroundColor,
+        },
+        style,
+      ]}
+    >
+      <Text
+        style={[styles.metricValue, tone !== 'neutral' ? { color: toneStyle.textColor } : null]}
+      >
+        {value}
+      </Text>
       <Text style={styles.metricLabel}>{label}</Text>
     </View>
   );
 }
-
-const buttonTones = {
-  primary: StyleSheet.create({
-    container: {
-      backgroundColor: JourneyPalette.accent,
-      borderColor: JourneyPalette.accent,
-    },
-    text: {
-      color: '#FFFFFF',
-    },
-  }),
-  secondary: StyleSheet.create({
-    container: {
-      backgroundColor: JourneyPalette.cardAlt,
-      borderColor: JourneyPalette.line,
-      borderWidth: 1,
-    },
-    text: {
-      color: JourneyPalette.ink,
-    },
-  }),
-  danger: StyleSheet.create({
-    container: {
-      backgroundColor: JourneyPalette.dangerSoft,
-      borderColor: JourneyPalette.dangerSoft,
-    },
-    text: {
-      color: JourneyPalette.danger,
-    },
-  }),
-} as const;
-
-const bannerTones = {
-  accent: {
-    container: {
-      backgroundColor: JourneyPalette.accentSoft,
-      borderColor: '#D6E3FF',
-    },
-    iconWrap: {
-      backgroundColor: '#FFFFFF',
-    },
-    iconColor: JourneyPalette.accent,
-  },
-  warm: {
-    container: {
-      backgroundColor: JourneyPalette.accentWarmSoft,
-      borderColor: '#FFD7C9',
-    },
-    iconWrap: {
-      backgroundColor: '#FFFFFF',
-    },
-    iconColor: JourneyPalette.accentWarm,
-  },
-  danger: {
-    container: {
-      backgroundColor: JourneyPalette.dangerSoft,
-      borderColor: '#F6D2C9',
-    },
-    iconWrap: {
-      backgroundColor: '#FFFFFF',
-    },
-    iconColor: JourneyPalette.danger,
-  },
-  neutral: {
-    container: {
-      backgroundColor: JourneyPalette.cardAlt,
-      borderColor: JourneyPalette.line,
-    },
-    iconWrap: {
-      backgroundColor: '#FFFFFF',
-    },
-    iconColor: JourneyPalette.inkSoft,
-  },
-} as const;
 
 const styles = StyleSheet.create({
   page: {
@@ -303,10 +543,10 @@ const styles = StyleSheet.create({
     backgroundColor: JourneyPalette.cardAlt,
   },
   pageContent: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 28,
-    gap: 16,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 120,
+    gap: 18,
   },
   pageHeader: {
     flexDirection: 'row',
@@ -319,7 +559,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   pageHeaderAction: {
-    paddingTop: 4,
+    paddingTop: 2,
   },
   eyebrow: {
     fontSize: 11,
@@ -328,9 +568,9 @@ const styles = StyleSheet.create({
     color: JourneyPalette.muted,
   },
   pageTitle: {
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '900',
-    letterSpacing: -0.8,
+    letterSpacing: -0.9,
     color: JourneyPalette.ink,
   },
   pageSubtitle: {
@@ -342,7 +582,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: 10,
   },
   sectionLabel: {
     fontSize: 13,
@@ -366,13 +606,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
     padding: 14,
   },
   bannerIconWrap: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -394,9 +634,124 @@ const styles = StyleSheet.create({
   bannerAction: {
     alignSelf: 'center',
   },
-  buttonBase: {
-    minHeight: 48,
+  statusPill: {
+    minHeight: 34,
     borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  stateChipCompact: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  filterChip: {
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterChipActive: {
+    borderColor: JourneyPalette.accent,
+    backgroundColor: JourneyPalette.accentSoft,
+  },
+  filterChipText: {
+    color: JourneyPalette.ink,
+    fontWeight: '800',
+  },
+  filterChipTextActive: {
+    color: JourneyPalette.accent,
+  },
+  filterCountBadge: {
+    minWidth: 22,
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: JourneyPalette.cardMuted,
+  },
+  filterCountBadgeActive: {
+    backgroundColor: JourneyPalette.white,
+  },
+  filterCountBadgeText: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  filterCountBadgeTextActive: {
+    color: JourneyPalette.accent,
+  },
+  listItemRow: {
+    minHeight: 68,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  listItemAccentIconWrap: {
+    backgroundColor: JourneyPalette.accentSoft,
+  },
+  listItemDangerIconWrap: {
+    backgroundColor: JourneyPalette.dangerSoft,
+  },
+  listItemIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listItemCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  listItemTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  listItemDangerTitle: {
+    color: JourneyPalette.danger,
+  },
+  listItemSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  listItemTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  listItemMetaBadge: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  listItemMetaText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  buttonBase: {
+    minHeight: 50,
+    borderRadius: 999,
+    borderWidth: 1,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,9 +792,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sheetTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
     color: JourneyPalette.ink,
   },
   sheetHint: {
@@ -468,8 +823,8 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
   },
   emptyIconWrap: {
-    width: 54,
-    height: 54,
+    width: 56,
+    height: 56,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -493,22 +848,26 @@ const styles = StyleSheet.create({
   },
   metricPill: {
     flex: 1,
-    minHeight: 76,
+    minHeight: 82,
     borderRadius: 20,
-    backgroundColor: JourneyPalette.cardAlt,
+    borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    gap: 6,
+    justifyContent: 'space-between',
   },
   metricValue: {
     fontSize: 18,
     fontWeight: '900',
     color: JourneyPalette.ink,
+    fontVariant: ['tabular-nums'],
   },
   metricLabel: {
     fontSize: 12,
     lineHeight: 18,
     color: JourneyPalette.inkSoft,
+  },
+  pressedRow: {
+    backgroundColor: 'rgba(228, 236, 255, 0.44)',
   },
   pressed: {
     transform: [{ scale: 0.985 }],

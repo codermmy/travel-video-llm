@@ -5,8 +5,8 @@ import { Text } from 'react-native-paper';
 
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import { getEventStatusMeta } from '@/utils/eventStatus';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 type TimelineEventCardProps = {
   event: EventRecord;
@@ -20,7 +20,6 @@ function formatDateRange(event: EventRecord): string {
   const end = event.endTime ? new Date(event.endTime) : null;
   const fmt = (date: Date) =>
     date.toLocaleDateString('zh-CN', {
-      year: 'numeric',
       month: 'numeric',
       day: 'numeric',
     });
@@ -37,102 +36,82 @@ function formatDateRange(event: EventRecord): string {
   return '时间待补充';
 }
 
-function buildSummary(event: EventRecord): string {
-  const text = (event.storyText || event.fullStory || '').replace(/\s+/g, ' ').trim();
-  if (!text) {
-    return event.hasPendingStructureChanges || event.storyFreshness === 'stale'
-      ? '照片或故事线刚有变更，系统会按当前版本继续更新。'
-      : '打开这段回忆，继续查看片段、照片和完整故事。';
+function buildSummary(event: EventRecord, statusLabel: string): string {
+  const parts = [`${event.photoCount} 张照片`];
+  if (event.locationName?.trim()) {
+    parts.push(event.locationName.trim());
   }
-  return text.length > 52 ? `${text.slice(0, 52).trim()}…` : text;
+  parts.push(statusLabel);
+  return parts.join(' · ');
+}
+
+function getActionMeta(event: EventRecord): string {
+  const statusMeta = getEventStatusMeta(event);
+  if (statusMeta.tone === 'ready') {
+    return '可播放';
+  }
+  if (statusMeta.tone === 'stale') {
+    return '待更新';
+  }
+  if (statusMeta.tone === 'failed') {
+    return '需重试';
+  }
+  return '整理中';
 }
 
 export function TimelineEventCard({
   event,
-  isLastInSection: _isLastInSection,
+  isLastInSection,
   onPress,
   onLongPress,
 }: TimelineEventCardProps) {
   const title = event.title?.trim() ? event.title : '未命名事件';
-  const location = event.locationName || '地点待补充';
   const coverUri = getPreferredEventCoverUri(event);
   const statusMeta = getEventStatusMeta(event);
-  const shouldShowStatus =
-    event.storyFreshness === 'stale' ||
-    event.slideshowFreshness === 'stale' ||
-    event.hasPendingStructureChanges ||
-    event.status !== 'generated';
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.rowPressed]}
+      style={({ pressed }) => [
+        styles.card,
+        isLastInSection && styles.cardLast,
+        pressed && styles.cardPressed,
+      ]}
       onPress={() => onPress(event.id)}
       onLongPress={() => onLongPress?.(event)}
       delayLongPress={240}
     >
-      <View style={styles.coverFrame}>
+      <View style={styles.thumbFrame}>
         {coverUri ? (
-          <Image source={{ uri: coverUri }} style={styles.coverImage} resizeMode="cover" />
+          <Image source={{ uri: coverUri }} style={styles.thumbImage} resizeMode="cover" />
         ) : (
-          <LinearGradient
-            colors={['#E5EEFF', '#F4F8FF']}
-            style={[styles.coverImage, styles.coverPlaceholder]}
-          >
+          <LinearGradient colors={['#E6EEFF', '#F6F9FF']} style={styles.thumbFallback}>
             <MaterialCommunityIcons name="image-outline" size={22} color={JourneyPalette.muted} />
           </LinearGradient>
         )}
-        <LinearGradient
-          colors={['rgba(15,23,42,0.02)', 'rgba(15,23,42,0.42)']}
-          style={styles.coverShade}
-        />
-        <View style={styles.coverBadges}>
-          <View style={styles.countBadge}>
-            <MaterialCommunityIcons name="image-outline" size={12} color="#FFFFFF" />
-            <Text style={styles.countBadgeText}>{event.photoCount}</Text>
-          </View>
-          {shouldShowStatus ? (
-            <View style={[styles.statusBadge, { backgroundColor: statusMeta.soft }]}>
-              <Text style={[styles.statusText, { color: statusMeta.color }]}>
-                {statusMeta.label}
-              </Text>
-            </View>
-          ) : null}
+        <View style={styles.photoCountBadge}>
+          <MaterialCommunityIcons name="image-outline" size={11} color={JourneyPalette.white} />
+          <Text style={styles.photoCountText}>{event.photoCount}</Text>
         </View>
       </View>
 
       <View style={styles.content}>
-        <View style={styles.cardTopRow}>
-          <View style={styles.cardTitleBlock}>
-            <Text numberOfLines={1} style={styles.title}>
-              {title}
-            </Text>
-            <Text numberOfLines={2} style={styles.summaryText}>
-              {buildSummary(event)}
-            </Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
-        </View>
+        <Text numberOfLines={1} style={styles.title}>
+          {title}
+        </Text>
 
-        <View style={styles.metaWrap}>
-          <View style={styles.metaPill}>
+        <Text numberOfLines={2} style={styles.summary}>
+          {buildSummary(event, statusMeta.label)}
+        </Text>
+
+        <View style={styles.bottomRow}>
+          <Text style={styles.dateMeta}>{formatDateRange(event)}</Text>
+          <View style={styles.enterHint}>
+            <Text style={styles.enterHintText}>{getActionMeta(event)}</Text>
             <MaterialCommunityIcons
-              name="calendar-month-outline"
-              size={14}
-              color={JourneyPalette.inkSoft}
+              name="chevron-right"
+              size={16}
+              color={JourneyPalette.mutedStrong}
             />
-            <Text numberOfLines={1} style={styles.metaText}>
-              {formatDateRange(event)}
-            </Text>
-          </View>
-          <View style={styles.metaPill}>
-            <MaterialCommunityIcons
-              name="map-marker-outline"
-              size={14}
-              color={JourneyPalette.inkSoft}
-            />
-            <Text numberOfLines={1} style={styles.metaText}>
-              {location}
-            </Text>
           </View>
         </View>
       </View>
@@ -142,110 +121,90 @@ export function TimelineEventCard({
 
 const styles = StyleSheet.create({
   card: {
-    paddingHorizontal: 14,
-    marginBottom: 16,
+    marginHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+    padding: 10,
+    flexDirection: 'row',
+    gap: 10,
   },
-  rowPressed: {
-    transform: [{ scale: 0.99 }],
+  cardLast: {
+    marginBottom: 0,
+  },
+  cardPressed: {
+    transform: [{ scale: 0.992 }],
     opacity: 0.96,
   },
-  coverFrame: {
-    height: 184,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+  thumbFrame: {
+    width: 92,
+    height: 92,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#E9F0FD',
+    backgroundColor: JourneyPalette.cardSoft,
   },
-  coverImage: {
+  thumbImage: {
     width: '100%',
     height: '100%',
   },
-  coverPlaceholder: {
+  thumbFallback: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coverShade: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  coverBadges: {
+  photoCountBadge: {
     position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  countBadge: {
+    left: 8,
+    bottom: 8,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(15,23,42,0.44)',
+    backgroundColor: JourneyPalette.overlayDark,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  countBadgeText: {
-    color: '#FFFFFF',
+  photoCountText: {
+    color: JourneyPalette.white,
     fontSize: 11,
     fontWeight: '800',
   },
   content: {
-    backgroundColor: JourneyPalette.card,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    borderTopWidth: 0,
-    padding: 16,
-    gap: 12,
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  cardTitleBlock: {
     flex: 1,
     gap: 6,
   },
   title: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  summaryText: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  statusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  metaWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  metaPill: {
-    maxWidth: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: JourneyPalette.cardAlt,
-  },
-  metaText: {
+  summary: {
     color: JourneyPalette.inkSoft,
     fontSize: 12,
+    lineHeight: 18,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 'auto',
+  },
+  dateMeta: {
+    color: JourneyPalette.muted,
+    fontSize: 11,
     fontWeight: '600',
+  },
+  enterHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  enterHintText: {
+    color: JourneyPalette.mutedStrong,
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

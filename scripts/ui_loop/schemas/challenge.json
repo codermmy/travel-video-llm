@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "required": [
+    "stage",
+    "audit_gaps",
+    "priority_changes",
+    "approved_issue_ids",
+    "deferred_issue_ids",
+    "execution_guardrails",
+    "rationale"
+  ],
+  "properties": {
+    "stage": {
+      "const": "challenge"
+    },
+    "audit_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "priority_changes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approved_issue_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "deferred_issue_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "execution_guardrails": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rationale": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

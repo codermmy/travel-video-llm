@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ProgressBar } from 'react-native-paper';
 
 import {
@@ -13,11 +13,13 @@ import type { ImportTaskPhase, ImportTaskRecord, ImportTaskState } from '@/types
 import {
   ActionButton,
   EmptyStateCard,
+  FilterChip,
   InlineBanner,
   MetricPill,
   PageContent,
   PageHeader,
   SectionLabel,
+  StateChip,
   SurfaceCard,
 } from '@/components/ui/revamp';
 
@@ -57,6 +59,16 @@ function getTaskStatusColor(task: ImportTaskRecord): string {
   return JourneyPalette.accent;
 }
 
+function getTaskStatusState(task: ImportTaskRecord) {
+  if (task.status === 'completed') {
+    return 'ready' as const;
+  }
+  if (task.status === 'failed') {
+    return 'failed' as const;
+  }
+  return 'processing' as const;
+}
+
 function getPhaseProgress(phase: ImportTaskPhase): number {
   if (typeof phase.current === 'number' && typeof phase.total === 'number' && phase.total > 0) {
     return Math.max(0, Math.min(1, phase.current / phase.total));
@@ -83,8 +95,25 @@ function getPhaseStatusText(phase: ImportTaskPhase): string {
   return phase.status === 'running' ? '处理中' : '等待中';
 }
 
+function buildTaskSummary(task: ImportTaskRecord): string {
+  const source = getImportTaskSourceLabel(task.source);
+  if (task.status === 'completed') {
+    return `${source} · 新增 ${task.counts.dedupedNew} 张 · 去重 ${task.counts.dedupedExisting} 张 · 失败 ${task.counts.failed} 张`;
+  }
+  if (task.status === 'failed') {
+    return `${source} · 最近一次任务在 ${task.phases[task.activePhase].label} 阶段中断`;
+  }
+  return `${source} · ${formatDateTime(task.createdAt)} 启动 · 后台持续处理中`;
+}
+
 export default function ImportTasksScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    filter?: string | string[];
+    focusTaskId?: string | string[];
+    intentKey?: string | string[];
+  }>();
+  const handledIntentKeyRef = useRef<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<TaskFilter>('all');
   const [taskState, setTaskState] = useState<ImportTaskState>({
     tasks: [],
@@ -100,6 +129,28 @@ export default function ImportTasksScreen() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const requestedIntentKey = Array.isArray(params.intentKey)
+      ? params.intentKey[0]
+      : params.intentKey;
+    const requestedFilter = Array.isArray(params.filter) ? params.filter[0] : params.filter;
+
+    if (!requestedIntentKey || handledIntentKeyRef.current === requestedIntentKey) {
+      return;
+    }
+
+    if (
+      requestedFilter === 'all' ||
+      requestedFilter === 'running' ||
+      requestedFilter === 'completed' ||
+      requestedFilter === 'failed'
+    ) {
+      setActiveFilter(requestedFilter);
+    }
+
+    handledIntentKeyRef.current = requestedIntentKey;
+  }, [params.filter, params.intentKey]);
+
   const latestTask = useMemo(() => taskState.tasks[0] ?? null, [taskState.tasks]);
   const failedCount = useMemo(
     () => taskState.tasks.filter((task) => task.status === 'failed').length,
@@ -110,18 +161,34 @@ export default function ImportTasksScreen() {
     [taskState.tasks],
   );
 
+  const focusedTaskId = useMemo(
+    () => (Array.isArray(params.focusTaskId) ? params.focusTaskId[0] : params.focusTaskId) ?? null,
+    [params.focusTaskId],
+  );
   const filteredTasks = useMemo(() => {
-    if (activeFilter === 'running') {
-      return taskState.tasks.filter((task) => task.status === 'running');
+    const baseTasks =
+      activeFilter === 'running'
+        ? taskState.tasks.filter((task) => task.status === 'running')
+        : activeFilter === 'completed'
+          ? taskState.tasks.filter((task) => task.status === 'completed')
+          : activeFilter === 'failed'
+            ? taskState.tasks.filter((task) => task.status === 'failed')
+            : taskState.tasks;
+
+    if (!focusedTaskId) {
+      return baseTasks;
     }
-    if (activeFilter === 'completed') {
-      return taskState.tasks.filter((task) => task.status === 'completed');
-    }
-    if (activeFilter === 'failed') {
-      return taskState.tasks.filter((task) => task.status === 'failed');
-    }
-    return taskState.tasks;
-  }, [activeFilter, taskState.tasks]);
+
+    return [...baseTasks].sort((left, right) => {
+      if (left.id === focusedTaskId) {
+        return -1;
+      }
+      if (right.id === focusedTaskId) {
+        return 1;
+      }
+      return 0;
+    });
+  }, [activeFilter, focusedTaskId, taskState.tasks]);
 
   return (
     <PageContent>
@@ -141,19 +208,39 @@ export default function ImportTasksScreen() {
       />
 
       <InlineBanner
-        icon="timeline-clock-outline"
-        title="顶部状态条会跨页出现"
-        body="分析仍在后台继续，点开这里可以回看完整阶段、结果和失败项。"
-        tone="accent"
+        icon={
+          failedCount > 0
+            ? 'alert-circle-outline'
+            : taskState.runningCount > 0
+              ? 'timeline-clock-outline'
+              : 'check-circle-outline'
+        }
+        title={
+          failedCount > 0
+            ? '任务中心有失败项'
+            : taskState.runningCount > 0
+              ? '顶部状态条会跨页出现'
+              : '任务中心当前已就绪'
+        }
+        body={
+          failedCount > 0
+            ? focusedTaskId
+              ? '已定位到对应失败任务，可先查看失败阶段，再决定返回回忆或继续导入。'
+              : '失败项会保留在这里，建议先处理失败任务，再决定是否继续导入。'
+            : taskState.runningCount > 0
+              ? '分析仍在后台继续，点开这里可以回看完整阶段、结果和失败项。'
+              : '没有进行中的任务时，这里仍会保留历史记录和失败项回看。'
+        }
+        tone={failedCount > 0 ? 'danger' : taskState.runningCount > 0 ? 'accent' : 'neutral'}
       />
 
       <View style={styles.metricsRow}>
-        <MetricPill value={String(taskState.runningCount)} label="进行中" />
+        <MetricPill value={String(taskState.runningCount)} label="进行中" tone="analyzing" />
         <MetricPill
           value={latestTask ? formatDateTime(latestTask.createdAt) : '暂无'}
           label="最近启动"
         />
-        <MetricPill value={String(failedCount)} label="需要关注" />
+        <MetricPill value={String(failedCount)} label="需要关注" tone="failed" />
       </View>
 
       <SurfaceCard>
@@ -169,18 +256,13 @@ export default function ImportTasksScreen() {
           ).map((item) => {
             const active = activeFilter === item.key;
             return (
-              <Pressable
+              <FilterChip
                 key={item.key}
-                style={[styles.filterChip, active && styles.filterChipActive]}
+                label={item.label}
+                count={item.count}
+                active={active}
                 onPress={() => setActiveFilter(item.key)}
-              >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                  {item.label}
-                </Text>
-                <Text style={[styles.filterChipCount, active && styles.filterChipCountActive]}>
-                  {item.count}
-                </Text>
-              </Pressable>
+              />
             );
           })}
         </View>
@@ -192,82 +274,126 @@ export default function ImportTasksScreen() {
           title="还没有导入任务"
           description="第一次导入照片后，这里会显示每一轮任务的分析与同步进度。"
         />
+      ) : filteredTasks.length === 0 ? (
+        <EmptyStateCard
+          icon="tune-variant"
+          title="当前筛选下没有任务"
+          description="切回“全部”可以查看完整导入历史。"
+        />
       ) : (
-        filteredTasks.map((task) => (
-          <SurfaceCard key={task.id} style={styles.taskCard}>
-            <View style={styles.taskHeader}>
-              <View style={styles.taskBadges}>
-                <View style={styles.sourceBadge}>
-                  <Text style={styles.sourceBadgeText}>
-                    {getImportTaskSourceLabel(task.source)}
-                  </Text>
-                </View>
-                <View
-                  style={[styles.statusBadge, { backgroundColor: `${getTaskStatusColor(task)}16` }]}
-                >
-                  <Text style={[styles.statusBadgeText, { color: getTaskStatusColor(task) }]}>
-                    {getTaskStatusLabel(task)}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.taskTime}>{formatDateTime(task.createdAt)}</Text>
-            </View>
-
-            <View style={styles.countRow}>
-              <View style={styles.countItem}>
-                <Text style={styles.countValue}>{task.counts.selected}</Text>
-                <Text style={styles.countLabel}>选中</Text>
-              </View>
-              <View style={styles.countItem}>
-                <Text style={styles.countValue}>{task.counts.dedupedNew}</Text>
-                <Text style={styles.countLabel}>新增</Text>
-              </View>
-              <View style={styles.countItem}>
-                <Text style={styles.countValue}>{task.counts.dedupedExisting}</Text>
-                <Text style={styles.countLabel}>去重</Text>
-              </View>
-              <View style={styles.countItem}>
-                <Text style={styles.countValue}>{task.counts.failed}</Text>
-                <Text style={styles.countLabel}>失败</Text>
-              </View>
-            </View>
-
-            <View style={styles.phaseList}>
-              {PHASE_ORDER.map((phaseKey, index) => {
-                const phase = task.phases[phaseKey];
-                const isActive = task.activePhase === phase.key && task.status !== 'completed';
-                return (
-                  <View key={phase.key} style={styles.phaseCard}>
-                    <View style={styles.phaseTopRow}>
-                      <View
-                        style={[
-                          styles.phaseIndexBadge,
-                          isActive && styles.phaseIndexBadgeActive,
-                          phase.status === 'completed' && styles.phaseIndexBadgeCompleted,
-                          phase.status === 'failed' && styles.phaseIndexBadgeFailed,
-                        ]}
-                      >
-                        <Text style={styles.phaseIndexText}>{index + 1}</Text>
-                      </View>
-                      <View style={styles.phaseCopy}>
-                        <Text style={styles.phaseTitle}>{phase.label}</Text>
-                        <Text style={styles.phaseDetail} numberOfLines={2}>
-                          {phase.detail || '等待进入该阶段'}
-                        </Text>
-                      </View>
-                      <Text style={styles.phaseStatus}>{getPhaseStatusText(phase)}</Text>
-                    </View>
-                    <ProgressBar
-                      progress={getPhaseProgress(phase)}
-                      color={getTaskStatusColor(task)}
-                      style={styles.phaseProgress}
-                    />
+        <>
+          <SectionLabel title="任务列表" />
+          {filteredTasks.map((task) => (
+            <SurfaceCard
+              key={task.id}
+              style={[styles.taskCard, focusedTaskId === task.id && styles.taskCardFocused]}
+            >
+              <View style={styles.taskHeader}>
+                <View style={styles.taskBadges}>
+                  <View style={styles.sourceBadge}>
+                    <Text style={styles.sourceBadgeText}>
+                      {getImportTaskSourceLabel(task.source)}
+                    </Text>
                   </View>
-                );
-              })}
-            </View>
-          </SurfaceCard>
-        ))
+                  <StateChip
+                    state={getTaskStatusState(task)}
+                    label={getTaskStatusLabel(task)}
+                    compact
+                  />
+                </View>
+                <Text style={styles.taskTime}>{formatDateTime(task.createdAt)}</Text>
+              </View>
+
+              <Text style={styles.taskSummary}>{buildTaskSummary(task)}</Text>
+
+              <View style={styles.phaseList}>
+                {PHASE_ORDER.map((phaseKey, index) => {
+                  const phase = task.phases[phaseKey];
+                  const isActive = task.activePhase === phase.key && task.status !== 'completed';
+                  return (
+                    <View key={phase.key} style={styles.phaseCard}>
+                      <View style={styles.phaseTopRow}>
+                        <View
+                          style={[
+                            styles.phaseIndexBadge,
+                            isActive && styles.phaseIndexBadgeActive,
+                            phase.status === 'completed' && styles.phaseIndexBadgeCompleted,
+                            phase.status === 'failed' && styles.phaseIndexBadgeFailed,
+                          ]}
+                        >
+                          <Text style={styles.phaseIndexText}>{index + 1}</Text>
+                        </View>
+                        <View style={styles.phaseCopy}>
+                          <Text style={styles.phaseTitle}>{phase.label}</Text>
+                          <Text style={styles.phaseDetail} numberOfLines={2}>
+                            {phase.detail || '等待进入该阶段'}
+                          </Text>
+                        </View>
+                        <Text style={styles.phaseStatus}>{getPhaseStatusText(phase)}</Text>
+                      </View>
+                      <ProgressBar
+                        progress={getPhaseProgress(phase)}
+                        color={getTaskStatusColor(task)}
+                        style={styles.phaseProgress}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={styles.taskMetaRow}>
+                <View style={styles.microChip}>
+                  <Text style={styles.microChipText}>已扫描 {task.counts.selected}</Text>
+                </View>
+                <View style={styles.microChip}>
+                  <Text style={styles.microChipText}>新增 {task.counts.dedupedNew}</Text>
+                </View>
+                <View style={styles.microChip}>
+                  <Text style={styles.microChipText}>去重 {task.counts.dedupedExisting}</Text>
+                </View>
+                {task.counts.failed > 0 ? (
+                  <View style={[styles.microChip, styles.microChipDanger]}>
+                    <Text style={styles.microChipTextDanger}>失败 {task.counts.failed}</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              {task.status === 'failed' ? (
+                <View style={styles.taskActionRow}>
+                  <ActionButton
+                    label="回到回忆"
+                    tone="secondary"
+                    onPress={() =>
+                      router.push({
+                        pathname: '/',
+                        params: {
+                          filter: 'all',
+                          intentKey: String(Date.now()),
+                        },
+                      })
+                    }
+                    style={styles.taskActionButton}
+                  />
+                  <ActionButton
+                    label="继续导入"
+                    tone="secondary"
+                    onPress={() =>
+                      router.push({
+                        pathname: '/',
+                        params: {
+                          filter: 'all',
+                          importMode: 'manual',
+                          intentKey: String(Date.now()),
+                        },
+                      })
+                    }
+                    style={styles.taskActionButton}
+                  />
+                </View>
+              ) : null}
+            </SurfaceCard>
+          ))}
+        </>
       )}
     </PageContent>
   );
@@ -284,44 +410,12 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 12,
   },
-  filterChip: {
-    minHeight: 40,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  filterChipActive: {
-    borderColor: JourneyPalette.accent,
-    backgroundColor: JourneyPalette.accentSoft,
-  },
-  filterChipText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  filterChipTextActive: {
-    color: JourneyPalette.accent,
-  },
-  filterChipCount: {
-    minWidth: 22,
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    backgroundColor: '#FFFFFF',
-    color: JourneyPalette.inkSoft,
-    fontSize: 11,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  filterChipCountActive: {
-    color: JourneyPalette.accent,
-  },
   taskCard: {
     gap: 14,
+  },
+  taskCardFocused: {
+    borderColor: JourneyPalette.dangerBorder,
+    borderWidth: 1,
   },
   taskHeader: {
     flexDirection: 'row',
@@ -344,41 +438,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  statusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
   taskTime: {
     color: JourneyPalette.inkSoft,
     fontSize: 12,
   },
-  countRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  countItem: {
-    flex: 1,
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    gap: 4,
-  },
-  countValue: {
-    color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  countLabel: {
+  taskSummary: {
     color: JourneyPalette.inkSoft,
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 20,
   },
   phaseList: {
     gap: 10,
@@ -439,5 +506,36 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 999,
     backgroundColor: '#FFFFFF',
+  },
+  taskMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  taskActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  taskActionButton: {
+    flex: 1,
+  },
+  microChip: {
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.cardAlt,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  microChipDanger: {
+    backgroundColor: JourneyPalette.dangerSoft,
+  },
+  microChipText: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  microChipTextDanger: {
+    color: JourneyPalette.danger,
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

@@ -22,11 +22,14 @@ import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.AudioEncoderSettings
+import androidx.media3.transformer.VideoEncoderSettings
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
@@ -85,7 +88,7 @@ class TravelSlideshowExportModule : Module() {
     val renderedSceneFiles = renderSceneFiles(config, sceneDir)
     try {
       val composition = buildComposition(config, renderedSceneFiles)
-      val result = runTransformer(composition, outputFile.absolutePath)
+      val result = runTransformer(composition, config, outputFile.absolutePath)
       Log.i(TAG, "export:done output=${outputFile.absolutePath} fileSize=${result.fileSizeBytes}")
       return mapOf(
         "fileUri" to Uri.fromFile(outputFile).toString(),
@@ -111,7 +114,7 @@ class TravelSlideshowExportModule : Module() {
         .build()
       videoSequenceBuilder.addItem(
         EditedMediaItem.Builder(mediaItem)
-          .setFrameRate(EXPORT_IMAGE_FRAME_RATE)
+          .setFrameRate(config.frameRate)
           .build(),
       )
     }
@@ -139,6 +142,7 @@ class TravelSlideshowExportModule : Module() {
 
   private suspend fun runTransformer(
     composition: Composition,
+    config: ExportConfig,
     outputPath: String,
   ): ExportResult = suspendCancellableCoroutine { continuation ->
     val handler = Handler(Looper.getMainLooper())
@@ -164,9 +168,25 @@ class TravelSlideshowExportModule : Module() {
           }
         }
 
+        val encoderFactory = DefaultEncoderFactory.Builder(context)
+          .setEnableFallback(true)
+          .setRequestedVideoEncoderSettings(
+            VideoEncoderSettings.Builder()
+              .setBitrate(config.videoBitrate)
+              .setiFrameIntervalSeconds(config.videoIFrameIntervalSeconds.toFloat())
+              .build(),
+          )
+          .setRequestedAudioEncoderSettings(
+            AudioEncoderSettings.Builder()
+              .setBitrate(config.audioBitrate)
+              .build(),
+          )
+          .build()
+
         val transformer = Transformer.Builder(context)
           .setVideoMimeType(MimeTypes.VIDEO_H264)
           .setAudioMimeType(MimeTypes.AUDIO_AAC)
+          .setEncoderFactory(encoderFactory)
           .addListener(listener)
           .build()
         continuation.invokeOnCancellation {
@@ -189,7 +209,7 @@ class TravelSlideshowExportModule : Module() {
       Log.d(TAG, "scene:render index=$index type=${scene.type} durationMs=${scene.durationMs} photoUri=${scene.photoUri}")
       val bitmap = renderSceneBitmap(config, scene)
       FileOutputStream(file).use { stream ->
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, stream)
+        bitmap.compress(Bitmap.CompressFormat.JPEG, config.sceneImageQuality, stream)
       }
       bitmap.recycle()
       file
@@ -208,7 +228,6 @@ class TravelSlideshowExportModule : Module() {
     }
 
     if (config.includeSubtitles && !scene.body.isNullOrBlank()) {
-      drawSubtitleOverlay(canvas, config)
       drawSubtitleText(canvas, config, scene.body ?: "")
     }
 
@@ -217,7 +236,7 @@ class TravelSlideshowExportModule : Module() {
 
   private fun drawPhotoFrameScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     val photoBitmap = loadScaledBitmap(Uri.parse(scene.photoUri ?: "")) ?: return
-    drawBitmapCenterCrop(
+    drawBitmapFitCenter(
       canvas,
       photoBitmap,
       RectF(0f, 0f, config.outputWidth.toFloat(), config.outputHeight.toFloat()),
@@ -227,7 +246,6 @@ class TravelSlideshowExportModule : Module() {
 
   private fun drawMontageFrameScene(canvas: Canvas, config: ExportConfig, scene: ExportScene) {
     val photoUris = scene.photoUris.take(3)
-    drawSceneHeading(canvas, config, scene)
     val surfaces = when (photoUris.size) {
       0 -> emptyList()
       1 -> config.layoutContract.montageRects.single.map { it.toRectF() }
@@ -299,29 +317,6 @@ class TravelSlideshowExportModule : Module() {
     )
   }
 
-  private fun drawSubtitleOverlay(canvas: Canvas, config: ExportConfig) {
-    val overlayRect = config.layoutContract.subtitleOverlayRect.toRectF()
-    val top = max(0f, overlayRect.top)
-    val gradientPaint = Paint().apply {
-      shader = LinearGradient(
-        0f,
-        top,
-        0f,
-        overlayRect.bottom,
-        intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(46, 0, 0, 0), Color.argb(97, 0, 0, 0)),
-        null,
-        Shader.TileMode.CLAMP,
-      )
-    }
-    canvas.drawRect(
-      overlayRect.left,
-      top,
-      overlayRect.right,
-      overlayRect.bottom,
-      gradientPaint,
-    )
-  }
-
   private fun drawSubtitleText(canvas: Canvas, config: ExportConfig, text: String) {
     val subtitleRect = config.layoutContract.subtitleSafeArea.toRectF()
     drawCenteredTextBlock(
@@ -333,11 +328,8 @@ class TravelSlideshowExportModule : Module() {
       textSizePx = config.layoutContract.typography.subtitleSize.toFloat(),
       lineSpacingExtraPx =
         (config.layoutContract.typography.subtitleLineHeight - config.layoutContract.typography.subtitleSize).toFloat(),
-      color = Color.parseColor("#FAF7F2"),
+      color = Color.parseColor("#F6F1E8"),
       maxLines = 2,
-      shadowColor = Color.argb(184, 0, 0, 0),
-      shadowRadiusPx = 10f,
-      shadowDyPx = 2f,
     )
   }
 
@@ -480,6 +472,11 @@ class TravelSlideshowExportModule : Module() {
       ),
       outputWidth = rawConfig.int("outputWidth") ?: 1080,
       outputHeight = rawConfig.int("outputHeight") ?: 1920,
+      frameRate = rawConfig.int("frameRate") ?: EXPORT_IMAGE_FRAME_RATE,
+      videoBitrate = rawConfig.int("videoBitrate") ?: 4_000_000,
+      audioBitrate = rawConfig.int("audioBitrate") ?: 128_000,
+      videoIFrameIntervalSeconds = rawConfig.int("videoIFrameIntervalSeconds") ?: 3,
+      sceneImageQuality = rawConfig.int("sceneImageQuality") ?: 92,
       outputPath = rawConfig.string("outputPath") ?: throw IllegalArgumentException("outputPath is required"),
       includeSubtitles = rawConfig.boolean("includeSubtitles") ?: true,
       totalDurationMs = rawConfig.int("totalDurationMs") ?: 0,
@@ -627,6 +624,11 @@ class TravelSlideshowExportModule : Module() {
     val layoutContract: LayoutContract,
     val outputWidth: Int,
     val outputHeight: Int,
+    val frameRate: Int,
+    val videoBitrate: Int,
+    val audioBitrate: Int,
+    val videoIFrameIntervalSeconds: Int,
+    val sceneImageQuality: Int,
     val outputPath: String,
     val includeSubtitles: Boolean,
     val totalDurationMs: Int,
@@ -711,7 +713,7 @@ class TravelSlideshowExportModule : Module() {
 }
 
 private fun JSONObject.string(key: String): String? =
-  if (has(key) && !isNull(key)) optString(key, null) else null
+  if (has(key) && !isNull(key)) opt(key)?.toString() else null
 
 private fun JSONObject.int(key: String): Int? =
   if (has(key) && !isNull(key)) optDouble(key).toInt() else null

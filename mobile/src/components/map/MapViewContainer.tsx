@@ -3,7 +3,6 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 
-import { BackButton } from '@/components/map/BackButton';
 import { ClusterMarker } from '@/components/map/ClusterMarker';
 import { EventCardList } from '@/components/map/EventCardList';
 import { JourneyPalette } from '@/styles/colors';
@@ -12,14 +11,14 @@ import type { MapViewStack } from '@/types/mapStack';
 import {
   clusterEvents,
   getAdaptiveClusterThreshold,
-  getLevelName,
   hasValidGps,
   initializeStack,
   popStack,
   returnToInitialState,
-  zoomIntoCluster,
 } from '@/utils/mapClusterUtils';
+import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
+import type { JourneyStateKind } from '@/utils/statusLanguage';
 import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
 
 declare function require(moduleName: string): unknown;
@@ -30,11 +29,32 @@ const DEFAULT_AMAP_IOS_KEY = '__AMAP_IOS_KEY__';
 interface MapViewContainerProps {
   events: EventRecord[];
   onEventPress: (eventId: string) => void;
+  resetToken?: number;
+  onCanResetChange?: (canReset: boolean) => void;
 }
 
 type AMapLoadStatus = 'idle' | 'ready' | 'missing_keys' | 'module_error';
 
-export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEventPress }) => {
+function getClusterTone(events: EventRecord[]): JourneyStateKind {
+  const tones = events.map((event) => getEventStatusMeta(event).tone);
+  if (tones.includes('failed')) {
+    return 'failed';
+  }
+  if (tones.includes('stale')) {
+    return 'stale';
+  }
+  if (tones.includes('importing') || tones.includes('processing')) {
+    return 'processing';
+  }
+  return 'ready';
+}
+
+export const MapViewContainer: React.FC<MapViewContainerProps> = ({
+  events,
+  onEventPress,
+  resetToken = 0,
+  onCanResetChange,
+}) => {
   const mapRef = useRef<MapViewRef | null>(null);
   const [amap, setAmap] = useState<AMapModule | null>(null);
   const [amapStatus, setAmapStatus] = useState<AMapLoadStatus>('idle');
@@ -42,7 +62,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
   const [isMapReady, setIsMapReady] = useState(false);
 
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [sheetDismissed, setSheetDismissed] = useState(false);
   const [stack, setStack] = useState<MapViewStack | null>(null);
 
   const isWeb = Platform.OS === 'web';
@@ -117,11 +137,15 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
 
   useEffect(() => {
     if (!isMapReady || validEvents.length === 0) {
+      if (validEvents.length === 0) {
+        setSelectedClusterId(null);
+        setSheetDismissed(false);
+      }
       return;
     }
     setStack(initializeStack(validEvents));
     setSelectedClusterId(null);
-    setSelectedEventId(null);
+    setSheetDismissed(false);
   }, [isMapReady, validEvents]);
 
   useEffect(() => {
@@ -149,38 +173,76 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
     return clusters.find((cluster) => cluster.id === selectedClusterId) || null;
   }, [clusters, selectedClusterId]);
 
+  const defaultClusterId = useMemo(() => {
+    if (clusters.length === 0) {
+      return null;
+    }
+    const sorted = [...clusters].sort((left, right) => {
+      const leftTime = Math.max(
+        ...left.events.map((event) =>
+          new Date(event.updatedAt || event.endTime || event.startTime || 0).getTime(),
+        ),
+      );
+      const rightTime = Math.max(
+        ...right.events.map((event) =>
+          new Date(event.updatedAt || event.endTime || event.startTime || 0).getTime(),
+        ),
+      );
+      return rightTime - leftTime;
+    });
+    return sorted[0]?.id ?? null;
+  }, [clusters]);
+
+  const canResetView = useMemo(() => {
+    if (!stack || validEvents.length === 0) {
+      return false;
+    }
+    if (stack.currentIndex > 0 || sheetDismissed) {
+      return true;
+    }
+    if (!selectedClusterId || !defaultClusterId) {
+      return false;
+    }
+    return selectedClusterId !== defaultClusterId;
+  }, [defaultClusterId, selectedClusterId, sheetDismissed, stack, validEvents.length]);
+
+  useEffect(() => {
+    onCanResetChange?.(canResetView);
+  }, [canResetView, onCanResetChange]);
+
+  useEffect(() => {
+    if (!stack || resetToken <= 0 || !canResetView) {
+      return;
+    }
+    setStack(returnToInitialState(stack));
+    setSelectedClusterId(defaultClusterId);
+    setSheetDismissed(false);
+  }, [canResetView, defaultClusterId, resetToken, stack]);
+
+  useEffect(() => {
+    if (clusters.length === 0) {
+      setSelectedClusterId(null);
+      return;
+    }
+
+    if (selectedClusterId && clusters.some((cluster) => cluster.id === selectedClusterId)) {
+      return;
+    }
+
+    if (!sheetDismissed && defaultClusterId) {
+      setSelectedClusterId(defaultClusterId);
+    }
+  }, [clusters, defaultClusterId, selectedClusterId, sheetDismissed]);
+
   const handleClusterPress = (clusterId: string) => {
     setSelectedClusterId(clusterId);
-    setSelectedEventId(null);
-  };
-
-  const handleClusterDoubleClick = (clusterId: string) => {
-    if (!stack) {
-      return;
-    }
-
-    const cluster = clusters.find((item) => item.id === clusterId);
-    if (!cluster) {
-      return;
-    }
-
-    if (cluster.count <= 1) {
-      const event = cluster.events[0];
-      if (event) {
-        onEventPress(event.id);
-      }
-      return;
-    }
-
-    setStack((prev) => (prev ? zoomIntoCluster(cluster, prev) : prev));
-    setSelectedClusterId(null);
-    setSelectedEventId(null);
+    setSheetDismissed(false);
   };
 
   const handleMapPress = () => {
     if (selectedClusterId) {
       setSelectedClusterId(null);
-      setSelectedEventId(null);
+      setSheetDismissed(true);
       return;
     }
 
@@ -188,18 +250,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
       setStack((prev) => (prev ? popStack(prev) : prev));
     }
   };
-
-  const handleBackToInitial = () => {
-    if (!stack) {
-      return;
-    }
-    setStack(returnToInitialState(stack));
-    setSelectedClusterId(null);
-    setSelectedEventId(null);
-  };
-
-  const showBackButton = Boolean(stack && stack.currentIndex > 0);
-  const backButtonLevelName = stack ? getLevelName(stack.initialState) : '初始视图';
 
   if (isWeb) {
     return (
@@ -299,8 +349,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
               coverUrl={getPreferredEventCoverUri(cluster.events[0])}
               clusterCount={cluster.count}
               isSelected={selectedClusterId === cluster.id}
+              tone={getClusterTone(cluster.events)}
               onPress={() => handleClusterPress(cluster.id)}
-              onDoublePress={() => handleClusterDoubleClick(cluster.id)}
             />
           </MarkerComponent>
         ))}
@@ -313,24 +363,13 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({ events, onEv
         </View>
       ) : null}
 
-      {showBackButton ? (
-        <BackButton levelName={backButtonLevelName} onPress={handleBackToInitial} />
-      ) : null}
-
       {selectedCluster ? (
         <EventCardList
           events={selectedCluster.events}
-          selectedEventId={selectedEventId}
-          onPressEvent={(eventId) => {
-            setSelectedEventId(eventId);
-          }}
-          onPressDetails={(eventId) => {
-            setSelectedEventId(eventId);
-            onEventPress(eventId);
-          }}
+          onPressDetails={onEventPress}
           onClose={() => {
             setSelectedClusterId(null);
-            setSelectedEventId(null);
+            setSheetDismissed(true);
           }}
         />
       ) : null}

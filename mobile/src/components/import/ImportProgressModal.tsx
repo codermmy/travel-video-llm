@@ -2,8 +2,14 @@ import * as React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
 
-import { ActionButton, BottomSheetScaffold, InlineBanner } from '@/components/ui/revamp';
+import {
+  ActionButton,
+  BottomSheetScaffold,
+  InlineBanner,
+  StatusPill,
+} from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
+import type { StatusTone } from '@/components/ui/revamp';
 
 export type ImportStage =
   | 'idle'
@@ -48,6 +54,16 @@ function getProgressValue(progress: ImportProgress): number | undefined {
   return Math.max(0, Math.min(1, current / total));
 }
 
+function getStageTone(stage: ImportStage): StatusTone {
+  if (stage === 'done') {
+    return 'ready';
+  }
+  if (stage === 'vision' || stage === 'clustering') {
+    return 'analyzing';
+  }
+  return 'importing';
+}
+
 export function ImportProgressModal(props: {
   visible: boolean;
   progress: ImportProgress;
@@ -58,6 +74,7 @@ export function ImportProgressModal(props: {
   const showProgress = typeof value === 'number';
   const label = getStageLabel(props.progress.stage);
   const detail = props.progress.detail;
+  const tone = getStageTone(props.progress.stage);
 
   return (
     <Portal>
@@ -77,6 +94,10 @@ export function ImportProgressModal(props: {
             <View style={styles.heroIcon}>
               <ActivityIndicator size="large" color={JourneyPalette.accent} />
             </View>
+            <StatusPill
+              label={tone === 'ready' ? '已就绪' : tone === 'analyzing' ? '分析中' : '导入中'}
+              tone={tone}
+            />
             <Text variant="headlineMedium" style={styles.heroLabel}>
               {showProgress && props.progress.total
                 ? `${props.progress.current || 0} / ${props.progress.total}`
@@ -85,8 +106,8 @@ export function ImportProgressModal(props: {
           </View>
 
           <InlineBanner
-            icon="shield-lock-outline"
-            title="隐私优先"
+            icon={tone === 'analyzing' ? 'progress-clock' : 'shield-lock-outline'}
+            title={tone === 'analyzing' ? '后台正在继续整理' : '导入状态已经统一收口'}
             body="整理过程中不会把原图作为默认上传内容，当前展示的是本机整理进度。"
             tone="accent"
           />

@@ -1,179 +1,140 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Snackbar } from 'react-native-paper';
 
-import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
+import { FilterChip } from '@/components/ui/revamp';
 import { MapViewContainer } from '@/components/map/MapViewContainer';
-import { UploadProgress } from '@/components/upload/UploadProgress';
 import { eventApi } from '@/services/api/eventApi';
-import { photoApi } from '@/services/api/photoApi';
-import {
-  AUTO_IMPORT_LIMIT,
-  getImportCacheSummary,
-  importRecentPhotos,
-} from '@/services/album/photoImportService';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { openAppSettings } from '@/utils/permissionUtils';
+import { getEventStatusMeta } from '@/utils/eventStatus';
+import { hasValidGps } from '@/utils/mapClusterUtils';
+
+type MapFilter = 'all' | 'ready' | 'stale';
+
+function getMapFilterLabel(filter: MapFilter): string {
+  if (filter === 'ready') {
+    return '已完成';
+  }
+  if (filter === 'stale') {
+    return '待更新';
+  }
+  return '全部';
+}
 
 export default function MapScreen() {
   const router = useRouter();
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
-  const [importVisible, setImportVisible] = useState(false);
-  const [taskProgressVisible, setTaskProgressVisible] = useState(false);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [snackbar, setSnackbar] = useState('');
-  const [showSettings, setShowSettings] = useState(false);
-  const [hasImportRun, setHasImportRun] = useState<boolean | null>(null);
-  const [totalPhotos, setTotalPhotos] = useState<number | null>(null);
-  const autoImportTriggeredRef = useRef(false);
+  const [activeFilter, setActiveFilter] = useState<MapFilter>('all');
+  const [canResetView, setCanResetView] = useState(false);
+  const [resetToken, setResetToken] = useState(0);
 
-  const loadEvents = useCallback(
-    async (mode: 'initial' | 'background' = 'background') => {
-      const shouldBlock = mode === 'initial' && !hasLoadedOnce;
-
-      if (shouldBlock) {
-        setLoading(true);
-      }
-
-      try {
-        const data = await eventApi.listAllEvents();
-        setEvents(data);
-        setError(null);
-        setHasLoadedOnce(true);
-      } catch (loadError) {
-        console.error('Failed to load events for map:', loadError);
-        if (!hasLoadedOnce) {
-          setError('加载地图内容失败');
-        }
-      } finally {
-        if (shouldBlock) {
-          setLoading(false);
-        }
-      }
-    },
-    [hasLoadedOnce],
-  );
-
-  const loadImportSummary = useCallback(async () => {
-    const summary = await getImportCacheSummary();
-    setHasImportRun(Boolean(summary.lastRunAt));
-    return summary;
+  const loadEvents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await eventApi.listAllEvents();
+      setEvents(data);
+    } catch (loadError) {
+      console.error('Failed to load events for map:', loadError);
+      setError('加载地图内容失败');
+    } finally {
+      setLoading(false);
+    }
   }, []);
-
-  const loadPhotoStats = useCallback(async () => {
-    const stats = await photoApi.getPhotoStats();
-    setTotalPhotos(stats.total);
-    return stats;
-  }, []);
-
-  useEffect(() => {
-    void Promise.all([loadEvents('initial'), loadImportSummary(), loadPhotoStats()]);
-  }, [loadEvents, loadImportSummary, loadPhotoStats]);
 
   useFocusEffect(
     useCallback(() => {
-      void Promise.all([loadEvents('background'), loadImportSummary(), loadPhotoStats()]);
-    }, [loadEvents, loadImportSummary, loadPhotoStats]),
+      void loadEvents();
+    }, [loadEvents]),
   );
 
-  const runAutoImport = useCallback(async () => {
-    setShowSettings(false);
-    setImportVisible(true);
-    setImportProgress({
-      stage: 'scanning',
-      detail: `正在准备导入最近 ${AUTO_IMPORT_LIMIT} 张照片...`,
-    });
-
-    try {
-      const result = await importRecentPhotos({
-        limit: AUTO_IMPORT_LIMIT,
-        onProgress: (progress) => setImportProgress(progress),
-      });
-
-      if (result.selected === 0) {
-        setSnackbar('最近没有可导入的照片');
-        return;
-      }
-
-      if (result.dedupedNew === 0) {
-        if (result.failed > 0) {
-          setSnackbar(`最近 ${AUTO_IMPORT_LIMIT} 张里没有可处理的新照片`);
-          return;
-        }
-        setSnackbar(
-          result.dedupedExisting > 0
-            ? `没有发现可新增的照片，已去重 ${result.dedupedExisting} 张`
-            : '没有发现可新增的照片',
-        );
-        return;
-      }
-
-      if (result.taskId) {
-        setTaskId(result.taskId);
-        setTaskProgressVisible(true);
-        setSnackbar(
-          result.queuedVision > 0
-            ? `已新增 ${result.dedupedNew} 张，正在聚合事件，${result.queuedVision} 张会在后台继续分析`
-            : `已新增 ${result.dedupedNew} 张，正在聚合事件和生成故事...`,
-        );
-      } else {
-        setSnackbar(
-          result.queuedVision > 0
-            ? `已新增 ${result.dedupedNew} 张，${result.queuedVision} 张会在后台继续分析`
-            : `已新增 ${result.dedupedNew} 张，地图内容正在刷新`,
-        );
-        await Promise.all([loadEvents('background'), loadPhotoStats()]);
-      }
-    } catch (importError) {
-      const message = String(importError);
-      if (message.includes('permission_denied')) {
-        setShowSettings(true);
-        setSnackbar('需要相册权限才能自动整理旅行照片');
-      } else {
-        console.error('Auto import failed on map screen:', importError);
-        setSnackbar('自动导入失败，请稍后重试');
-      }
-    } finally {
-      setImportVisible(false);
-      setImportProgress({ stage: 'idle' });
-      try {
-        await Promise.all([loadImportSummary(), loadPhotoStats()]);
-      } catch (summaryError) {
-        console.warn('Failed to refresh import summary:', summaryError);
-      }
+  const allMappableEvents = useMemo(() => events.filter(hasValidGps), [events]);
+  const readyEventCount = useMemo(
+    () =>
+      events.filter((event) => hasValidGps(event) && getEventStatusMeta(event).tone === 'ready')
+        .length,
+    [events],
+  );
+  const staleEventCount = useMemo(
+    () =>
+      events.filter((event) => hasValidGps(event) && getEventStatusMeta(event).tone === 'stale')
+        .length,
+    [events],
+  );
+  const filteredEvents = useMemo(() => {
+    if (activeFilter === 'ready') {
+      return events.filter((event) => getEventStatusMeta(event).tone === 'ready');
     }
-  }, [loadEvents, loadImportSummary, loadPhotoStats]);
-
-  useEffect(() => {
-    if (loading || hasImportRun === null || totalPhotos === null) {
-      return;
+    if (activeFilter === 'stale') {
+      return events.filter((event) => getEventStatusMeta(event).tone === 'stale');
     }
-    if (hasImportRun || totalPhotos > 0 || events.length > 0 || autoImportTriggeredRef.current) {
-      return;
-    }
+    return events;
+  }, [activeFilter, events]);
+  const filteredMappableEvents = useMemo(
+    () => filteredEvents.filter(hasValidGps),
+    [filteredEvents],
+  );
 
-    autoImportTriggeredRef.current = true;
-    void runAutoImport();
-  }, [events.length, hasImportRun, loading, runAutoImport, totalPhotos]);
+  const scopeLabel = useMemo(() => {
+    if (filteredEvents.length === 0) {
+      return `${getMapFilterLabel(activeFilter)} · 0 个事件`;
+    }
+    if (filteredMappableEvents.length === 0) {
+      return `${getMapFilterLabel(activeFilter)} · 暂无可映射地点`;
+    }
+    const firstLocation = filteredMappableEvents
+      .find((event) => event.locationName?.trim())
+      ?.locationName?.trim();
+    if (firstLocation) {
+      return `${firstLocation} · ${filteredMappableEvents.length} 个事件`;
+    }
+    return `空间回看 · ${filteredMappableEvents.length} 个事件`;
+  }, [activeFilter, filteredEvents.length, filteredMappableEvents]);
+
+  const emptyState = useMemo(() => {
+    if (events.length === 0) {
+      return {
+        title: '还没有可映射到地图的事件',
+        description: '先在回忆页导入照片，地图会在后台整理完成后自动出现。',
+        actionLabel: '回到回忆',
+        onPress: () => router.push('/'),
+      };
+    }
+    if (filteredEvents.length === 0) {
+      return {
+        title: `当前没有“${getMapFilterLabel(activeFilter)}”事件`,
+        description: '切回“全部”可以继续查看当前可映射的回忆。',
+        actionLabel: '查看全部',
+        onPress: () => setActiveFilter('all'),
+      };
+    }
+    if (filteredMappableEvents.length === 0) {
+      return {
+        title: '当前筛选下暂无可映射地点',
+        description: '这些回忆仍缺少地点信息，所以暂时不会出现在地图上。',
+        actionLabel: activeFilter === 'all' ? '回到回忆' : '查看全部',
+        onPress: () => {
+          if (activeFilter === 'all') {
+            router.push('/');
+            return;
+          }
+          setActiveFilter('all');
+        },
+      };
+    }
+    return null;
+  }, [activeFilter, events.length, filteredEvents.length, filteredMappableEvents.length, router]);
 
   const handleEventPress = useCallback(
     (eventId: string) => {
       router.push(`/events/${eventId}`);
     },
     [router],
-  );
-
-  const readyEventCount = useMemo(
-    () => events.filter((event) => event.status === 'generated').length,
-    [events],
   );
 
   if (loading) {
@@ -187,93 +148,113 @@ export default function MapScreen() {
           />
         </View>
         <ActivityIndicator size="large" color={JourneyPalette.accent} testID="loading-indicator" />
-        <Text style={styles.loadingTitle}>正在加载地图</Text>
-        <Text style={styles.loadingHint}>地图只负责空间回看，主入口在回忆首页。</Text>
+        <Text selectable style={styles.loadingTitle}>
+          正在加载地图
+        </Text>
+        <Text selectable style={styles.loadingHint}>
+          地图是辅助探索入口，默认从最近回忆进入。
+        </Text>
       </View>
     );
   }
 
-  if (error && !hasLoadedOnce) {
+  if (error) {
     return (
       <View style={styles.centerContainer} testID="map-error">
-        <Text style={styles.errorText}>{error}</Text>
-        <Pressable style={styles.retryPill} onPress={() => void loadEvents('initial')}>
-          <Text style={styles.retryText}>重新加载</Text>
+        <Text selectable style={styles.errorText}>
+          {error}
+        </Text>
+        <Pressable style={styles.retryPill} onPress={() => void loadEvents()}>
+          <Text selectable style={styles.retryText}>
+            重新加载
+          </Text>
         </Pressable>
-        {showSettings ? (
-          <Pressable style={styles.settingsLink} onPress={openAppSettings}>
-            <Text style={styles.settingsLinkText}>打开系统设置授权</Text>
-          </Pressable>
-        ) : null}
-        <ImportProgressModal visible={importVisible} progress={importProgress} allowClose={false} />
       </View>
     );
   }
 
   return (
     <View style={styles.container} testID="map-screen">
-      <MapViewContainer events={events} onEventPress={handleEventPress} />
+      <MapViewContainer
+        events={filteredMappableEvents}
+        onEventPress={handleEventPress}
+        resetToken={resetToken}
+        onCanResetChange={setCanResetView}
+      />
 
       <View pointerEvents="box-none" style={styles.topOverlay}>
-        <View style={styles.topHeaderCard}>
-          <View style={styles.topHeaderCopy}>
-            <Text style={styles.topHeaderTitle}>地图</Text>
-            <Text style={styles.topHeaderSubtitle}>从地点重新浏览回忆</Text>
+        <View style={styles.topBar}>
+          <View style={styles.scopePill}>
+            <Text selectable numberOfLines={1} style={styles.scopePillText}>
+              {scopeLabel}
+            </Text>
           </View>
-          <View style={styles.topHeaderStats}>
-            <View style={styles.metaChip}>
+          <View style={styles.toolRow}>
+            <Pressable style={styles.toolButton} onPress={() => router.push('/')}>
               <MaterialCommunityIcons
-                name="map-marker-radius-outline"
-                size={14}
-                color={JourneyPalette.accent}
+                name="image-filter-hdr"
+                size={18}
+                color={JourneyPalette.ink}
               />
-              <Text style={styles.metaChipText}>{events.length} 个事件</Text>
-            </View>
-            <View style={styles.metaChip}>
+            </Pressable>
+            <Pressable
+              style={styles.toolButton}
+              onPress={() => {
+                if (canResetView) {
+                  setResetToken((value) => value + 1);
+                  return;
+                }
+                router.push('/profile/import-tasks');
+              }}
+            >
               <MaterialCommunityIcons
-                name="image-outline"
-                size={14}
-                color={JourneyPalette.accent}
+                name={canResetView ? 'crosshairs-gps' : 'dots-horizontal'}
+                size={18}
+                color={JourneyPalette.ink}
               />
-              <Text style={styles.metaChipText}>{readyEventCount} 个可回看</Text>
-            </View>
+            </Pressable>
           </View>
         </View>
 
-        {events.length === 0 ? (
-          <View style={styles.emptyBanner}>
-            <Text style={styles.emptyBannerTitle}>还没有可映射到地图的事件</Text>
-            <Text style={styles.emptyBannerText}>
-              先去回忆页导入照片，地图会在后台整理完成后自动出现内容。
-            </Text>
-            <Pressable style={styles.emptyBannerButton} onPress={() => router.push('/')}>
-              <Text style={styles.emptyBannerButtonText}>回到回忆首页</Text>
-            </Pressable>
-          </View>
-        ) : null}
+        <View style={styles.filterRow}>
+          <FilterChip
+            label="全部"
+            count={allMappableEvents.length}
+            active={activeFilter === 'all'}
+            onPress={() => setActiveFilter('all')}
+          />
+          <FilterChip
+            label="已完成"
+            count={readyEventCount}
+            active={activeFilter === 'ready'}
+            onPress={() => setActiveFilter('ready')}
+          />
+          <FilterChip
+            label="待更新"
+            count={staleEventCount}
+            active={activeFilter === 'stale'}
+            onPress={() => setActiveFilter('stale')}
+          />
+        </View>
       </View>
 
-      <ImportProgressModal visible={importVisible} progress={importProgress} allowClose={false} />
-      <UploadProgress
-        visible={taskProgressVisible}
-        taskId={taskId}
-        onContinueInBackground={() => {
-          setTaskProgressVisible(false);
-        }}
-        onDismissFailed={() => {
-          setTaskProgressVisible(false);
-          setTaskId(null);
-        }}
-        onComplete={() => {
-          setTaskProgressVisible(false);
-          setTaskId(null);
-          setSnackbar('自动整理完成，地图已更新');
-          void loadEvents('background');
-        }}
-      />
-      <Snackbar visible={Boolean(snackbar)} onDismiss={() => setSnackbar('')} duration={2800}>
-        {snackbar}
-      </Snackbar>
+      {emptyState ? (
+        <View pointerEvents="box-none" style={styles.emptyOverlay}>
+          <View style={styles.emptyCard}>
+            <Text selectable style={styles.emptyTitle}>
+              {emptyState.title}
+            </Text>
+            <Text selectable style={styles.emptyText}>
+              {emptyState.description}
+            </Text>
+            <Pressable style={styles.backHomeButton} onPress={emptyState.onPress}>
+              <Text selectable style={styles.backHomeText}>
+                {emptyState.actionLabel}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -302,7 +283,7 @@ const styles = StyleSheet.create({
   loadingTitle: {
     marginTop: 14,
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '900',
     color: JourneyPalette.ink,
   },
   loadingHint: {
@@ -326,98 +307,90 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
   },
-  settingsLink: {
-    marginTop: 10,
-  },
-  settingsLinkText: {
-    color: JourneyPalette.accent,
-    fontWeight: '700',
-  },
   topOverlay: {
     position: 'absolute',
     top: 12,
     left: 14,
     right: 14,
+    gap: 8,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
   },
-  topHeaderCard: {
-    borderRadius: 24,
+  scopePill: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 999,
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: JourneyPalette.overlay,
+    backgroundColor: JourneyPalette.overlaySoft,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.66)',
-    shadowColor: JourneyPalette.shadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
-    elevation: 8,
-    gap: 10,
+    borderColor: 'rgba(255,255,255,0.72)',
+    justifyContent: 'center',
   },
-  topHeaderCopy: {
-    gap: 4,
-  },
-  topHeaderTitle: {
-    fontSize: 28,
-    fontWeight: '800',
+  scopePillText: {
     color: JourneyPalette.ink,
-  },
-  topHeaderSubtitle: {
-    color: JourneyPalette.inkSoft,
     fontSize: 13,
-    lineHeight: 18,
+    fontWeight: '800',
   },
-  topHeaderStats: {
+  toolRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  toolButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.card,
+  },
+  filterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  metaChip: {
-    minHeight: 34,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: JourneyPalette.card,
+  emptyOverlay: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 22,
+  },
+  emptyCard: {
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  metaChipText: {
-    color: JourneyPalette.ink,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  emptyBanner: {
-    borderRadius: 22,
-    padding: 16,
     backgroundColor: JourneyPalette.overlay,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    gap: 10,
+    padding: 14,
+    gap: 8,
   },
-  emptyBannerTitle: {
+  emptyTitle: {
+    color: JourneyPalette.ink,
     fontSize: 16,
     fontWeight: '800',
-    color: JourneyPalette.ink,
   },
-  emptyBannerText: {
+  emptyText: {
     color: JourneyPalette.inkSoft,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  emptyBannerButton: {
+  backHomeButton: {
+    marginTop: 2,
     alignSelf: 'flex-start',
-    minHeight: 40,
     borderRadius: 999,
-    backgroundColor: JourneyPalette.card,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
-    justifyContent: 'center',
+    backgroundColor: JourneyPalette.card,
     paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  emptyBannerButtonText: {
+  backHomeText: {
     color: JourneyPalette.accent,
     fontWeight: '800',
+    fontSize: 13,
   },
 });

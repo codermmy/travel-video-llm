@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "required": [
+    "stage",
+    "applied_issue_ids",
+    "changed_files",
+    "summary",
+    "product_improvements",
+    "residual_gaps",
+    "self_check"
+  ],
+  "properties": {
+    "stage": {
+      "const": "execute"
+    },
+    "applied_issue_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "product_improvements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "residual_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "self_check": {
+      "type": "object",
+      "required": [
+        "regressions_risk",
+        "follow_up_focus"
+      ],
+      "properties": {
+        "regressions_risk": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "follow_up_focus": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
 
-import { ActionButton, BottomSheetScaffold, InlineBanner } from '@/components/ui/revamp';
+import {
+  ActionButton,
+  BottomSheetScaffold,
+  InlineBanner,
+  StatusPill,
+} from '@/components/ui/revamp';
 import { taskApi, type TaskStatus } from '@/services/api/taskApi';
 import { JourneyPalette } from '@/styles/colors';
+import type { StatusTone } from '@/components/ui/revamp';
 
 type UploadPhase = 'pending' | 'clustering' | 'geocoding' | 'ai' | 'completed' | 'failed';
 
@@ -68,6 +75,19 @@ function getPhaseMessage(phase: UploadPhase): string {
   }
 }
 
+function getPhaseTone(phase: UploadPhase): StatusTone {
+  if (phase === 'failed') {
+    return 'failed';
+  }
+  if (phase === 'completed') {
+    return 'ready';
+  }
+  if (phase === 'pending') {
+    return 'importing';
+  }
+  return 'analyzing';
+}
+
 export function UploadProgress({
   visible,
   taskId,
@@ -75,12 +95,14 @@ export function UploadProgress({
   onContinueInBackground,
   onDismissFailed,
 }: UploadProgressProps) {
+  const router = useRouter();
   const [status, setStatus] = useState<TaskStatus | null>(null);
   const [pollError, setPollError] = useState<string | null>(null);
   const completedNotifiedRef = useRef(false);
 
   const phase = toPhase(status);
   const percent = getProgressPercent(status);
+  const tone = getPhaseTone(phase);
 
   const pollStatus = useCallback(async () => {
     if (!taskId) {
@@ -157,6 +179,18 @@ export function UploadProgress({
                 <ActivityIndicator size="large" color={JourneyPalette.accent} />
               )}
             </View>
+            <StatusPill
+              label={
+                tone === 'failed'
+                  ? '失败'
+                  : tone === 'ready'
+                    ? '已就绪'
+                    : tone === 'analyzing'
+                      ? '分析中'
+                      : '导入中'
+              }
+              tone={tone}
+            />
             <Text variant="displaySmall" style={styles.percentText}>
               {percent}%
             </Text>
@@ -181,7 +215,29 @@ export function UploadProgress({
           />
 
           {phase === 'failed' ? (
-            <ActionButton label="关闭" onPress={onDismissFailed || (() => undefined)} />
+            <View style={styles.failureActions}>
+              <ActionButton
+                label="去任务中心"
+                tone="secondary"
+                onPress={() => {
+                  onDismissFailed?.();
+                  router.push({
+                    pathname: '/profile/import-tasks',
+                    params: {
+                      filter: 'failed',
+                      focusTaskId: taskId,
+                      intentKey: String(Date.now()),
+                    },
+                  });
+                }}
+                style={styles.failureActionButton}
+              />
+              <ActionButton
+                label="关闭"
+                onPress={onDismissFailed || (() => undefined)}
+                style={styles.failureActionButton}
+              />
+            </View>
           ) : (
             <ActionButton
               label="后台继续"
@@ -235,6 +291,14 @@ const styles = StyleSheet.create({
   },
   banner: {
     marginTop: 16,
+  },
+  failureActions: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  failureActionButton: {
+    flex: 1,
   },
   primaryAction: {
     marginTop: 16,

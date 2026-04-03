@@ -23,7 +23,7 @@ export function MonthHeader({ section }: MonthHeaderProps) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 20,
+    paddingTop: 18,
     paddingBottom: 10,
     paddingHorizontal: 14,
     backgroundColor: 'transparent',
@@ -31,9 +31,11 @@ const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
     borderRadius: 999,
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.cardMuted,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
     paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingVertical: 6,
   },
   title: {
     fontSize: 13,

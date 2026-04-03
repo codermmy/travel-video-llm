@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "required": [
+    "stage",
+    "core_goal",
+    "core_target",
+    "issues",
+    "selected_issue_ids",
+    "do_not_touch_yet",
+    "why_these_now",
+    "notes"
+  ],
+  "properties": {
+    "stage": {
+      "const": "audit"
+    },
+    "core_goal": {
+      "type": "string"
+    },
+    "core_target": {
+      "type": "string"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "priority",
+          "title",
+          "impact",
+          "evidence",
+          "suggested_changes",
+          "target_files"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P0",
+              "P1",
+              "P2"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested_changes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "selected_issue_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "do_not_touch_yet": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "why_these_now": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

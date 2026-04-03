@@ -1,16 +1,15 @@
 import { useMemo } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { StateChip } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import { getEventStatusMeta } from '@/utils/eventStatus';
+import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 type EventCardListProps = {
   events: EventRecord[];
-  selectedEventId: string | null;
-  onPressEvent: (eventId: string) => void;
   onPressDetails: (eventId: string) => void;
   onClose: () => void;
 };
@@ -18,7 +17,7 @@ type EventCardListProps = {
 function formatDate(dateString?: string | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 }
 
 function buildDateRange(event: EventRecord): string {
@@ -30,120 +29,128 @@ function buildDateRange(event: EventRecord): string {
   return end ? `${start} - ${end}` : start;
 }
 
-export function EventCardList({
-  events,
-  selectedEventId,
-  onPressEvent,
-  onPressDetails,
-  onClose,
-}: EventCardListProps) {
-  const isScrollable = events.length > 3;
+function getClusterTitle(events: EventRecord[]): string {
+  const firstLocation = events.find((event) => event.locationName?.trim())?.locationName?.trim();
+  if (firstLocation) {
+    return `${firstLocation} 附近的回忆`;
+  }
+  return '这个地点附近的回忆';
+}
 
-  const cards = useMemo(
+export function EventCardList({ events, onPressDetails, onClose }: EventCardListProps) {
+  const isSingle = events.length === 1;
+  const title = getClusterTitle(events);
+
+  const sortedEvents = useMemo(
     () =>
-      events.map((event) => {
-        const statusMeta = getEventStatusMeta(event);
-        return (
-          <Pressable
-            key={event.id}
-            style={({ pressed }) => [
-              styles.card,
-              selectedEventId === event.id && styles.cardSelected,
-              pressed && styles.cardPressed,
-            ]}
-            onPress={() => {
-              if (selectedEventId === event.id) {
-                onPressDetails(event.id);
-                return;
-              }
-              onPressEvent(event.id);
-            }}
-          >
-            <View style={styles.imageContainer}>
-              {getPreferredEventCoverUri(event) ? (
-                <Image
-                  source={{ uri: getPreferredEventCoverUri(event) ?? undefined }}
-                  style={styles.image}
-                />
-              ) : (
-                <View style={[styles.image, styles.placeholderImage]}>
-                  <Ionicons name="image-outline" size={24} color="#8896B2" />
-                </View>
-              )}
-              <View style={styles.photoCountBadge}>
-                <Text style={styles.photoCountText}>{event.photoCount}</Text>
-              </View>
-            </View>
-
-            <View style={styles.infoContainer}>
-              <View style={styles.titleRow}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {event.title}
-                </Text>
-                <View style={[styles.statusBadge, { backgroundColor: statusMeta.soft }]}>
-                  <Text style={[styles.statusText, { color: statusMeta.color }]}>
-                    {statusMeta.label}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.metaContainer}>
-                <Ionicons
-                  name="calendar-outline"
-                  size={12}
-                  color={JourneyPalette.inkSoft}
-                  style={styles.icon}
-                />
-                <Text style={styles.metaText}>{buildDateRange(event)}</Text>
-              </View>
-
-              {event.locationName ? (
-                <View style={styles.metaContainer}>
-                  <Ionicons
-                    name="location-outline"
-                    size={12}
-                    color={JourneyPalette.inkSoft}
-                    style={styles.icon}
-                  />
-                  <Text style={styles.metaText} numberOfLines={1}>
-                    {event.locationName}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-
-            <View style={styles.arrowContainer}>
-              <Ionicons name="chevron-forward" size={20} color={JourneyPalette.inkSoft} />
-            </View>
-          </Pressable>
-        );
+      [...events].sort((left, right) => {
+        const leftTime = new Date(left.updatedAt || left.endTime || left.startTime || 0).getTime();
+        const rightTime = new Date(
+          right.updatedAt || right.endTime || right.startTime || 0,
+        ).getTime();
+        return rightTime - leftTime;
       }),
-    [events, onPressDetails, onPressEvent, selectedEventId],
+    [events],
   );
+
+  if (isSingle) {
+    const event = sortedEvents[0];
+    const statusMeta = getEventStatusMeta(event);
+    const coverUri = getPreferredEventCoverUri(event);
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.handle} />
+        <View style={styles.singleCard}>
+          <View style={styles.singleCoverWrap}>
+            {coverUri ? (
+              <Image source={{ uri: coverUri }} style={styles.singleCover} resizeMode="cover" />
+            ) : (
+              <View style={[styles.singleCover, styles.coverFallback]}>
+                <Ionicons name="image-outline" size={22} color={JourneyPalette.muted} />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.singleInfo}>
+            <View style={styles.singleTitleRow}>
+              <Text numberOfLines={1} style={styles.singleTitle}>
+                {event.title || '未命名事件'}
+              </Text>
+            </View>
+            <Text numberOfLines={1} style={styles.singleMeta}>
+              {buildDateRange(event)} · {event.photoCount} 张照片
+            </Text>
+            <View style={styles.singleBottomRow}>
+              <StateChip state={statusMeta.tone} label={statusMeta.label} compact />
+              <Pressable
+                style={styles.singleActionPrimary}
+                onPress={() => onPressDetails(event.id)}
+              >
+                <Text style={styles.singleActionPrimaryText}>进入详情</Text>
+                <Ionicons name="chevron-forward" size={16} color={JourneyPalette.white} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <View style={styles.handle} />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>这个地点</Text>
-        <Text style={styles.headerMeta}>{events.length} 个旅行事件</Text>
-      </View>
-      <View style={isScrollable ? styles.scrollContainer : styles.stackedContainer}>
-        {isScrollable ? (
-          <View style={styles.scrollGradient}>
-            <Ionicons name="chevron-down" size={16} color={JourneyPalette.muted} />
-            <Text style={styles.scrollHint}>向下滚动查看更多</Text>
-          </View>
-        ) : null}
 
-        <ScrollView scrollEnabled={isScrollable} showsVerticalScrollIndicator={false}>
-          {cards}
-        </ScrollView>
+      <View style={styles.listHeader}>
+        <View style={styles.listHeaderCopy}>
+          <Text style={styles.listHeaderTitle}>{title}</Text>
+          <Text style={styles.listHeaderMeta}>{sortedEvents.length} 个事件</Text>
+        </View>
       </View>
 
-      <Pressable style={styles.closeButton} onPress={onClose}>
-        <Ionicons name="close-circle" size={24} color="#B2BBD0" />
-      </Pressable>
+      <ScrollView style={styles.listScroll} showsVerticalScrollIndicator={false}>
+        {sortedEvents.map((event, index) => {
+          const coverUri = getPreferredEventCoverUri(event);
+          const statusMeta = getEventStatusMeta(event);
+
+          return (
+            <Pressable
+              key={event.id}
+              style={({ pressed }) => [
+                styles.listRow,
+                index === sortedEvents.length - 1 && styles.listRowLast,
+                pressed && styles.listRowPressed,
+              ]}
+              onPress={() => onPressDetails(event.id)}
+            >
+              <View style={styles.rowThumbWrap}>
+                {coverUri ? (
+                  <Image source={{ uri: coverUri }} style={styles.rowThumb} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.rowThumb, styles.coverFallback]}>
+                    <Ionicons name="image-outline" size={16} color={JourneyPalette.muted} />
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.rowInfo}>
+                <Text numberOfLines={1} style={styles.rowTitle}>
+                  {event.title || '未命名事件'}
+                </Text>
+                <Text numberOfLines={1} style={styles.rowMeta}>
+                  {buildDateRange(event)} · {event.photoCount} 张照片
+                </Text>
+                <StateChip state={statusMeta.tone} label={statusMeta.label} compact />
+              </View>
+
+              <View style={styles.rowEnter}>
+                <Text style={styles.rowEnterText}>进入</Text>
+                <Ionicons name="chevron-forward" size={16} color={JourneyPalette.accent} />
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -151,19 +158,19 @@ export function EventCardList({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 16,
     left: 14,
     right: 14,
-    borderRadius: 30,
-    overflow: 'hidden',
-    backgroundColor: Platform.OS === 'android' ? JourneyPalette.card : JourneyPalette.overlay,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.overlay,
     shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 22,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
     elevation: 9,
+    overflow: 'hidden',
   },
   handle: {
     alignSelf: 'center',
@@ -172,135 +179,139 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: JourneyPalette.lineStrong,
     marginTop: 10,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  headerMeta: {
-    marginTop: 4,
-    fontSize: 12,
-    color: JourneyPalette.muted,
-  },
-  stackedContainer: {
-    backgroundColor: Platform.OS === 'android' ? JourneyPalette.card : JourneyPalette.card,
-    paddingBottom: 8,
-  },
-  scrollContainer: {
-    maxHeight: 220,
-    backgroundColor: Platform.OS === 'android' ? JourneyPalette.card : JourneyPalette.card,
-  },
-  scrollGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    height: 40,
-    backgroundColor: 'rgba(255,252,247,0.94)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scrollHint: {
-    fontSize: 11,
-    color: JourneyPalette.muted,
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  card: {
+  singleCard: {
     flexDirection: 'row',
-    padding: 14,
-    backgroundColor: JourneyPalette.card,
-    borderBottomWidth: 1,
-    borderBottomColor: JourneyPalette.line,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
   },
-  cardPressed: {
-    backgroundColor: '#FAF5EC',
+  singleCoverWrap: {
+    width: 96,
+    height: 116,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: JourneyPalette.cardSoft,
   },
-  cardSelected: {
-    backgroundColor: '#F1F6F4',
+  singleCover: {
+    width: '100%',
+    height: '100%',
   },
-  imageContainer: {
-    position: 'relative',
-    marginRight: 12,
-  },
-  image: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: '#EDE5DA',
-  },
-  placeholderImage: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  photoCountBadge: {
-    position: 'absolute',
-    bottom: -4,
-    right: -4,
-    backgroundColor: JourneyPalette.ink,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    minWidth: 16,
-    alignItems: 'center',
-  },
-  photoCountText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  infoContainer: {
+  singleInfo: {
     flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-    marginBottom: 4,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: 8,
   },
-  statusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+  singleTitleRow: {
+    gap: 6,
   },
-  statusText: {
-    fontSize: 10,
+  singleTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 18,
     fontWeight: '800',
   },
-  metaContainer: {
+  singleMeta: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+  },
+  singleBottomRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  singleActionPrimary: {
+    minHeight: 36,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 14,
+  },
+  singleActionPrimaryText: {
+    color: JourneyPalette.white,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  listHeader: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  icon: {
-    marginRight: 4,
+  listHeaderCopy: {
+    flex: 1,
   },
-  metaText: {
-    fontSize: 12,
+  listHeaderTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  listHeaderMeta: {
+    marginTop: 3,
     color: JourneyPalette.inkSoft,
+    fontSize: 12,
   },
-  arrowContainer: {
-    paddingLeft: 8,
+  listScroll: {
+    maxHeight: 290,
+  },
+  listRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: JourneyPalette.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: JourneyPalette.card,
+  },
+  listRowPressed: {
+    backgroundColor: JourneyPalette.cardMuted,
+  },
+  listRowLast: {
+    borderBottomWidth: 0,
+  },
+  rowThumbWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: JourneyPalette.cardSoft,
+  },
+  rowThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  coverFallback: {
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  closeButton: {
-    position: 'absolute',
-    top: 14,
-    right: 12,
-    zIndex: 10,
+  rowInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  rowTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  rowMeta: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+  },
+  rowEnter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  rowEnterText: {
+    color: JourneyPalette.accent,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

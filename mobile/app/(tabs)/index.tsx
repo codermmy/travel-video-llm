@@ -1,1 +1,1 @@
-export { default } from './events';
+export { default } from '@/screens/memories-screen';

@@ -118,8 +118,8 @@ export function buildSlideshowVideoLayoutContract(params: {
   const subtitleLineHeight = Math.max(isLandscape ? 30 : 24, Math.round(subtitleSize * 1.5));
   const subtitleHeight = subtitleLineHeight * 2 + Math.round(canvasHeight * 0.01);
   const subtitleOverlayHeight = Math.max(
-    subtitleHeight + Math.round(canvasHeight * 0.04),
-    Math.round(stageHeight * (isLandscape ? 0.24 : 0.21)),
+    subtitleHeight + Math.round(canvasHeight * (isLandscape ? 0.03 : 0.04)),
+    Math.round(canvasHeight * (isLandscape ? 0.155 : 0.175)),
   );
 
   const titleSize = Math.max(30, Math.round(canvasWidth * (isLandscape ? 0.046 : 0.058)));
@@ -132,10 +132,14 @@ export function buildSlideshowVideoLayoutContract(params: {
     canvasWidth,
     canvasHeight,
   );
-  const subtitleOverlayTop = stageRect.y + stageRect.height - subtitleOverlayHeight;
+  const subtitleBottomInset = Math.round(canvasHeight * (isLandscape ? 0.07 : 0.085));
+  const subtitleOverlayTop = canvasHeight - subtitleBottomInset - subtitleOverlayHeight;
   const subtitleHorizontalInset = Math.round(stageRect.width * (isLandscape ? 0.085 : 0.082));
   const subtitleSafeTop =
-    subtitleOverlayTop + Math.round(subtitleOverlayHeight * (isLandscape ? 0.3 : 0.26));
+    canvasHeight -
+    subtitleBottomInset -
+    subtitleHeight -
+    Math.round(canvasHeight * (isLandscape ? 0.008 : 0.012));
   const subtitleOverlayRect = createRect(
     stageRect.x,
     subtitleOverlayTop,

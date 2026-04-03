@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,11 +26,14 @@ import {
   saveEventCoverOverride,
 } from '@/services/media/localMediaRegistry';
 import { taskApi } from '@/services/api/taskApi';
+import { generateSlideshowPreviewVideo } from '@/services/slideshow/slideshowExportService';
+import { buildScenes } from '@/services/slideshow/slideshowSceneBuilder';
 import { usePhotoViewerStore } from '@/stores/photoViewerStore';
 import { useSlideshowStore } from '@/stores/slideshowStore';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
 import { formatDateRange } from '@/utils/dateUtils';
+import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
 function getFallbackDateRange(event: EventDetail): string {
@@ -84,6 +87,8 @@ function takeParagraph(text?: string | null, maxChars = 80): string {
   return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trim()}…` : normalized;
 }
 
+const PREVIEW_PRIME_SLIDE_DURATION_MS = 3200;
+
 export default function EventDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ eventId: string }>();
@@ -97,9 +102,13 @@ export default function EventDetailScreen() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPhotoManagerVisible, setIsPhotoManagerVisible] = useState(false);
+  const [photoManagerEntryMode, setPhotoManagerEntryMode] = useState<'browse' | 'move-target'>(
+    'browse',
+  );
   const [isMoreActionsVisible, setIsMoreActionsVisible] = useState(false);
   const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
   const [isFullStoryExpanded, setIsFullStoryExpanded] = useState(false);
+  const previewPrimeKeyRef = useRef<string | null>(null);
 
   const setPhotoViewerSession = usePhotoViewerStore((state) => state.setSession);
   const setSlideshowSession = useSlideshowStore((state) => state.setSession);
@@ -128,6 +137,62 @@ export default function EventDetailScreen() {
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  useEffect(() => {
+    if (!event) {
+      return;
+    }
+    if (
+      event.storyFreshness !== 'fresh' ||
+      event.slideshowFreshness !== 'fresh' ||
+      event.hasPendingStructureChanges ||
+      event.photos.length === 0
+    ) {
+      return;
+    }
+
+    const scenes = buildScenes(event.photos, event.chapters);
+    if (scenes.length === 0) {
+      return;
+    }
+
+    const primeKey = [
+      event.id,
+      event.eventVersion,
+      event.storyGeneratedFromVersion ?? 'story-missing',
+      event.slideshowGeneratedFromVersion ?? 'slideshow-missing',
+      event.photos.length,
+      event.chapters.length,
+    ].join(':');
+
+    if (previewPrimeKeyRef.current === primeKey) {
+      return;
+    }
+    previewPrimeKeyRef.current = primeKey;
+
+    void generateSlideshowPreviewVideo({
+      event: {
+        id: event.id,
+        title: event.title,
+        emotionTag: event.emotionTag ?? null,
+        musicUrl: event.musicUrl ?? null,
+        storyText: event.storyText ?? null,
+        fullStory: event.fullStory ?? null,
+        storyFreshness: event.storyFreshness,
+        slideshowFreshness: event.slideshowFreshness,
+        hasPendingStructureChanges: event.hasPendingStructureChanges,
+        chapters: event.chapters,
+        photoGroups: event.photoGroups,
+      },
+      photos: event.photos,
+      scenes,
+      slideDurationMs: PREVIEW_PRIME_SLIDE_DURATION_MS,
+      aspectMode: 'auto',
+    }).catch((error) => {
+      previewPrimeKeyRef.current = null;
+      console.warn('[event-detail] failed to warm slideshow preview video', error);
+    });
+  }, [event]);
 
   const onPhotoPress = useCallback(
     (_: EventDetail['photos'][number], index: number) => {
@@ -270,7 +335,6 @@ export default function EventDetailScreen() {
     return resolveCoverCandidateFromPhotos(event.photos, [event.coverPhotoId]);
   }, [event]);
   const coverUri = event?.localCoverUri ?? automaticCover.uri ?? event?.coverPhotoUrl ?? null;
-  const coverStatusLabel = event?.selectedCoverPhotoId ? '已选择' : '默认';
 
   const openEditModal = useCallback(() => {
     if (!event) {
@@ -284,7 +348,33 @@ export default function EventDetailScreen() {
       return;
     }
     setIsMoreActionsVisible(false);
+    setPhotoManagerEntryMode('browse');
     setIsPhotoManagerVisible(true);
+  }, [event]);
+
+  const openMoveTargetPicker = useCallback(() => {
+    if (!event) {
+      return;
+    }
+    if (event.photos.length === 0) {
+      Alert.alert('暂无可移动照片', '当前事件还没有可移动的照片。');
+      return;
+    }
+    setIsMoreActionsVisible(false);
+    Alert.alert(
+      '移动整组照片',
+      '这一步会默认选中当前事件的全部照片，再让你选择目标事件。确认后继续。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '继续',
+          onPress: () => {
+            setPhotoManagerEntryMode('move-target');
+            setIsPhotoManagerVisible(true);
+          },
+        },
+      ],
+    );
   }, [event]);
 
   const openMoreActions = useCallback(() => {
@@ -347,6 +437,89 @@ export default function EventDetailScreen() {
       Alert.alert('恢复默认失败', coverError instanceof Error ? coverError.message : '请稍后再试');
     }
   }, [automaticCover.photoId, automaticCover.uri, event]);
+
+  const confirmDeleteEvent = useCallback(() => {
+    if (!event) {
+      return;
+    }
+
+    Alert.alert('删除事件', '删除后，本事件照片会回到“无事件”状态，现有故事也会移除。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await eventApi.deleteEvent(event.id);
+              router.back();
+            } catch (deleteError) {
+              Alert.alert(
+                '删除失败',
+                deleteError instanceof Error ? deleteError.message : '请稍后再试',
+              );
+            }
+          })();
+        },
+      },
+    ]);
+  }, [event, router]);
+
+  const canRetryManually = Boolean(event?.aiError) || event?.status === 'ai_failed';
+  const detailEventTone = useMemo(
+    () => (event ? getEventStatusMeta(event).tone : ('importing' as const)),
+    [event],
+  );
+  const primaryQuickAction = useMemo(() => {
+    if (detailEventTone === 'ready') {
+      return {
+        kind: 'play' as const,
+        label: '播放回忆',
+        icon: 'play-circle-outline' as const,
+        onPress: onPlaySlideshow,
+        disabled: false,
+      };
+    }
+    if (detailEventTone === 'failed' && canRetryManually) {
+      return {
+        kind: 'retry' as const,
+        label: isRegenerating ? '重试中...' : '重试更新',
+        icon: 'refresh' as const,
+        onPress: () => {
+          void retryAiStory();
+        },
+        disabled: isRegenerating,
+      };
+    }
+    return {
+      kind: 'photos' as const,
+      label: '查看照片',
+      icon: 'image-outline' as const,
+      onPress: onOpenPhotoViewer,
+      disabled: false,
+    };
+  }, [
+    canRetryManually,
+    detailEventTone,
+    isRegenerating,
+    onOpenPhotoViewer,
+    onPlaySlideshow,
+    retryAiStory,
+  ]);
+  const secondaryQuickAction = useMemo(() => {
+    if (primaryQuickAction.kind === 'photos') {
+      return {
+        label: '管理照片',
+        icon: 'image-multiple-outline' as const,
+        onPress: openPhotoManager,
+      };
+    }
+    return {
+      label: '查看照片',
+      icon: 'image-outline' as const,
+      onPress: onOpenPhotoViewer,
+    };
+  }, [onOpenPhotoViewer, openPhotoManager, primaryQuickAction.kind]);
 
   if (loading) {
     return (
@@ -421,58 +594,48 @@ export default function EventDetailScreen() {
             <Pressable style={styles.topBarButton} onPress={() => router.back()}>
               <MaterialCommunityIcons name="arrow-left" size={18} color="#FFF9F2" />
             </Pressable>
-            <Pressable
-              style={styles.topBarPill}
-              onPress={() => setIsCoverPickerVisible(true)}
-              disabled={event.photos.length === 0}
-            >
-              <MaterialCommunityIcons name="image-edit-outline" size={15} color="#FFF9F2" />
-              <Text style={styles.topBarPillText}>更换封面</Text>
+            <Pressable style={styles.topBarPill} onPress={openMoreActions}>
+              <MaterialCommunityIcons name="dots-horizontal" size={15} color="#FFF9F2" />
+              <Text style={styles.topBarPillText}>更多</Text>
             </Pressable>
           </View>
 
           <View style={styles.heroMeta}>
-            <Text style={styles.heroEyebrow}>TRAVEL STORY</Text>
+            <Text style={styles.heroEyebrow}>MEMORY STORY</Text>
             <Text style={styles.heroTitle}>{event.title || '未命名事件'}</Text>
-            <View style={styles.heroChipRow}>
-              <View style={styles.heroChip}>
-                <MaterialCommunityIcons name="map-marker-outline" size={13} color="#FFF9F2" />
-                <Text style={styles.heroChipText}>{resolveLocation(event)}</Text>
-              </View>
-              <View style={styles.heroChip}>
-                <MaterialCommunityIcons name="calendar-month-outline" size={13} color="#FFF9F2" />
-                <Text style={styles.heroChipText}>{dateRangeText}</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{event.photoCount}</Text>
-            <Text style={styles.summaryLabel}>照片</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{chapterSections.length}</Text>
-            <Text style={styles.summaryLabel}>章节</Text>
-          </View>
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{coverStatusLabel}</Text>
-            <Text style={styles.summaryLabel}>封面</Text>
+            <Text style={styles.heroMetaLine}>
+              {resolveLocation(event)} · {dateRangeText} · {event.photoCount} 张照片
+            </Text>
           </View>
         </View>
 
         <View style={styles.quickActions}>
-          <Pressable style={[styles.primaryAction, styles.flexAction]} onPress={onPlaySlideshow}>
-            <MaterialCommunityIcons name="play-circle-outline" size={16} color="#FFF9F2" />
-            <Text style={styles.primaryActionText}>播放回忆</Text>
+          <Pressable
+            style={[
+              styles.primaryAction,
+              styles.flexAction,
+              primaryQuickAction.disabled && styles.disabledAction,
+            ]}
+            onPress={primaryQuickAction.onPress}
+            disabled={primaryQuickAction.disabled}
+          >
+            {primaryQuickAction.kind === 'retry' && isRegenerating ? (
+              <ActivityIndicator size="small" color="#FFF9F2" />
+            ) : (
+              <MaterialCommunityIcons name={primaryQuickAction.icon} size={16} color="#FFF9F2" />
+            )}
+            <Text style={styles.primaryActionText}>{primaryQuickAction.label}</Text>
           </Pressable>
           <Pressable
             style={[styles.secondaryAction, styles.flexAction]}
-            onPress={onOpenPhotoViewer}
+            onPress={secondaryQuickAction.onPress}
           >
-            <MaterialCommunityIcons name="image-outline" size={16} color={JourneyPalette.ink} />
-            <Text style={styles.secondaryActionText}>查看照片</Text>
+            <MaterialCommunityIcons
+              name={secondaryQuickAction.icon}
+              size={16}
+              color={JourneyPalette.ink}
+            />
+            <Text style={styles.secondaryActionText}>{secondaryQuickAction.label}</Text>
           </Pressable>
           <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openMoreActions}>
             <MaterialCommunityIcons name="dots-horizontal" size={18} color={JourneyPalette.ink} />
@@ -489,7 +652,7 @@ export default function EventDetailScreen() {
             />
             <View style={styles.noticeCopy}>
               <Text style={styles.noticeTitle}>照片仍在整理</Text>
-              <Text style={styles.noticeText}>端侧识别完成后，系统会自动更新故事。</Text>
+              <Text style={styles.noticeText}>端侧识别完成后会自动更新故事。</Text>
             </View>
           </View>
         ) : null}
@@ -501,9 +664,7 @@ export default function EventDetailScreen() {
             <MaterialCommunityIcons name="update" size={18} color={JourneyPalette.warning} />
             <View style={styles.noticeCopy}>
               <Text style={styles.noticeTitle}>内容待自动更新</Text>
-              <Text style={styles.noticeText}>
-                你刚才的照片或事件变更会在后台自动刷新。当前版本仍可先预览，异常时可在“更多”里手动重试。
-              </Text>
+              <Text style={styles.noticeText}>照片或事件刚有变更，系统会在后台自动刷新。</Text>
             </View>
           </View>
         ) : null}
@@ -518,7 +679,7 @@ export default function EventDetailScreen() {
             <View style={styles.noticeCopy}>
               <Text style={styles.noticeTitle}>最近一次生成失败</Text>
               <Text style={styles.noticeText}>
-                {event.aiError || '可以稍后等待自动更新，必要时再从“更多”里手动重试。'}
+                {event.aiError || '可稍后重试，或从“更多”里手动刷新。'}
               </Text>
             </View>
           </View>
@@ -527,24 +688,14 @@ export default function EventDetailScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>故事引子</Text>
-            {event.storyFreshness === 'stale' ||
-            event.slideshowFreshness === 'stale' ||
-            event.hasPendingStructureChanges ? (
-              <View style={styles.staleBadge}>
-                <MaterialCommunityIcons name="update" size={12} color={JourneyPalette.warning} />
-                <Text style={styles.staleBadgeText}>内容待更新</Text>
-              </View>
-            ) : null}
           </View>
           <Text style={styles.sectionBody}>{introText}</Text>
-          <Text style={styles.sectionBodyMuted}>先看照片片段，再决定要不要读完整故事。</Text>
         </View>
 
         {chapterSections.length > 0 ? (
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>旅程章节</Text>
-              <Text style={styles.sectionHint}>{chapterSections.length} 段</Text>
             </View>
             <View style={styles.chapterList}>
               {chapterSections.map(({ chapter, chapterPhotos, teaserText, descriptionText }) => (
@@ -572,11 +723,7 @@ export default function EventDetailScreen() {
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>相册</Text>
-            <Text style={styles.sectionHint}>{event.photos.length} 张</Text>
           </View>
-          <Text style={styles.sectionBodyMuted}>
-            支持批量移出当前事件、移动到其他事件、删除照片，或从系统相册继续导入到当前事件。
-          </Text>
           <PhotoGrid
             photos={event.photos}
             onPhotoPress={onPhotoPress}
@@ -631,9 +778,14 @@ export default function EventDetailScreen() {
       <EventPhotoManagerSheet
         visible={isPhotoManagerVisible}
         eventId={event.id}
-        onClose={() => setIsPhotoManagerVisible(false)}
+        entryMode={photoManagerEntryMode}
+        onClose={() => {
+          setIsPhotoManagerVisible(false);
+          setPhotoManagerEntryMode('browse');
+        }}
         onChanged={({ deletedCurrentEvent }) => {
           setIsPhotoManagerVisible(false);
+          setPhotoManagerEntryMode('browse');
           if (deletedCurrentEvent) {
             Alert.alert('事件已删除', '当前事件照片已清空，系统已自动删除该事件。');
             router.back();
@@ -686,6 +838,14 @@ export default function EventDetailScreen() {
 
             <Pressable
               style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              onPress={openMoveTargetPicker}
+            >
+              <MaterialCommunityIcons name="swap-horizontal" size={18} color={JourneyPalette.ink} />
+              <Text style={styles.actionSheetRowText}>移动整组照片</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
               onPress={() => {
                 setIsMoreActionsVisible(false);
                 setIsCoverPickerVisible(true);
@@ -699,10 +859,22 @@ export default function EventDetailScreen() {
               <Text style={styles.actionSheetRowText}>更换封面</Text>
             </Pressable>
 
-            {(event.aiError ||
-              event.storyFreshness === 'stale' ||
-              event.slideshowFreshness === 'stale' ||
-              event.hasPendingStructureChanges) && (
+            <Pressable
+              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              onPress={() => {
+                setIsMoreActionsVisible(false);
+                void onResetCover();
+              }}
+            >
+              <MaterialCommunityIcons
+                name="image-sync-outline"
+                size={18}
+                color={JourneyPalette.ink}
+              />
+              <Text style={styles.actionSheetRowText}>恢复默认封面</Text>
+            </Pressable>
+
+            {canRetryManually && (
               <Pressable
                 style={({ pressed }) => [
                   styles.actionSheetRow,
@@ -725,6 +897,27 @@ export default function EventDetailScreen() {
                 </Text>
               </Pressable>
             )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionSheetRow,
+                styles.actionSheetRowDanger,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => {
+                setIsMoreActionsVisible(false);
+                confirmDeleteEvent();
+              }}
+            >
+              <MaterialCommunityIcons
+                name="trash-can-outline"
+                size={18}
+                color={JourneyPalette.danger}
+              />
+              <Text style={[styles.actionSheetRowText, styles.actionSheetRowTextDanger]}>
+                删除事件
+              </Text>
+            </Pressable>
 
             <Pressable
               style={({ pressed }) => [styles.actionSheetCancel, pressed && styles.pressed]}
@@ -905,24 +1098,12 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '800',
   },
-  heroChipRow: {
+  heroMetaLine: {
     marginTop: 12,
-    gap: 8,
-  },
-  heroChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(255,249,242,0.18)',
-  },
-  heroChipText: {
     color: '#FFF9F2',
     fontSize: 12,
     fontWeight: '700',
+    lineHeight: 18,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -1140,12 +1321,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  actionSheetRowDanger: {
+    backgroundColor: JourneyPalette.dangerSoft,
+    borderColor: JourneyPalette.dangerBorder,
+  },
   actionSheetRowText: {
     color: JourneyPalette.ink,
     fontWeight: '800',
   },
   actionSheetRowTextAccent: {
     color: JourneyPalette.accent,
+  },
+  actionSheetRowTextDanger: {
+    color: JourneyPalette.danger,
   },
   actionSheetCancel: {
     minHeight: 52,

@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "required": [
+    "stage",
+    "approved",
+    "score",
+    "summary",
+    "blocking_findings",
+    "wins",
+    "should_continue",
+    "next_focus",
+    "stop_reason"
+  ],
+  "properties": {
+    "stage": {
+      "const": "review"
+    },
+    "approved": {
+      "type": "boolean"
+    },
+    "score": {
+      "type": "number"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "blocking_findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "wins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "should_continue": {
+      "type": "boolean"
+    },
+    "next_focus": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stop_reason": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
