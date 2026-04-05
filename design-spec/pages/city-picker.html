@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Spec - 城市选择 (City Picker)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; --muted: #94A3B8; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', sans-serif; background: #F1F5F9; display: flex; justify-content: center; padding: 40px; }
+        .phone {
+            width: 375px; height: 812px; background: white; border-radius: 50px; border: 10px solid var(--ink);
+            position: relative; overflow: hidden; display: flex; flex-direction: column;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.2);
+        }
+        .header { padding: 60px 24px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .title-huge { font-size: 28px; font-weight: 900; letter-spacing: -1px; }
+        
+        .scroll-content { flex: 1; overflow-y: auto; padding: 0 24px 100px; }
+        
+        /* 热门城市网格 */
+        .section-label { font-size: 11px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 32px 0 16px; }
+        .hot-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        .city-btn { 
+            height: 44px; background: var(--surface); border-radius: 12px; display: flex; 
+            align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: var(--ink);
+        }
+        .city-btn.active { background: var(--ink); color: white; }
+
+        /* A-Z 列表 */
+        .alphabet-group { margin-top: 40px; }
+        .letter-label { font-size: 18px; font-weight: 900; color: var(--accent); margin-bottom: 8px; }
+        .city-row { padding: 16px 0; border-bottom: 1px solid #F1F5F9; font-size: 16px; font-weight: 600; color: var(--ink); }
+
+        /* 侧边索引条 (Visual Only) */
+        .index-bar { position: absolute; right: 8px; top: 180px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+        .index-bar span { font-size: 10px; font-weight: 900; color: var(--muted); }
+
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div class="header">
+            <h1 class="title-huge">选择城市</h1>
+            <svg width="24" height="24" fill="var(--ink-soft)" viewBox="0 0 16 16"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+        </div>
+
+        <div class="scroll-content">
+            <div class="section-label">热门城市</div>
+            <div class="hot-grid">
+                <div class="city-btn">北京</div>
+                <div class="city-btn">上海</div>
+                <div class="city-btn">广州</div>
+                <div class="city-btn">深圳</div>
+                <div class="city-btn active">杭州</div>
+                <div class="city-btn">成都</div>
+                <div class="city-btn">南京</div>
+                <div class="city-btn">西安</div>
+            </div>
+
+            <div class="alphabet-group">
+                <div class="letter-label">A</div>
+                <div class="city-row">阿坝</div>
+                <div class="city-row">阿克苏</div>
+                <div class="city-row">阿里</div>
+            </div>
+
+            <div class="alphabet-group">
+                <div class="letter-label">B</div>
+                <div class="city-row">白城</div>
+                <div class="city-row">百色</div>
+                <div class="city-row">白山</div>
+            </div>
+        </div>
+
+        <!-- 侧边索引条 -->
+        <div class="index-bar">
+            <span>•</span><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>J</span><span>K</span><span>L</span><span>M</span><span>N</span>
+        </div>
+    </div>
+</body>
+</html>

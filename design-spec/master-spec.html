@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TravelVideoLLM 极致重构规范 - 全场景总览</title>
+    <title>TravelVideoLLM 极致重构规范 - 全场景总览 (V4)</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
     <style>
         :root { --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; }
@@ -30,11 +30,11 @@
 <body>
     <div class="container">
         <header>
-            <h1>极致设计规范总览 (V2)</h1>
-            <p>全场景覆盖：从照片管理到地点补全，定义每一个像素的呼吸感。</p>
+            <h1>极致设计规范总览 (V4)</h1>
+            <p>新增城市选择动线，重构地点搜索逻辑，实现功能与审美的深度对齐。</p>
         </header>
 
-        <!-- 核心消费场景 -->
+        <!-- 1. 核心消费场景 -->
         <div class="section-group">
             <h2>回忆与叙事 (Main Flows)</h2>
             <div class="spec-grid">
@@ -51,56 +51,78 @@
                 <a href="pages/photo-viewer.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/photo-viewer.html"></iframe></div>
                     <h3>大图查看</h3>
-                    <p>全黑背景沉浸态、通透控制栏</p>
-                </a>
-                <a href="pages/map-gallery.html" class="card">
-                    <div class="iframe-preview"><iframe src="pages/map-gallery.html"></iframe></div>
-                    <h3>地图探索</h3>
-                    <p>功能性回归：1:1 还原现有逻辑</p>
+                    <p>沉浸态控制栏与全黑背景</p>
                 </a>
             </div>
         </div>
 
-        <!-- 生产与管理场景 -->
+        <!-- 2. 地图与城市动线 -->
         <div class="section-group">
-            <h2>生产、管理与修复 (Utility)</h2>
+            <h2>地图与地理 (Geo Loop)</h2>
+            <div class="spec-grid">
+                <a href="pages/map-gallery.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/map-gallery.html"></iframe></div>
+                    <h3>地图主页</h3>
+                    <p>功能性还原、精致 Marker 系统</p>
+                </a>
+                <a href="pages/city-picker.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/city-picker.html"></iframe></div>
+                    <h3>城市选择</h3>
+                    <p>热门城市网格与 A-Z 极简列表</p>
+                </a>
+                <a href="pages/location-fix.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/location-fix.html"></iframe></div>
+                    <h3>精细化绑定</h3>
+                    <p>城市前置、搜索逻辑校准</p>
+                </a>
+                <a href="pages/map-prompt.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/map-prompt.html"></iframe></div>
+                    <h3>引导提示</h3>
+                    <p>通透的半透明 Pill 引导</p>
+                </a>
+                <a href="pages/missing-locations.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/missing-locations.html"></iframe></div>
+                    <h3>待处理列表</h3>
+                    <p>多事件缺失地点的集中管理</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- 3. 管理与任务 -->
+        <div class="section-group">
+            <h2>生产与管理 (Utility)</h2>
             <div class="spec-grid">
                 <a href="pages/import-selector.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/import-selector.html"></iframe></div>
-                    <h3>照片选择导入</h3>
-                    <p>全幅网格、胶囊状统计工具栏</p>
+                    <h3>照片导入</h3>
+                    <p>全幅网格与胶囊工具栏</p>
                 </a>
                 <a href="pages/photo-manager.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/photo-manager.html"></iframe></div>
                     <h3>管理模式</h3>
-                    <p>添加入口、批量删除/移动工具栏</p>
-                </a>
-                <a href="pages/location-fix.html" class="card">
-                    <div class="iframe-preview"><iframe src="pages/location-fix.html"></iframe></div>
-                    <h3>地点补全</h3>
-                    <p>搜索与推荐列表的通透布局</p>
+                    <p>添加入口、批量移动/删除</p>
                 </a>
                 <a href="pages/processing-lab.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/processing-lab.html"></iframe></div>
                     <h3>整理中心</h3>
-                    <p>冲印实验室质感、高科技进度条</p>
+                    <p>冲印实验室质感进度条</p>
                 </a>
             </div>
         </div>
 
-        <!-- 身份与设置 -->
+        <!-- 4. 身份 -->
         <div class="section-group">
             <h2>身份与资料 (Identity)</h2>
             <div class="spec-grid">
                 <a href="pages/profile-reborn.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/profile-reborn.html"></iframe></div>
-                    <h3>我的中心</h3>
-                    <p>数据看板与分组功能列表</p>
+                    <h3>个人中心</h3>
+                    <p>Airbnb 风格数据看板</p>
                 </a>
                 <a href="pages/profile-edit.html" class="card">
                     <div class="iframe-preview"><iframe src="pages/profile-edit.html"></iframe></div>
                     <h3>资料编辑</h3>
-                    <p>呼吸感头像上传、无边框输入框</p>
+                    <p>极简表单与呼吸感头像</p>
                 </a>
             </div>
         </div>

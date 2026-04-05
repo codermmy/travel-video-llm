@@ -190,6 +190,7 @@ export function PhotoLibraryPickerModal({
     const selectedIdSet = new Set(selectedIds);
     return assets.filter((asset) => selectedIdSet.has(asset.id));
   }, [assets, selectedIds]);
+
   const effectiveConfirmLabel = useMemo(() => {
     if (selectedAssets.length === 0) {
       return confirmLabel;
@@ -408,12 +409,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: JourneyPalette.ink,
     fontSize: 13,
-  },
-  loadingState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    gap: 12,
   },
   loadingCard: {
     alignItems: 'center',

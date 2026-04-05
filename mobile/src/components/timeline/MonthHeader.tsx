@@ -6,17 +6,16 @@ import type { MonthSection } from '@/utils/eventGrouping';
 
 type MonthHeaderProps = {
   section: MonthSection;
+  isFirst?: boolean;
 };
 
-export function MonthHeader({ section }: MonthHeaderProps) {
+export function MonthHeader({ section, isFirst = false }: MonthHeaderProps) {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isFirst ? styles.containerFirst : styles.containerLater]}>
       <View style={styles.row}>
         <Text style={styles.title}>{section.title}</Text>
         <View style={styles.line} />
-        <Text style={styles.meta}>
-          {section.eventCount} 个回忆
-        </Text>
+        <Text style={styles.meta}>{section.eventCount} 个回忆</Text>
       </View>
     </View>
   );
@@ -24,10 +23,16 @@ export function MonthHeader({ section }: MonthHeaderProps) {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 32,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
+    paddingBottom: 0,
+    paddingHorizontal: 24,
     backgroundColor: 'transparent',
+    marginBottom: 16,
+  },
+  containerFirst: {
+    paddingTop: 0,
+  },
+  containerLater: {
+    paddingTop: 32,
   },
   row: {
     flexDirection: 'row',
@@ -35,22 +40,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   title: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: '900',
-    color: JourneyPalette.ink,
-    letterSpacing: -0.5,
+    color: JourneyPalette.muted,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   line: {
     flex: 1,
     height: 1,
-    backgroundColor: JourneyPalette.line,
-    opacity: 0.6,
+    backgroundColor: '#E2E8F0',
   },
   meta: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: JourneyPalette.muted,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    display: 'none',
   },
 });

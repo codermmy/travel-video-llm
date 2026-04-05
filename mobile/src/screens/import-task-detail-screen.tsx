@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
 
+import { EmptyStateCard, PageContent, PageHeader, SurfaceCard, StatusPill, StateChip, MetricPill, SectionLabel, ListItemRow } from '@/components/ui/revamp';
 import {
-  EmptyStateCard,
-  PageContent,
-  PageHeader,
-  SectionLabel,
-  StatusPill,
-  SurfaceCard,
-} from '@/components/ui/revamp';
-import {
-  getImportTaskSourceLabel,
   loadImportTasks,
   subscribeImportTasks,
+  getImportTaskSourceLabel,
 } from '@/services/import/importTaskService';
 import { JourneyPalette } from '@/styles/colors';
-import type { ImportTaskState } from '@/types/importTask';
+import type { ImportTaskPhase, ImportTaskState, ImportTaskRecord } from '@/types/importTask';
 import {
   IMPORT_TASK_PHASE_ORDER,
   buildImportTaskMetricItems,
@@ -26,7 +20,6 @@ import {
   getImportTaskPhaseProgress,
   getImportTaskPhaseStatusText,
   getImportTaskProgressColor,
-  getImportTaskStatusIcon,
   getImportTaskStatusLabel,
   getImportTaskStatusTone,
 } from '@/utils/importTaskPresentation';
@@ -34,6 +27,68 @@ import {
 type ImportTaskDetailScreenProps = {
   taskId: string;
 };
+
+function getTaskDisplayTitle(task: ImportTaskRecord): string {
+  const title = task.title.trim();
+  return title ? title : '未命名任务';
+}
+
+function getTaskDisplaySummary(task: ImportTaskRecord): string {
+  const summary = buildImportTaskSummary(task, getImportTaskSourceLabel(task.source)).trim();
+  return summary ? summary : '正在准备整理内容';
+}
+
+
+
+function getPhaseIconName(phase: ImportTaskPhase): keyof typeof MaterialCommunityIcons.glyphMap {
+  if (phase.status === 'completed') {
+    return 'check';
+  }
+  if (phase.status === 'failed') {
+    return 'alert-circle-outline';
+  }
+  if (phase.status === 'running') {
+    return 'progress-clock';
+  }
+
+  return 'circle-outline';
+}
+
+function getPhaseSurface(phase: ImportTaskPhase): {
+  backgroundColor: string;
+  iconColor: string;
+  progressColor: string;
+} {
+  if (phase.status === 'completed') {
+    return {
+      backgroundColor: JourneyPalette.successSoft,
+      iconColor: JourneyPalette.success,
+      progressColor: JourneyPalette.success,
+    };
+  }
+
+  if (phase.status === 'failed') {
+    return {
+      backgroundColor: JourneyPalette.dangerSoft,
+      iconColor: JourneyPalette.danger,
+      progressColor: JourneyPalette.danger,
+    };
+  }
+
+  if (phase.status === 'running') {
+    return {
+      backgroundColor: JourneyPalette.accentSoft,
+      iconColor: JourneyPalette.accent,
+      progressColor: JourneyPalette.accent,
+    };
+  }
+
+  return {
+    backgroundColor: JourneyPalette.surfaceVariant,
+    iconColor: JourneyPalette.muted,
+    progressColor: JourneyPalette.accent,
+  };
+}
 
 export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) {
   const [taskState, setTaskState] = useState<ImportTaskState>({
@@ -63,12 +118,13 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
 
   if (loaded && !task) {
     return (
-      <PageContent>
-        <PageHeader eyebrow="IMPORT" title="任务详情" subtitle="这条任务记录可能已经被清理。" />
+      <PageContent style={styles.pageContent}>
+        <PageHeader title="任务详情" />
         <EmptyStateCard
           icon="timeline-remove-outline"
           title="没有找到这条任务"
           description="这条记录可能已经被清理，或者当前参数已失效。"
+          style={styles.emptyState}
         />
       </PageContent>
     );
@@ -76,303 +132,247 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
 
   if (!task) {
     return (
-      <PageContent>
-        <PageHeader eyebrow="IMPORT" title="任务详情" subtitle="正在读取任务记录。" />
+      <PageContent style={styles.pageContent}>
+        <PageHeader title="任务详情" subtitle="正在读取任务记录..." />
       </PageContent>
     );
   }
 
   const sourceLabel = getImportTaskSourceLabel(task.source);
-  const summary = buildImportTaskSummary(task, sourceLabel);
+  const summary = getTaskDisplaySummary(task);
   const progress = getImportTaskOverallProgress(task);
   const metricItems = buildImportTaskMetricItems(task).slice(0, 4);
 
   return (
     <PageContent style={styles.pageContent}>
       <PageHeader
-        eyebrow="IMPORT"
+        eyebrow="整理中心"
         title="任务详情"
         subtitle={`${sourceLabel} · ${formatImportTaskTime(task.createdAt)}`}
       />
 
       <SurfaceCard style={styles.heroCard}>
-        <View style={styles.heroTopRow}>
-          <StatusPill
+        <View style={styles.heroBadge}>
+          <StateChip
+            state={getImportTaskStatusTone(task)}
             label={getImportTaskStatusLabel(task)}
-            tone={getImportTaskStatusTone(task)}
-            icon={getImportTaskStatusIcon(task)}
+            compact
           />
-          <Text style={styles.heroTime}>更新时间 {formatImportTaskTime(task.updatedAt)}</Text>
         </View>
 
-        <Text style={styles.heroTitle}>{task.title}</Text>
+        <Text numberOfLines={2} style={styles.heroTitle}>
+          {getTaskDisplayTitle(task)}
+        </Text>
         <Text style={styles.heroSummary}>{summary}</Text>
 
-        <View style={styles.heroProgressHeader}>
-          <Text style={styles.heroProgressLabel}>{task.phases[task.activePhase].label}</Text>
-          <Text style={styles.heroProgressValue}>{Math.round(progress * 100)}%</Text>
+        <View style={styles.progressContainer}>
+          <ProgressBar
+            progress={progress}
+            color={getImportTaskProgressColor(task)}
+            style={styles.progressBar}
+          />
+          <View style={styles.progressMeta}>
+            <Text style={styles.progressLabel}>{task.phases[task.activePhase].label}</Text>
+            <Text style={[styles.progressValue, { color: getImportTaskProgressColor(task) }]}>
+              {`${Math.round(progress * 100)}%`}
+            </Text>
+          </View>
         </View>
-        <ProgressBar
-          progress={progress}
-          color={getImportTaskProgressColor(task)}
-          style={styles.heroProgressBar}
-        />
+
+        <Text style={styles.heroMeta}>{`更新时间 ${formatImportTaskTime(task.updatedAt)}`}</Text>
       </SurfaceCard>
 
       <View style={styles.metricGrid}>
         {metricItems.map((item) => (
-          <View
+          <MetricPill
             key={item.label}
-            style={[
-              styles.metricTile,
-              item.tone === 'ready'
-                ? styles.metricTileReady
-                : item.tone === 'failed'
-                  ? styles.metricTileFailed
-                  : item.tone === 'analyzing'
-                    ? styles.metricTileAccent
-                    : null,
-            ]}
-          >
-            <Text
-              style={[
-                styles.metricTileValue,
-                item.tone === 'ready'
-                  ? styles.metricTileValueReady
-                  : item.tone === 'failed'
-                    ? styles.metricTileValueFailed
-                    : item.tone === 'analyzing'
-                      ? styles.metricTileValueAccent
-                      : null,
-              ]}
-            >
-              {item.value}
-            </Text>
-            <Text style={styles.metricTileLabel}>{item.label}</Text>
-          </View>
+            value={String(item.value)}
+            label={item.label}
+            tone={item.tone as any}
+            style={styles.metricTile}
+          />
         ))}
       </View>
 
-      <View style={styles.sectionBlock}>
-        <SectionLabel title="阶段进度" />
-        <SurfaceCard style={styles.timelineCard}>
+      <SectionLabel title="阶段进度" />
+
+      <SurfaceCard style={styles.phaseListCard}>
+        <View style={styles.phaseList}>
           {IMPORT_TASK_PHASE_ORDER.map((phaseKey, index) => {
             const phase = task.phases[phaseKey];
+            const phaseSurface = getPhaseSurface(phase);
+
             return (
-              <View key={phase.key} style={styles.timelineRow}>
-                <View style={styles.timelineRail}>
+              <View key={phase.key}>
+                <View style={styles.phaseRow}>
                   <View
-                    style={[
-                      styles.timelineDot,
-                      phase.status === 'completed'
-                        ? styles.timelineDotReady
-                        : phase.status === 'failed'
-                          ? styles.timelineDotFailed
-                          : phase.status === 'running'
-                            ? styles.timelineDotAccent
-                            : styles.timelineDotNeutral,
-                    ]}
-                  />
-                  {index < IMPORT_TASK_PHASE_ORDER.length - 1 ? (
-                    <View style={styles.timelineLine} />
-                  ) : null}
+                    style={[styles.phaseIconWrap, { backgroundColor: phaseSurface.backgroundColor }]}
+                  >
+                    <MaterialCommunityIcons
+                      name={getPhaseIconName(phase)}
+                      size={20}
+                      color={phaseSurface.iconColor}
+                    />
+                  </View>
+
+                  <View style={styles.phaseCopy}>
+                    <View style={styles.phaseHeader}>
+                      <Text style={styles.phaseTitle}>{phase.label}</Text>
+                      <Text style={styles.phaseStatus}>{getImportTaskPhaseStatusText(phase)}</Text>
+                    </View>
+                    <Text style={styles.phaseDetail}>{phase.detail || '等待进入该阶段'}</Text>
+                    <ProgressBar
+                      progress={getImportTaskPhaseProgress(phase)}
+                      color={phaseSurface.progressColor}
+                      style={styles.phaseProgress}
+                    />
+                  </View>
                 </View>
 
-                <View style={styles.timelineContent}>
-                  <View style={styles.timelineHeader}>
-                    <Text style={styles.timelineTitle}>{phase.label}</Text>
-                    <Text style={styles.timelineStatus}>{getImportTaskPhaseStatusText(phase)}</Text>
-                  </View>
-                  <Text style={styles.timelineDetail}>{phase.detail || '等待进入该阶段'}</Text>
-                  <ProgressBar
-                    progress={getImportTaskPhaseProgress(phase)}
-                    color={
-                      phase.status === 'failed'
-                        ? JourneyPalette.danger
-                        : phase.status === 'completed'
-                          ? JourneyPalette.success
-                          : JourneyPalette.accent
-                    }
-                    style={styles.timelineProgress}
-                  />
-                </View>
+                {index < IMPORT_TASK_PHASE_ORDER.length - 1 ? (
+                  <View style={styles.phaseDivider} />
+                ) : null}
               </View>
             );
           })}
-        </SurfaceCard>
-      </View>
+        </View>
+      </SurfaceCard>
     </PageContent>
   );
 }
 
 const styles = StyleSheet.create({
   pageContent: {
-    gap: 20,
+    backgroundColor: JourneyPalette.background,
+    gap: 0,
+    paddingTop: 10,
+    paddingBottom: 100,
+  },
+  emptyState: {
+    marginTop: 8,
   },
   heroCard: {
-    gap: 14,
+    marginBottom: 24,
+    padding: 24,
   },
-  heroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  heroTime: {
-    color: JourneyPalette.muted,
-    fontSize: 12,
-    fontWeight: '700',
+  heroBadge: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
   },
   heroTitle: {
     color: JourneyPalette.ink,
     fontSize: 24,
-    fontWeight: '900',
     lineHeight: 30,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    marginBottom: 8,
   },
   heroSummary: {
     color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
   },
-  heroProgressHeader: {
+  progressContainer: {
+    marginVertical: 24,
+  },
+  progressBar: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  progressMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
+    marginTop: 12,
   },
-  heroProgressLabel: {
+  progressLabel: {
     color: JourneyPalette.ink,
     fontSize: 13,
     fontWeight: '800',
   },
-  heroProgressValue: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-    fontWeight: '800',
+  progressValue: {
+    fontSize: 14,
+    fontWeight: '900',
   },
-  heroProgressBar: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.cardSoft,
+  heroMeta: {
+    color: JourneyPalette.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+    marginBottom: 32,
   },
   metricTile: {
     width: '48%',
-    minHeight: 82,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    justifyContent: 'space-between',
   },
-  metricTileAccent: {
-    backgroundColor: JourneyPalette.accentSoft,
-    borderColor: '#CADAFF',
-  },
-  metricTileReady: {
-    backgroundColor: JourneyPalette.successSoft,
-    borderColor: JourneyPalette.successBorder,
-  },
-  metricTileFailed: {
-    backgroundColor: JourneyPalette.dangerSoft,
-    borderColor: JourneyPalette.dangerBorder,
-  },
-  metricTileValue: {
-    color: JourneyPalette.ink,
-    fontSize: 22,
+  sectionLabel: {
+    color: JourneyPalette.muted,
+    fontSize: 12,
     fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 20,
   },
-  metricTileValueAccent: {
-    color: JourneyPalette.accent,
+  phaseListCard: {
+    padding: 0,
+    marginTop: 8,
   },
-  metricTileValueReady: {
-    color: JourneyPalette.success,
+  phaseList: {
+    backgroundColor: 'transparent',
   },
-  metricTileValueFailed: {
-    color: JourneyPalette.danger,
-  },
-  metricTileLabel: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  sectionBlock: {
-    gap: 10,
-  },
-  timelineCard: {
-    gap: 14,
-  },
-  timelineRow: {
+  phaseRow: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  timelineRail: {
-    width: 14,
     alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
   },
-  timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 999,
-    borderWidth: 2,
+  phaseIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  timelineDotAccent: {
-    backgroundColor: JourneyPalette.accentSoft,
-    borderColor: JourneyPalette.accent,
-  },
-  timelineDotReady: {
-    backgroundColor: JourneyPalette.successSoft,
-    borderColor: JourneyPalette.success,
-  },
-  timelineDotFailed: {
-    backgroundColor: JourneyPalette.dangerSoft,
-    borderColor: JourneyPalette.danger,
-  },
-  timelineDotNeutral: {
-    backgroundColor: JourneyPalette.cardSoft,
-    borderColor: JourneyPalette.lineStrong,
-  },
-  timelineLine: {
-    flex: 1,
-    width: 2,
-    marginTop: 4,
-    backgroundColor: JourneyPalette.line,
-  },
-  timelineContent: {
+  phaseCopy: {
     flex: 1,
     gap: 8,
-    paddingBottom: 6,
   },
-  timelineHeader: {
+  phaseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 12,
   },
-  timelineTitle: {
+  phaseTitle: {
     color: JourneyPalette.ink,
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: '800',
   },
-  timelineStatus: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  timelineDetail: {
-    color: JourneyPalette.inkSoft,
+  phaseStatus: {
+    color: JourneyPalette.muted,
     fontSize: 12,
-    lineHeight: 18,
+    fontWeight: '700',
   },
-  timelineProgress: {
-    height: 7,
+  phaseDetail: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  phaseProgress: {
+    height: 6,
     borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  phaseDivider: {
+    height: 1,
     backgroundColor: JourneyPalette.cardSoft,
   },
 });

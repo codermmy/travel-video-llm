@@ -1,32 +1,27 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  ActionButton,
-  EmptyStateCard,
-  ListItemRow,
-  PageContent,
-  PageHeader,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, EmptyStateCard } from '@/components/ui/revamp';
 import { eventApi } from '@/services/api/eventApi';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { needsLocationSupplement } from '@/utils/locationDisplay';
+import { getReadableLocationText, needsLocationSupplement } from '@/utils/locationDisplay';
 
-function formatDateMeta(event: EventRecord): string {
-  const value = event.endTime || event.startTime;
-  if (!value) {
-    return `${event.photoCount} 张照片`;
-  }
+function getPendingEventTitle(event: EventRecord): string {
+  const title = event.title.trim();
+  return title || '未命名回忆';
+}
 
-  const date = new Date(value);
-  return `${date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })} · ${event.photoCount} 张照片`;
+function getPendingEventSubtitle(event: EventRecord): string {
+  return getReadableLocationText(event) || '等待补全地点';
 }
 
 export default function MissingLocationsScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,68 +59,159 @@ export default function MissingLocationsScreen() {
     );
   }
 
-  return (
-    <PageContent>
-      <PageHeader
-        title="待补地点"
-        rightSlot={
-          <ActionButton
-            label="返回"
-            tone="secondary"
-            icon="arrow-left"
-            fullWidth={false}
-            onPress={() => router.back()}
-          />
-        }
-      />
-
-      {error ? (
+  if (error) {
+    return (
+      <View style={styles.centerState}>
         <EmptyStateCard
           icon="map-marker-alert-outline"
           title="加载失败"
           description={error}
           action={<ActionButton label="重试" onPress={() => void loadEvents()} fullWidth={false} />}
         />
-      ) : pendingEvents.length === 0 ? (
+      </View>
+    );
+  }
+
+  if (pendingEvents.length === 0) {
+    return (
+      <View style={styles.centerState}>
         <EmptyStateCard
           icon="map-marker-check-outline"
           title="地点已补齐"
           description="当前没有待补地点的事件。"
           action={<ActionButton label="返回地图" onPress={() => router.back()} fullWidth={false} />}
         />
-      ) : (
-        <SurfaceCard style={styles.listCard}>
-          {pendingEvents.map((event, index) => (
-            <View key={event.id}>
-              <ListItemRow
-                icon="map-marker-alert-outline"
-                title={event.title || '未命名事件'}
-                subtitle={formatDateMeta(event)}
-                onPress={() => router.push(`/event-location/${event.id}`)}
-              />
-              {index < pendingEvents.length - 1 ? <View style={styles.divider} /> : null}
-            </View>
-          ))}
-        </SurfaceCard>
-      )}
-    </PageContent>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: Math.max(60, insets.top + 8) }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="返回"
+          onPress={() => router.back()}
+          style={({ pressed }) => [
+            styles.backButton,
+            { top: Math.max(60, insets.top + 8) },
+            pressed && styles.pressed,
+          ]}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={18} color={JourneyPalette.ink} />
+        </Pressable>
+        <Text style={styles.title}>补全地点</Text>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.listContent, { paddingBottom: 24 + insets.bottom }]}
+      >
+        {pendingEvents.map((event, index) => (
+          <View key={event.id}>
+            <Pressable
+              onPress={() => router.push(`/event-location/${event.id}`)}
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            >
+              <View style={styles.rowIconBox}>
+                <MaterialCommunityIcons
+                  name="map-marker-outline"
+                  size={20}
+                  color={JourneyPalette.accent}
+                />
+              </View>
+
+              <View style={styles.rowCopy}>
+                <Text numberOfLines={1} style={styles.rowTitle}>
+                  {getPendingEventTitle(event)}
+                </Text>
+                <Text numberOfLines={2} style={styles.rowSubtitle}>
+                  {getPendingEventSubtitle(event)}
+                </Text>
+              </View>
+
+              <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
+            </Pressable>
+
+            {index < pendingEvents.length - 1 ? <View style={styles.divider} /> : null}
+          </View>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: JourneyPalette.background,
+  },
   centerState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.background,
+    padding: 24,
   },
-  listCard: {
-    paddingVertical: 6,
-    paddingHorizontal: 0,
+  header: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  backButton: {
+    position: 'absolute',
+    right: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    color: JourneyPalette.ink,
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: -1.2,
+  },
+  listContent: {
+    paddingHorizontal: 24,
+  },
+  row: {
+    paddingVertical: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  rowIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  rowTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  rowSubtitle: {
+    color: JourneyPalette.muted,
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
   },
   divider: {
-    marginLeft: 68,
     height: 1,
-    backgroundColor: JourneyPalette.line,
+    backgroundColor: '#F1F5F9',
+  },
+  pressed: {
+    transform: [{ scale: 0.985 }],
+    opacity: 0.92,
   },
 });

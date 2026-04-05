@@ -5,7 +5,6 @@ import {
   Image,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -15,11 +14,11 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EventEditSheet } from '@/components/event/EventEditSheet';
 import { EventJourneyChapterCard } from '@/components/event/EventJourneyChapterCard';
 import { EventPhotoManagerSheet } from '@/components/event/EventPhotoManagerSheet';
-import { PhotoGrid } from '@/components/photo/PhotoGrid';
 import { eventApi } from '@/services/api/eventApi';
 import { taskApi } from '@/services/api/taskApi';
 import { generateSlideshowPreviewVideo } from '@/services/slideshow/slideshowExportService';
@@ -28,62 +27,102 @@ import { usePhotoViewerStore } from '@/stores/photoViewerStore';
 import { useSlideshowStore } from '@/stores/slideshowStore';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
-import { formatDateRange } from '@/utils/dateUtils';
-import { getEventStatusMeta } from '@/utils/eventStatus';
 import { resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
-function getFallbackDateRange(event: EventDetail): string {
-  if (!event.startTime && !event.endTime) {
-    return '时间待补充';
-  }
+const PREVIEW_PRIME_SLIDE_DURATION_MS = 3200;
+const DEFAULT_EYEBROW = 'MARCH 2026 · HANGZHOU';
+const EVENT_TITLE_FALLBACK = '未命名回忆';
+const STORY_FALLBACK = '这段回忆还没有生成故事。';
+const CHAPTER_TITLE_FALLBACK = '未命名章节';
+const CHAPTER_DESCRIPTION_FALLBACK = '这段章节还没有正文描述。';
 
-  const start = event.startTime || event.endTime || '';
-  const end = event.endTime || event.startTime || '';
-
-  try {
-    return formatDateRange(start, end);
-  } catch {
-    return `${start || '-'} - ${end || '-'}`;
-  }
-}
-
-function resolveLocation(event: EventDetail): string {
-  if (event.detailedLocation?.trim()) {
-    return event.detailedLocation;
-  }
-  if (event.locationName?.trim()) {
-    return event.locationName;
-  }
-  if (typeof event.gpsLat === 'number' && typeof event.gpsLon === 'number') {
-    return `${event.gpsLat.toFixed(4)}, ${event.gpsLon.toFixed(4)}`;
-  }
-  return '地点待补充';
-}
+type StatusNotice = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  title: string;
+  body: string;
+  iconColor: string;
+  backgroundColor: string;
+};
 
 function normalizeCopy(text?: string | null): string {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
 
-function takeSentence(text?: string | null, maxChars = 28): string {
-  const normalized = normalizeCopy(text);
-  if (!normalized) {
-    return '';
+function resolveMonthLabel(timestamp?: string | null): string | null {
+  if (!timestamp) {
+    return null;
   }
-  const firstSentence = normalized.split(/[。！？!?]/)[0]?.trim() || normalized;
-  const result =
-    firstSentence.length > maxChars ? `${firstSentence.slice(0, maxChars).trim()}…` : firstSentence;
-  return result || normalized.slice(0, maxChars);
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
 }
 
-function takeParagraph(text?: string | null, maxChars = 80): string {
-  const normalized = normalizeCopy(text);
-  if (!normalized) {
-    return '';
+function resolveCityLabel(event: EventDetail): string | null {
+  const source = normalizeCopy(event.locationName) || normalizeCopy(event.detailedLocation);
+  if (!source) {
+    return null;
   }
-  return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trim()}…` : normalized;
+
+  const city = source.split(/[·•｜|,，/]/)[0]?.trim() || source;
+  return city ? city.toUpperCase() : null;
 }
 
-const PREVIEW_PRIME_SLIDE_DURATION_MS = 3200;
+function resolveEyebrow(event: EventDetail): string {
+  const monthLabel = resolveMonthLabel(event.startTime || event.endTime);
+  const cityLabel = resolveCityLabel(event);
+
+  if (!monthLabel || !cityLabel) {
+    return DEFAULT_EYEBROW;
+  }
+
+  return `${monthLabel} · ${cityLabel}`;
+}
+
+function resolveStoryText(event: EventDetail): string {
+  return normalizeCopy(event.fullStory) || normalizeCopy(event.storyText) || STORY_FALLBACK;
+}
+
+function buildStatusNotice(event: EventDetail): StatusNotice | null {
+  if (event.status === 'ai_failed') {
+    return {
+      icon: 'alert-circle-outline',
+      title: '最近一次生成失败',
+      body: event.aiError || '可以稍后从菜单里重新生成故事。',
+      iconColor: JourneyPalette.danger,
+      backgroundColor: JourneyPalette.dangerSoft,
+    };
+  }
+
+  if (event.status === 'waiting_for_vision') {
+    return {
+      icon: 'progress-clock',
+      title: '照片仍在整理',
+      body: '端侧识别完成后会自动更新故事。',
+      iconColor: JourneyPalette.inkSoft,
+      backgroundColor: JourneyPalette.surfaceVariant,
+    };
+  }
+
+  if (
+    event.storyFreshness === 'stale' ||
+    event.slideshowFreshness === 'stale' ||
+    event.hasPendingStructureChanges
+  ) {
+    return {
+      icon: 'update',
+      title: '内容待自动更新',
+      body: '照片或事件刚有变更，系统会在后台自动刷新。',
+      iconColor: JourneyPalette.warning,
+      backgroundColor: JourneyPalette.warningSoft,
+    };
+  }
+
+  return null;
+}
 
 export default function EventDetailScreen() {
   const router = useRouter();
@@ -102,7 +141,6 @@ export default function EventDetailScreen() {
   );
   const [isMoreActionsVisible, setIsMoreActionsVisible] = useState(false);
   const [expandedChapterId, setExpandedChapterId] = useState<string | null>(null);
-  const [isFullStoryExpanded, setIsFullStoryExpanded] = useState(false);
   const previewPrimeKeyRef = useRef<string | null>(null);
 
   const setPhotoViewerSession = usePhotoViewerStore((state) => state.setSession);
@@ -183,9 +221,9 @@ export default function EventDetailScreen() {
       scenes,
       slideDurationMs: PREVIEW_PRIME_SLIDE_DURATION_MS,
       aspectMode: 'auto',
-    }).catch((error) => {
+    }).catch((previewError) => {
       previewPrimeKeyRef.current = null;
-      console.warn('[event-detail] failed to warm slideshow preview video', error);
+      console.warn('[event-detail] failed to warm slideshow preview video', previewError);
     });
   }, [event]);
 
@@ -194,6 +232,7 @@ export default function EventDetailScreen() {
       if (!event || event.photos.length === 0) {
         return;
       }
+
       setPhotoViewerSession(event.photos, index);
       router.push('/photo-viewer');
     },
@@ -225,15 +264,6 @@ export default function EventDetailScreen() {
 
     router.push('/slideshow');
   }, [event, router, setSlideshowSession]);
-
-  const onOpenPhotoViewer = useCallback(() => {
-    if (!event || event.photos.length === 0) {
-      Alert.alert('暂无照片', '该事件目前没有可查看的照片。');
-      return;
-    }
-    setPhotoViewerSession(event.photos, 0);
-    router.push('/photo-viewer');
-  }, [event, router, setPhotoViewerSession]);
 
   const pollTaskUntilSettled = useCallback(async (taskId?: string | null) => {
     if (!taskId) {
@@ -274,14 +304,6 @@ export default function EventDetailScreen() {
     }
   }, [event, loadDetail, pollTaskUntilSettled]);
 
-  const dateRangeText = useMemo(() => {
-    if (!event) {
-      return '';
-    }
-    return getFallbackDateRange(event);
-  }, [event]);
-
-  const fullStory = event?.fullStory || event?.storyText || null;
   const chapterSections = useMemo(() => {
     if (!event) {
       return [];
@@ -294,42 +316,35 @@ export default function EventDetailScreen() {
           chapter.photoStartIndex,
           chapter.photoEndIndex + 1,
         );
+
         return {
           chapter,
           chapterPhotos,
-          teaserText:
-            takeSentence(chapter.slideshowCaption, 24) ||
-            takeSentence(chapter.chapterStory, 28) ||
-            takeSentence(chapter.chapterIntro, 28) ||
-            takeSentence(chapter.chapterSummary, 28) ||
-            `这一段回忆由 ${chapterPhotos.length} 张照片慢慢展开。`,
+          titleText: normalizeCopy(chapter.chapterTitle) || CHAPTER_TITLE_FALLBACK,
           descriptionText:
-            takeParagraph(chapter.chapterStory, 96) ||
-            takeParagraph(chapter.chapterIntro, 96) ||
-            takeParagraph(chapter.chapterSummary, 96) ||
-            null,
+            normalizeCopy(chapter.chapterStory) ||
+            normalizeCopy(chapter.chapterIntro) ||
+            normalizeCopy(chapter.chapterSummary) ||
+            CHAPTER_DESCRIPTION_FALLBACK,
         };
       });
   }, [event]);
-  const introText = useMemo(() => {
-    if (!event) {
-      return '';
-    }
-    const firstChapter = chapterSections[0]?.chapter;
-    return (
-      takeParagraph(firstChapter?.slideshowCaption, 72) ||
-      takeParagraph(firstChapter?.chapterStory, 84) ||
-      takeParagraph(event.fullStory || event.storyText, 84) ||
-      '这一段旅途先从照片开始，让故事慢一点浮出来。'
-    );
-  }, [chapterSections, event]);
+
   const automaticCover = useMemo(() => {
     if (!event) {
       return { photoId: null, uri: null };
     }
     return resolveCoverCandidateFromPhotos(event.photos, [event.coverPhotoId]);
   }, [event]);
+
   const coverUri = event?.localCoverUri ?? automaticCover.uri ?? event?.coverPhotoUrl ?? null;
+  const eyebrowText = useMemo(() => (event ? resolveEyebrow(event) : DEFAULT_EYEBROW), [event]);
+  const displayTitle = useMemo(
+    () => (event ? normalizeCopy(event.title) || EVENT_TITLE_FALLBACK : EVENT_TITLE_FALLBACK),
+    [event],
+  );
+  const storyText = useMemo(() => (event ? resolveStoryText(event) : STORY_FALLBACK), [event]);
+  const statusNotice = useMemo(() => (event ? buildStatusNotice(event) : null), [event]);
 
   const openEditModal = useCallback(() => {
     if (!event) {
@@ -345,31 +360,6 @@ export default function EventDetailScreen() {
     setIsMoreActionsVisible(false);
     setPhotoManagerEntryMode('browse');
     setIsPhotoManagerVisible(true);
-  }, [event]);
-
-  const openMoveTargetPicker = useCallback(() => {
-    if (!event) {
-      return;
-    }
-    if (event.photos.length === 0) {
-      Alert.alert('暂无可移动照片', '当前事件还没有可移动的照片。');
-      return;
-    }
-    setIsMoreActionsVisible(false);
-    Alert.alert(
-      '移动整组照片',
-      '这一步会默认选中当前事件的全部照片，再让你选择目标事件。确认后继续。',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '继续',
-          onPress: () => {
-            setPhotoManagerEntryMode('move-target');
-            setIsPhotoManagerVisible(true);
-          },
-        },
-      ],
-    );
   }, [event]);
 
   const openMoreActions = useCallback(() => {
@@ -402,62 +392,6 @@ export default function EventDetailScreen() {
       },
     ]);
   }, [event, router]);
-
-  const canRetryManually = Boolean(event?.aiError) || event?.status === 'ai_failed';
-  const detailEventTone = useMemo(
-    () => (event ? getEventStatusMeta(event).tone : ('importing' as const)),
-    [event],
-  );
-  const primaryQuickAction = useMemo(() => {
-    if (detailEventTone === 'ready') {
-      return {
-        kind: 'play' as const,
-        label: '播放回忆',
-        icon: 'play-circle-outline' as const,
-        onPress: onPlaySlideshow,
-        disabled: false,
-      };
-    }
-    if (detailEventTone === 'failed' && canRetryManually) {
-      return {
-        kind: 'retry' as const,
-        label: isRegenerating ? '重试中...' : '重试更新',
-        icon: 'refresh' as const,
-        onPress: () => {
-          void retryAiStory();
-        },
-        disabled: isRegenerating,
-      };
-    }
-    return {
-      kind: 'photos' as const,
-      label: '查看照片',
-      icon: 'image-outline' as const,
-      onPress: onOpenPhotoViewer,
-      disabled: false,
-    };
-  }, [
-    canRetryManually,
-    detailEventTone,
-    isRegenerating,
-    onOpenPhotoViewer,
-    onPlaySlideshow,
-    retryAiStory,
-  ]);
-  const secondaryQuickAction = useMemo(() => {
-    if (primaryQuickAction.kind === 'photos') {
-      return {
-        label: '管理照片',
-        icon: 'image-multiple-outline' as const,
-        onPress: openPhotoManager,
-      };
-    }
-    return {
-      label: '查看照片',
-      icon: 'image-outline' as const,
-      onPress: onOpenPhotoViewer,
-    };
-  }, [onOpenPhotoViewer, openPhotoManager, primaryQuickAction.kind]);
 
   if (loading) {
     return (
@@ -501,10 +435,11 @@ export default function EventDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.heroCard}>
+
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.hero}>
           {coverUri && !coverFailed ? (
             <Image
               source={{ uri: coverUri }}
@@ -513,191 +448,104 @@ export default function EventDetailScreen() {
               onError={() => setCoverFailed(true)}
             />
           ) : (
-            <LinearGradient colors={['#DADFD4', '#E7DCCD']} style={styles.heroFallback}>
+            <LinearGradient colors={['#D8E1EC', '#BAC8DA']} style={styles.heroFallback}>
               <MaterialCommunityIcons
                 name="image-filter-hdr"
-                size={40}
-                color={JourneyPalette.accent}
+                size={42}
+                color="rgba(255,255,255,0.92)"
               />
               <Text style={styles.heroFallbackText}>暂无封面图片</Text>
             </LinearGradient>
           )}
 
           <LinearGradient
-            colors={['rgba(21,32,31,0.1)', 'rgba(21,32,31,0.38)', 'rgba(21,32,31,0.76)']}
-            style={styles.heroShade}
+            colors={['rgba(0, 0, 0, 0.18)', 'rgba(0, 0, 0, 0.36)', 'rgba(0, 0, 0, 0.72)']}
+            style={styles.heroOverlay}
           />
 
           <View style={styles.heroTopBar}>
-            <Pressable style={styles.topBarButton} onPress={() => router.back()}>
-              <MaterialCommunityIcons name="arrow-left" size={18} color="#FFF9F2" />
-            </Pressable>
-            <Pressable style={styles.topBarPill} onPress={openMoreActions}>
-              <MaterialCommunityIcons name="dots-horizontal" size={15} color="#FFF9F2" />
-              <Text style={styles.topBarPillText}>更多</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.heroMeta}>
-            <Text style={styles.heroEyebrow}>MEMORY STORY</Text>
-            <Text style={styles.heroTitle}>{event.title || '未命名事件'}</Text>
-            <Text style={styles.heroMetaLine}>
-              {resolveLocation(event)} · {dateRangeText} · {event.photoCount} 张照片
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.quickActions}>
-          <Pressable
-            style={[
-              styles.primaryAction,
-              styles.flexAction,
-              primaryQuickAction.disabled && styles.disabledAction,
-            ]}
-            onPress={primaryQuickAction.onPress}
-            disabled={primaryQuickAction.disabled}
-          >
-            {primaryQuickAction.kind === 'retry' && isRegenerating ? (
-              <ActivityIndicator size="small" color="#FFF9F2" />
-            ) : (
-              <MaterialCommunityIcons name={primaryQuickAction.icon} size={16} color="#FFF9F2" />
-            )}
-            <Text style={styles.primaryActionText}>{primaryQuickAction.label}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.secondaryAction, styles.flexAction]}
-            onPress={secondaryQuickAction.onPress}
-          >
-            <MaterialCommunityIcons
-              name={secondaryQuickAction.icon}
-              size={16}
-              color={JourneyPalette.ink}
-            />
-            <Text style={styles.secondaryActionText}>{secondaryQuickAction.label}</Text>
-          </Pressable>
-          <Pressable style={[styles.secondaryAction, styles.flexAction]} onPress={openMoreActions}>
-            <MaterialCommunityIcons name="dots-horizontal" size={18} color={JourneyPalette.ink} />
-            <Text style={styles.secondaryActionText}>更多</Text>
-          </Pressable>
-        </View>
-
-        {event.status === 'waiting_for_vision' ? (
-          <View style={styles.noticeCard}>
-            <MaterialCommunityIcons
-              name="progress-clock"
-              size={18}
-              color={JourneyPalette.inkSoft}
-            />
-            <View style={styles.noticeCopy}>
-              <Text style={styles.noticeTitle}>照片仍在整理</Text>
-              <Text style={styles.noticeText}>端侧识别完成后会自动更新故事。</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {event.storyFreshness === 'stale' ||
-        event.slideshowFreshness === 'stale' ||
-        event.hasPendingStructureChanges ? (
-          <View style={styles.noticeCard}>
-            <MaterialCommunityIcons name="update" size={18} color={JourneyPalette.warning} />
-            <View style={styles.noticeCopy}>
-              <Text style={styles.noticeTitle}>内容待自动更新</Text>
-              <Text style={styles.noticeText}>照片或事件刚有变更，系统会在后台自动刷新。</Text>
-            </View>
-          </View>
-        ) : null}
-
-        {event.status === 'ai_failed' ? (
-          <View style={styles.noticeCard}>
-            <MaterialCommunityIcons
-              name="alert-circle-outline"
-              size={18}
-              color={JourneyPalette.danger}
-            />
-            <View style={styles.noticeCopy}>
-              <Text style={styles.noticeTitle}>最近一次生成失败</Text>
-              <Text style={styles.noticeText}>
-                {event.aiError || '可稍后重试，或从“更多”里手动刷新。'}
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>故事引子</Text>
-          </View>
-          <Text style={styles.sectionBody}>{introText}</Text>
-        </View>
-
-        {chapterSections.length > 0 ? (
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>旅程章节</Text>
-            </View>
-            <View style={styles.chapterList}>
-              {chapterSections.map(({ chapter, chapterPhotos, teaserText, descriptionText }) => (
-                <EventJourneyChapterCard
-                  key={chapter.id}
-                  chapter={chapter}
-                  photos={chapterPhotos}
-                  teaserText={teaserText}
-                  descriptionText={descriptionText}
-                  expanded={expandedChapterId === chapter.id}
-                  onToggle={() => {
-                    setExpandedChapterId((previous) =>
-                      previous === chapter.id ? null : chapter.id,
-                    );
-                  }}
-                  onPhotoPress={(photo, index) => {
-                    onPhotoPress(photo, chapter.photoStartIndex + index);
-                  }}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>相册</Text>
-          </View>
-          <PhotoGrid
-            photos={event.photos}
-            onPhotoPress={onPhotoPress}
-            emptyText="这个事件还没有可展示的照片"
-          />
-        </View>
-
-        {fullStory ? (
-          <View style={styles.sectionCard}>
             <Pressable
-              style={({ pressed }) => [styles.storyReaderToggle, pressed && styles.pressed]}
-              onPress={() => setIsFullStoryExpanded((previous) => !previous)}
+              onPress={() => router.back()}
+              style={({ pressed }) => [styles.heroControlButton, pressed && styles.pressed]}
             >
-              <View style={styles.storyReaderCopy}>
-                <Text style={styles.sectionTitle}>完整故事</Text>
-                <Text style={styles.sectionBodyMuted}>
-                  {isFullStoryExpanded ? '收起完整旁白' : '展开阅读全文'}
-                </Text>
-              </View>
+              <MaterialCommunityIcons name="arrow-left" size={20} color={JourneyPalette.white} />
+            </Pressable>
+
+            <Pressable
+              onPress={openMoreActions}
+              style={({ pressed }) => [styles.heroControlButton, pressed && styles.pressed]}
+            >
               <MaterialCommunityIcons
-                name={isFullStoryExpanded ? 'chevron-up' : 'chevron-down'}
+                name="dots-horizontal"
                 size={20}
-                color={JourneyPalette.inkSoft}
+                color={JourneyPalette.white}
               />
             </Pressable>
-            {isFullStoryExpanded ? <Text style={styles.sectionBody}>{fullStory}</Text> : null}
           </View>
-        ) : (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>完整故事</Text>
-            <Text style={styles.sectionBodyMuted}>
-              {event.aiError ? `生成失败：${event.aiError}` : '故事尚未完成，稍后会自动补齐。'}
-            </Text>
+
+          <View style={styles.playEntry}>
+            <Pressable
+              onPress={onPlaySlideshow}
+              style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}
+            >
+              <MaterialCommunityIcons name="play" size={34} color={JourneyPalette.white} />
+            </Pressable>
+            <Text style={styles.playLabel}>Play Memory</Text>
           </View>
-          )}
-          </ScrollView>      <EventEditSheet
+        </View>
+
+        <View style={styles.contentSheet}>
+          <Text style={styles.eyebrow}>{eyebrowText}</Text>
+          <Text numberOfLines={2} style={styles.pageTitle}>
+            {displayTitle}
+          </Text>
+          <Text style={styles.storyText}>{storyText}</Text>
+
+          {chapterSections.length > 0 ? (
+            <>
+              <Text style={styles.sectionLabel}>故事章节</Text>
+              <View style={styles.chapterList}>
+                {chapterSections.map(({ chapter, chapterPhotos, titleText, descriptionText }) => (
+                  <EventJourneyChapterCard
+                    key={chapter.id}
+                    chapter={{
+                      ...chapter,
+                      chapterTitle: titleText,
+                    }}
+                    photos={chapterPhotos}
+                    descriptionText={descriptionText}
+                    expanded={expandedChapterId === chapter.id}
+                    onToggle={() => {
+                      setExpandedChapterId((previous) =>
+                        previous === chapter.id ? null : chapter.id,
+                      );
+                    }}
+                    onPhotoPress={(photo, index) => {
+                      onPhotoPress(photo, chapter.photoStartIndex + index);
+                    }}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
+
+          {statusNotice ? (
+            <View style={[styles.noticeCard, { backgroundColor: statusNotice.backgroundColor }]}>
+              <MaterialCommunityIcons
+                name={statusNotice.icon}
+                size={18}
+                color={statusNotice.iconColor}
+              />
+              <View style={styles.noticeCopy}>
+                <Text style={styles.noticeTitle}>{statusNotice.title}</Text>
+                <Text style={styles.noticeText}>{statusNotice.body}</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
+
+      <EventEditSheet
         visible={isEditModalVisible}
         event={event}
         onClose={() => setIsEditModalVisible(false)}
@@ -714,6 +562,7 @@ export default function EventDetailScreen() {
           router.back();
         }}
       />
+
       <EventPhotoManagerSheet
         visible={isPhotoManagerVisible}
         eventId={event.id}
@@ -740,79 +589,60 @@ export default function EventDetailScreen() {
         transparent
         onRequestClose={() => setIsMoreActionsVisible(false)}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={styles.menuBackdrop}>
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => setIsMoreActionsVisible(false)}
           />
-          <View style={styles.actionSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.actionSheetTitle}>更多操作</Text>
-            <Text style={styles.actionSheetHint}>
-              低频操作收纳在这里，首页动作只保留播放和看照片。
-            </Text>
+
+          <View style={styles.menuSheet}>
+            <View style={styles.menuHandle} />
 
             <Pressable
-              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
               onPress={() => {
                 setIsMoreActionsVisible(false);
                 openEditModal();
               }}
             >
-              <MaterialCommunityIcons name="pencil-outline" size={18} color={JourneyPalette.ink} />
-              <Text style={styles.actionSheetRowText}>编辑事件</Text>
+              <MaterialCommunityIcons name="pencil-outline" size={24} color={JourneyPalette.ink} />
+              <Text style={styles.menuRowText}>重命名回忆</Text>
             </Pressable>
 
             <Pressable
-              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
               onPress={openPhotoManager}
             >
               <MaterialCommunityIcons
                 name="image-multiple-outline"
-                size={18}
+                size={24}
                 color={JourneyPalette.ink}
               />
-              <Text style={styles.actionSheetRowText}>管理照片</Text>
+              <Text style={styles.menuRowText}>管理照片</Text>
             </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
-              onPress={openMoveTargetPicker}
-            >
-              <MaterialCommunityIcons name="swap-horizontal" size={18} color={JourneyPalette.ink} />
-              <Text style={styles.actionSheetRowText}>移动整组照片</Text>
-            </Pressable>
-
-            {canRetryManually && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.actionSheetRow,
-                  isRegenerating && styles.disabledAction,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  setIsMoreActionsVisible(false);
-                  void retryAiStory();
-                }}
-                disabled={isRegenerating}
-              >
-                {isRegenerating ? (
-                  <ActivityIndicator size="small" color={JourneyPalette.accent} />
-                ) : (
-                  <MaterialCommunityIcons name="refresh" size={18} color={JourneyPalette.accent} />
-                )}
-                <Text style={[styles.actionSheetRowText, styles.actionSheetRowTextAccent]}>
-                  手动重试更新
-                </Text>
-              </Pressable>
-            )}
 
             <Pressable
               style={({ pressed }) => [
-                styles.actionSheetRow,
-                styles.actionSheetRowDanger,
+                styles.menuRow,
+                isRegenerating && styles.disabledAction,
                 pressed && styles.pressed,
               ]}
+              onPress={() => {
+                setIsMoreActionsVisible(false);
+                void retryAiStory();
+              }}
+              disabled={isRegenerating}
+            >
+              {isRegenerating ? (
+                <ActivityIndicator size="small" color={JourneyPalette.ink} />
+              ) : (
+                <MaterialCommunityIcons name="refresh" size={24} color={JourneyPalette.ink} />
+              )}
+              <Text style={styles.menuRowText}>重新生成故事</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
               onPress={() => {
                 setIsMoreActionsVisible(false);
                 confirmDeleteEvent();
@@ -820,36 +650,28 @@ export default function EventDetailScreen() {
             >
               <MaterialCommunityIcons
                 name="trash-can-outline"
-                size={18}
+                size={24}
                 color={JourneyPalette.danger}
               />
-              <Text style={[styles.actionSheetRowText, styles.actionSheetRowTextDanger]}>
-                删除事件
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.actionSheetCancel, pressed && styles.pressed]}
-              onPress={() => setIsMoreActionsVisible(false)}
-            >
-              <Text style={styles.actionSheetCancelText}>取消</Text>
+              <Text style={[styles.menuRowText, styles.menuRowTextDanger]}>删除这段回忆</Text>
             </Pressable>
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
-  content: {
-    padding: 16,
-    paddingBottom: 32,
-    gap: 14,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 56,
   },
   centerScreen: {
     flex: 1,
@@ -875,9 +697,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: JourneyPalette.danger,
   },
-  heroCard: {
-    height: 460,
+  hero: {
+    height: 480,
     backgroundColor: JourneyPalette.cardMuted,
+    position: 'relative',
+    overflow: 'hidden',
   },
   heroImage: {
     width: '100%',
@@ -887,590 +711,166 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardSoft,
   },
   heroFallbackText: {
-    marginTop: 8,
+    marginTop: 10,
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 12,
-    color: JourneyPalette.muted,
-    fontWeight: '700',
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
-  heroShade: {
+  heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.15)',
   },
   heroTopBar: {
     position: 'absolute',
     top: 54,
-    left: 16,
-    right: 16,
+    left: 20,
+    right: 20,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  topBarButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  heroControlButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(2, 6, 23, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  topBarPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(2, 6, 23, 0.3)',
-  },
-  topBarPillText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 14,
-    letterSpacing: 0.5,
-  },
-  heroMeta: {
+  playEntry: {
     position: 'absolute',
-    left: 24,
-    right: 24,
-    bottom: 36,
+    top: '50%',
+    left: '50%',
+    width: 180,
+    alignItems: 'center',
+    transform: [{ translateX: -90 }, { translateY: -56 }],
   },
-  heroEyebrow: {
-    color: 'rgba(255,255,255,0.95)',
+  playButton: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    marginBottom: 16,
+  },
+  playLabel: {
+    color: JourneyPalette.white,
     fontSize: 13,
+    fontWeight: '900',
     letterSpacing: 2,
-    fontWeight: '900',
-    textTransform: 'uppercase',
   },
-  heroTitle: {
-    marginTop: 12,
-    color: '#FFFFFF',
-    fontSize: 40,
-    fontWeight: '900',
-    letterSpacing: -1.2,
-    lineHeight: 46,
+  contentSheet: {
+    marginTop: -40,
+    backgroundColor: JourneyPalette.background,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    paddingTop: 40,
+    paddingHorizontal: 28,
+    paddingBottom: 40,
   },
-  heroMetaLine: {
-    marginTop: 16,
-    color: 'rgba(255,255,255,0.95)',
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 24,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  summaryCard: {
-    flex: 1,
-    borderRadius: 24,
-    backgroundColor: JourneyPalette.surfaceVariant,
-    alignItems: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 12,
-  },
-  summaryValue: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: JourneyPalette.ink,
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  summaryLabel: {
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: '800',
+  eyebrow: {
+    marginBottom: 12,
     color: JourneyPalette.muted,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 2,
     textTransform: 'uppercase',
-    letterSpacing: 1,
   },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  flexAction: {
-    flex: 1,
-  },
-  primaryAction: {
-    minHeight: 60,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  primaryActionText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 17,
-  },
-  secondaryAction: {
-    minHeight: 60,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.surfaceVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  secondaryActionText: {
+  pageTitle: {
+    marginBottom: 24,
     color: JourneyPalette.ink,
+    fontSize: 36,
+    lineHeight: 40,
     fontWeight: '900',
-    fontSize: 17,
+    letterSpacing: -1.5,
   },
-  disabledAction: {
-    opacity: 0.4,
+  storyText: {
+    marginBottom: 40,
+    color: JourneyPalette.inkSoft,
+    fontSize: 17,
+    lineHeight: 31,
+    fontWeight: '500',
+  },
+  sectionLabel: {
+    marginBottom: 20,
+    color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  chapterList: {
+    gap: 20,
   },
   noticeCard: {
-    borderRadius: 24,
-    backgroundColor: JourneyPalette.surfaceVariant,
+    marginTop: 32,
+    borderRadius: 28,
     padding: 24,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 16,
+    gap: 14,
   },
   noticeCopy: {
     flex: 1,
     gap: 6,
   },
   noticeTitle: {
-    fontSize: 18,
-    fontWeight: '900',
     color: JourneyPalette.ink,
+    fontSize: 17,
+    fontWeight: '900',
     letterSpacing: -0.4,
   },
   noticeText: {
-    fontSize: 15,
-    lineHeight: 24,
     color: JourneyPalette.inkSoft,
-  },
-  sectionCard: {
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 32,
-    gap: 20,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  sectionTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: JourneyPalette.ink,
-    letterSpacing: -1,
-  },
-  sectionBody: {
-    fontSize: 18,
-    lineHeight: 30,
-    color: JourneyPalette.ink,
-    fontWeight: '500',
-  },
-  sectionBodyMuted: {
-    fontSize: 16,
-    lineHeight: 26,
-    color: JourneyPalette.inkSoft,
-  },
-  sectionHint: {
-    color: JourneyPalette.muted,
     fontSize: 14,
     lineHeight: 22,
+    fontWeight: '500',
   },
-  staleBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.warningSoft,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  staleBadgeText: {
-    color: JourneyPalette.warning,
-    fontWeight: '900',
-    fontSize: 13,
-  },
-  retryBadge: {
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accentSoft,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  retryBadgeText: {
-    color: JourneyPalette.accent,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  infoPanel: {
-    borderRadius: 24,
-    backgroundColor: JourneyPalette.surfaceVariant,
-    padding: 20,
-    gap: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
-  },
-  infoLabel: {
-    color: JourneyPalette.mutedStrong,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  infoValue: {
-    color: JourneyPalette.ink,
-    fontSize: 15,
-    fontWeight: '800',
-    flex: 1,
-    textAlign: 'right',
-  },
-  chapterList: {
-    gap: 12,
-  },
-  journeyEndCard: {
-    marginTop: 24,
-    marginBottom: 48,
-    borderRadius: 36,
-    backgroundColor: JourneyPalette.surfaceVariant,
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-    alignItems: 'center',
-    gap: 16,
-  },
-  journeyEndIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-    shadowColor: JourneyPalette.shadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    elevation: 2,
-  },
-  journeyEndTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: JourneyPalette.ink,
-    letterSpacing: -0.5,
-    textAlign: 'center',
-  },
-  journeyEndBody: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: JourneyPalette.inkSoft,
-    textAlign: 'center',
-    paddingHorizontal: 16,
-  },
-  journeyEndBtn: {
-    marginTop: 16,
-    backgroundColor: JourneyPalette.ink,
-    minHeight: 64,
-    width: '100%',
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: JourneyPalette.ink,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  journeyEndBtnText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  storyReaderToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  storyReaderCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  modalBackdrop: {
+  menuBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(21, 32, 31, 0.42)',
+    backgroundColor: 'rgba(2, 6, 23, 0.4)',
   },
-  actionSheet: {
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 24,
-    gap: 10,
+  menuSheet: {
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    backgroundColor: JourneyPalette.background,
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 48,
   },
-  actionSheetTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  actionSheetHint: {
-    marginBottom: 4,
-    color: JourneyPalette.inkSoft,
-    lineHeight: 20,
-  },
-  actionSheetRow: {
-    minHeight: 54,
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.cardAlt,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  actionSheetRowDanger: {
-    backgroundColor: JourneyPalette.dangerSoft,
-    borderColor: JourneyPalette.dangerBorder,
-  },
-  actionSheetRowText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  actionSheetRowTextAccent: {
-    color: JourneyPalette.accent,
-  },
-  actionSheetRowTextDanger: {
-    color: JourneyPalette.danger,
-  },
-  actionSheetCancel: {
-    minHeight: 52,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
-  },
-  actionSheetCancelText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  modalSheet: {
-    maxHeight: '82%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 20,
-  },
-  modalHandle: {
+  menuHandle: {
     alignSelf: 'center',
-    width: 46,
+    width: 44,
     height: 5,
     borderRadius: 999,
     backgroundColor: JourneyPalette.lineStrong,
-    marginBottom: 14,
+    marginBottom: 24,
   },
-  modalHeader: {
+  menuRow: {
+    paddingVertical: 20,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  modalCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  modalHint: {
-    lineHeight: 20,
-    color: JourneyPalette.inkSoft,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    gap: 16,
   },
-  modalContent: {
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  formGroup: {
-    gap: 8,
-    marginTop: 14,
-  },
-  formCard: {
-    borderRadius: 20,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
-    gap: 10,
-    marginBottom: 14,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '800',
+  menuRowText: {
     color: JourneyPalette.ink,
-  },
-  fieldInput: {
-    minHeight: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
-    paddingHorizontal: 14,
-    color: JourneyPalette.ink,
-  },
-  selectionStats: {
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 14,
-    marginBottom: 14,
-  },
-  selectionStatsText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  selectionStatsHint: {
-    marginTop: 4,
-    color: JourneyPalette.inkSoft,
-  },
-  selectionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  selectionItem: {
-    width: '31%',
-    aspectRatio: 1,
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: '#DFE5DE',
-  },
-  selectionItemSelected: {
-    borderWidth: 2,
-    borderColor: JourneyPalette.accent,
-  },
-  selectionImage: {
-    width: '100%',
-    height: '100%',
-  },
-  selectionPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E7E4DC',
-  },
-  selectionShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(21, 32, 31, 0.16)',
-  },
-  selectionTopRow: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  targetEventList: {
-    gap: 8,
-  },
-  targetEventItem: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 4,
-  },
-  targetEventTitle: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-    fontSize: 14,
-  },
-  targetEventMeta: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-  },
-  selectionScoreBadge: {
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,249,242,0.82)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  selectionScoreText: {
-    color: JourneyPalette.ink,
-    fontSize: 11,
+    fontSize: 18,
     fontWeight: '800',
   },
-  selectionIndexBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.accent,
-  },
-  selectionIndexText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  modalGhostBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: '#EDE5D8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalGhostBtnText: {
-    color: JourneyPalette.ink,
-    fontWeight: '800',
-  },
-  modalPrimaryBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryBtnText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
-  },
-  modalDangerBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: '#F6D9D6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalDangerBtnText: {
+  menuRowTextDanger: {
     color: JourneyPalette.danger,
-    fontWeight: '800',
+  },
+  disabledAction: {
+    opacity: 0.45,
   },
   primaryBtn: {
     minWidth: 132,
@@ -1481,7 +881,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryBtnText: {
-    color: '#FFF9F2',
+    color: JourneyPalette.white,
     fontWeight: '800',
   },
   ghostBtn: {
@@ -1489,7 +889,7 @@ const styles = StyleSheet.create({
     minWidth: 132,
     minHeight: 46,
     borderRadius: 999,
-    backgroundColor: '#EDE5D8',
+    backgroundColor: JourneyPalette.surfaceVariant,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1498,7 +898,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   pressed: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.92,
+    transform: [{ scale: 0.97 }],
+    opacity: 0.7,
   },
 });

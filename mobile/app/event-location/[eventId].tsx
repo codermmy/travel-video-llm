@@ -5,30 +5,45 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   SectionList,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  EmptyStateCard,
-  PageContent,
-  PageHeader,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, BottomSheetScaffold, EmptyStateCard } from '@/components/ui/revamp';
 import { eventApi } from '@/services/api/eventApi';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
 import type { LocationCityCandidate, LocationPlaceCandidate } from '@/types/location';
 import { getChinaCitySections, getHotChinaCities, searchChinaCities } from '@/utils/chinaCities';
-import { getReadableLocationText } from '@/utils/locationDisplay';
+
+function isSamePlace(left: LocationPlaceCandidate, right: LocationPlaceCandidate): boolean {
+  return (
+    left.gpsLat === right.gpsLat &&
+    left.gpsLon === right.gpsLon &&
+    left.name === right.name &&
+    left.address === right.address
+  );
+}
+
+function getPlaceTitle(place: LocationPlaceCandidate): string {
+  const title = place.name.trim();
+  return title || '未知地点';
+}
+
+function getPlaceSubtitle(place: LocationPlaceCandidate): string {
+  const subtitle = (place.address || place.detailedLocation).trim();
+  return subtitle || '暂无地址信息';
+}
 
 export default function EventLocationScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ eventId: string }>();
   const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId;
@@ -37,6 +52,7 @@ export default function EventLocationScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [citySheetVisible, setCitySheetVisible] = useState(false);
   const [cityQuery, setCityQuery] = useState('');
@@ -44,6 +60,7 @@ export default function EventLocationScreen() {
 
   const [placeQuery, setPlaceQuery] = useState('');
   const [placeResults, setPlaceResults] = useState<LocationPlaceCandidate[]>([]);
+  const [selectedPlace, setSelectedPlace] = useState<LocationPlaceCandidate | null>(null);
   const [placeSearching, setPlaceSearching] = useState(false);
 
   const loadEvent = useCallback(async () => {
@@ -73,6 +90,7 @@ export default function EventLocationScreen() {
     const query = placeQuery.trim();
     if (!selectedCity || !query) {
       setPlaceResults([]);
+      setPlaceSearching(false);
       return;
     }
 
@@ -91,10 +109,27 @@ export default function EventLocationScreen() {
     return () => clearTimeout(timer);
   }, [placeQuery, selectedCity]);
 
-  const currentLocation = useMemo(() => getReadableLocationText(event), [event]);
+  useEffect(() => {
+    setSelectedPlace((previous) => {
+      if (placeResults.length === 0) {
+        return null;
+      }
+
+      if (previous) {
+        const matchedPlace = placeResults.find((place) => isSamePlace(place, previous));
+        if (matchedPlace) {
+          return matchedPlace;
+        }
+      }
+
+      return placeResults[0];
+    });
+  }, [placeResults]);
+
   const hotCities = useMemo(() => getHotChinaCities(), []);
   const filteredCities = useMemo(() => searchChinaCities(cityQuery), [cityQuery]);
   const citySections = useMemo(() => getChinaCitySections(filteredCities), [filteredCities]);
+  const photoCount = event?.photoCount ?? 0;
 
   const handleSelectPlace = useCallback(
     async (place: LocationPlaceCandidate) => {
@@ -104,6 +139,7 @@ export default function EventLocationScreen() {
 
       try {
         setSaving(true);
+        setSaveError(null);
         await eventApi.updateEvent(eventId, {
           locationName: place.locationName,
           detailedLocation: place.detailedLocation,
@@ -113,13 +149,22 @@ export default function EventLocationScreen() {
         });
         router.back();
       } catch (saveError) {
-        setError(saveError instanceof Error ? saveError.message : '保存失败');
+        setSaveError(saveError instanceof Error ? saveError.message : '保存失败');
       } finally {
         setSaving(false);
       }
     },
     [eventId, router],
   );
+
+  const handleChooseCity = useCallback((city: LocationCityCandidate) => {
+    setSelectedCity(city);
+    setCitySheetVisible(false);
+    setPlaceQuery('');
+    setPlaceResults([]);
+    setSelectedPlace(null);
+    setSaveError(null);
+  }, []);
 
   if (loading) {
     return (
@@ -144,97 +189,159 @@ export default function EventLocationScreen() {
 
   return (
     <>
-      <PageContent>
-        <PageHeader
-          title="补充地点"
-          rightSlot={
-            <ActionButton
-              label="返回"
-              tone="secondary"
-              icon="arrow-left"
-              fullWidth={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex}
+      >
+        <View style={styles.screen}>
+          <View style={[styles.header, { paddingTop: Math.max(60, insets.top + 8) }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="返回"
               onPress={() => router.back()}
-            />
-          }
-        />
-
-        <SurfaceCard style={styles.eventCard}>
-          <Text style={styles.eventTitle}>{event.title || '未命名事件'}</Text>
-          <Text style={styles.eventMeta}>{currentLocation || '还没有地点'}</Text>
-        </SurfaceCard>
-
-        <View style={styles.searchRow}>
-          <Pressable
-            onPress={() => setCitySheetVisible(true)}
-            style={({ pressed }) => [styles.cityButton, pressed && styles.pressed]}
-          >
-            <Text numberOfLines={1} style={styles.cityButtonText}>
-              {selectedCity?.name || '选择城市'}
-            </Text>
-          </Pressable>
-          <TextInput
-            value={placeQuery}
-            onChangeText={setPlaceQuery}
-            editable={Boolean(selectedCity) && !saving}
-            placeholder={selectedCity ? '搜索地点' : '先选择城市'}
-            placeholderTextColor={JourneyPalette.muted}
-            style={[styles.searchInput, !selectedCity && styles.searchInputDisabled]}
-          />
-        </View>
-
-        {!selectedCity ? (
-          <EmptyStateCard
-            icon="map-search-outline"
-            title="先选择城市"
-            description="选择城市后，再搜索具体地点。"
-            action={
-              <ActionButton
-                label="选择城市"
-                tone="secondary"
-                onPress={() => setCitySheetVisible(true)}
-                fullWidth={false}
-              />
-            }
-          />
-        ) : placeSearching ? (
-          <View style={styles.centerInline}>
-            <ActivityIndicator color={JourneyPalette.accent} />
+              style={({ pressed }) => [
+                styles.backButton,
+                { top: Math.max(60, insets.top + 8) },
+                pressed && styles.pressed,
+              ]}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={18} color={JourneyPalette.ink} />
+            </Pressable>
+            <Text style={styles.title}>补全地点</Text>
+            <Text style={styles.subtitle}>为 {photoCount} 张照片手动指定位置</Text>
           </View>
-        ) : placeQuery.trim() && placeResults.length === 0 ? (
-          <EmptyStateCard
-            icon="map-marker-off-outline"
-            title="没有找到地点"
-            description="换个关键词试试。"
-          />
-        ) : (
-          <SurfaceCard style={styles.resultsCard}>
-            {placeResults.map((place, index) => (
-              <View key={`${place.name}-${place.gpsLat}-${place.gpsLon}`}>
-                <Pressable
-                  onPress={() => {
-                    void handleSelectPlace(place);
-                  }}
-                  disabled={saving}
-                  style={({ pressed }) => [
-                    styles.resultRow,
-                    pressed && styles.pressed,
-                    saving && styles.disabledAction,
-                  ]}
-                >
-                  <View style={styles.resultCopy}>
-                    <Text style={styles.resultTitle}>{place.name}</Text>
-                    <Text style={styles.resultAddress}>
-                      {place.address || place.detailedLocation}
-                    </Text>
-                  </View>
-                  {saving ? <ActivityIndicator color={JourneyPalette.accent} /> : null}
-                </Pressable>
-                {index < placeResults.length - 1 ? <View style={styles.divider} /> : null}
-              </View>
-            ))}
-          </SurfaceCard>
-        )}
-      </PageContent>
+
+          <View style={styles.searchContainer}>
+            <View style={styles.searchBox}>
+              <MaterialCommunityIcons name="magnify" size={20} color={JourneyPalette.muted} />
+              <TextInput
+                value={placeQuery}
+                onChangeText={(value) => {
+                  setPlaceQuery(value);
+                  if (saveError) {
+                    setSaveError(null);
+                  }
+                }}
+                editable={Boolean(selectedCity) && !saving}
+                placeholder="搜索地点或标志物..."
+                placeholderTextColor={JourneyPalette.muted}
+                style={[styles.searchInput, !selectedCity && styles.searchInputDisabled]}
+              />
+
+              <Pressable
+                onPress={() => setCitySheetVisible(true)}
+                style={({ pressed }) => [styles.inlineCityTrigger, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons
+                  name="map-marker-outline"
+                  size={16}
+                  color={selectedCity ? JourneyPalette.accent : JourneyPalette.muted}
+                />
+                {selectedCity ? (
+                  <Text numberOfLines={1} style={styles.inlineCityText}>
+                    {selectedCity.name}
+                  </Text>
+                ) : null}
+                <MaterialCommunityIcons
+                  name="chevron-down"
+                  size={16}
+                  color={JourneyPalette.muted}
+                />
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.suggestionList}>
+            <View style={styles.labelGroup}>
+              <Text style={styles.sectionLabel}>推荐地点</Text>
+            </View>
+
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.resultsContent}
+            >
+              {placeSearching ? (
+                <View style={styles.centerInline}>
+                  <ActivityIndicator color={JourneyPalette.accent} />
+                </View>
+              ) : null}
+
+              {!placeSearching
+                ? placeResults.map((place, index) => {
+                    const isSelected = selectedPlace ? isSamePlace(selectedPlace, place) : false;
+
+                    return (
+                      <View key={`${place.name}-${place.gpsLat}-${place.gpsLon}`}>
+                        <Pressable
+                          onPress={() => {
+                            setSelectedPlace(place);
+                            void handleSelectPlace(place);
+                          }}
+                          disabled={saving}
+                          style={({ pressed }) => [
+                            styles.resultRow,
+                            isSelected && styles.resultRowSelected,
+                            pressed && styles.pressed,
+                            saving && styles.disabledAction,
+                          ]}
+                        >
+                          <View
+                            style={[styles.rowIconBox, isSelected && styles.rowIconBoxSelected]}
+                          >
+                            <MaterialCommunityIcons
+                              name="map-marker"
+                              size={20}
+                              color={JourneyPalette.accent}
+                            />
+                          </View>
+
+                          <View style={styles.resultCopy}>
+                            <Text numberOfLines={1} style={styles.resultTitle}>
+                              {getPlaceTitle(place)}
+                            </Text>
+                            <Text numberOfLines={2} style={styles.resultSubtitle}>
+                              {getPlaceSubtitle(place)}
+                            </Text>
+                          </View>
+
+                          {saving && isSelected ? (
+                            <ActivityIndicator size="small" color={JourneyPalette.accent} />
+                          ) : null}
+                        </Pressable>
+
+                        {index < placeResults.length - 1 ? <View style={styles.divider} /> : null}
+                      </View>
+                    );
+                  })
+                : null}
+            </ScrollView>
+          </View>
+
+          <View style={[styles.footer, { paddingBottom: 24 + insets.bottom }]}>
+            {saveError ? <Text style={styles.footerError}>{saveError}</Text> : null}
+            <Pressable
+              disabled={!selectedPlace || saving}
+              onPress={() => {
+                if (selectedPlace) {
+                  void handleSelectPlace(selectedPlace);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.confirmButton,
+                (!selectedPlace || saving) && styles.confirmButtonDisabled,
+                pressed && selectedPlace && !saving && styles.confirmButtonPressed,
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator color={JourneyPalette.white} />
+              ) : (
+                <Text style={styles.confirmButtonText}>确认位置</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
 
       <Modal
         visible={citySheetVisible}
@@ -244,6 +351,7 @@ export default function EventLocationScreen() {
       >
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setCitySheetVisible(false)} />
+
           <BottomSheetScaffold
             title="选择城市"
             onClose={() => setCitySheetVisible(false)}
@@ -254,13 +362,16 @@ export default function EventLocationScreen() {
               behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               style={styles.citySheetContent}
             >
-              <TextInput
-                value={cityQuery}
-                onChangeText={setCityQuery}
-                placeholder="搜索城市"
-                placeholderTextColor={JourneyPalette.muted}
-                style={styles.citySearchInput}
-              />
+              <View style={styles.citySearchBox}>
+                <MaterialCommunityIcons name="magnify" size={18} color={JourneyPalette.muted} />
+                <TextInput
+                  value={cityQuery}
+                  onChangeText={setCityQuery}
+                  placeholder="搜索城市"
+                  placeholderTextColor={JourneyPalette.muted}
+                  style={styles.citySearchInput}
+                />
+              </View>
 
               {cityQuery.trim() ? null : (
                 <View style={styles.hotBlock}>
@@ -269,12 +380,7 @@ export default function EventLocationScreen() {
                     {hotCities.map((city) => (
                       <Pressable
                         key={city.adcode}
-                        onPress={() => {
-                          setSelectedCity(city);
-                          setCitySheetVisible(false);
-                          setPlaceQuery('');
-                          setPlaceResults([]);
-                        }}
+                        onPress={() => handleChooseCity(city)}
                         style={({ pressed }) => [styles.hotChip, pressed && styles.pressed]}
                       >
                         <Text style={styles.hotChipText}>{city.name}</Text>
@@ -302,17 +408,24 @@ export default function EventLocationScreen() {
                   )}
                   renderItem={({ item }) => (
                     <Pressable
-                      onPress={() => {
-                        setSelectedCity(item);
-                        setCitySheetVisible(false);
-                        setPlaceQuery('');
-                        setPlaceResults([]);
-                      }}
-                      style={({ pressed }) => [styles.resultRow, pressed && styles.pressed]}
+                      onPress={() => handleChooseCity(item)}
+                      style={({ pressed }) => [styles.cityRow, pressed && styles.pressed]}
                     >
+                      <View style={styles.rowIconBox}>
+                        <MaterialCommunityIcons
+                          name="map-marker-outline"
+                          size={20}
+                          color={JourneyPalette.accent}
+                        />
+                      </View>
+
                       <View style={styles.resultCopy}>
-                        <Text style={styles.resultTitle}>{item.name}</Text>
-                        <Text style={styles.resultAddress}>{item.displayName}</Text>
+                        <Text numberOfLines={1} style={styles.resultTitle}>
+                          {item.name}
+                        </Text>
+                        <Text numberOfLines={2} style={styles.resultSubtitle}>
+                          {item.displayName}
+                        </Text>
                       </View>
                     </Pressable>
                   )}
@@ -328,95 +441,182 @@ export default function EventLocationScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  screen: {
+    flex: 1,
+    backgroundColor: JourneyPalette.background,
+  },
   centerState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 16,
+    backgroundColor: JourneyPalette.background,
+    padding: 24,
   },
-  eventCard: {
-    gap: 6,
+  header: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    gap: 4,
   },
-  eventTitle: {
-    color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  eventMeta: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  cityButton: {
-    minWidth: 110,
-    maxWidth: 150,
-    minHeight: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 14,
+  backButton: {
+    position: 'absolute',
+    right: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  cityButtonText: {
+  title: {
     color: JourneyPalette.ink,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: -1.2,
+  },
+  subtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  searchContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+  searchBox: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   searchInput: {
     flex: 1,
-    minHeight: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 14,
+    height: '100%',
     color: JourneyPalette.ink,
+    fontSize: 16,
+    fontWeight: '700',
   },
   searchInputDisabled: {
-    opacity: 0.6,
+    color: JourneyPalette.muted,
   },
-  resultsCard: {
-    paddingVertical: 6,
-    paddingHorizontal: 0,
-  },
-  resultRow: {
-    minHeight: 64,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  inlineCityTrigger: {
+    minHeight: 36,
+    maxWidth: 132,
+    borderRadius: 12,
+    backgroundColor: JourneyPalette.background,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 6,
+  },
+  inlineCityText: {
+    flexShrink: 1,
+    color: JourneyPalette.ink,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  suggestionList: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  labelGroup: {
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    color: JourneyPalette.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  resultsContent: {
+    paddingBottom: 24,
+  },
+  centerInline: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultRow: {
+    paddingVertical: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  resultRowSelected: {
+    borderRadius: 18,
+    backgroundColor: '#F8FBFF',
+  },
+  rowIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowIconBoxSelected: {
+    backgroundColor: JourneyPalette.accentSoft,
   },
   resultCopy: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   resultTitle: {
     color: JourneyPalette.ink,
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '800',
+    letterSpacing: -0.2,
   },
-  resultAddress: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
+  resultSubtitle: {
+    color: JourneyPalette.muted,
+    fontSize: 13,
+    fontWeight: '500',
     lineHeight: 18,
   },
   divider: {
-    marginLeft: 16,
     height: 1,
-    backgroundColor: JourneyPalette.line,
+    backgroundColor: '#F1F5F9',
   },
-  centerInline: {
+  footer: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    backgroundColor: JourneyPalette.background,
+  },
+  footerError: {
+    color: JourneyPalette.danger,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  confirmButton: {
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 24,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.32,
+  },
+  confirmButtonPressed: {
+    transform: [{ scale: 0.97 }],
+    opacity: 0.88,
+  },
+  confirmButtonText: {
+    color: JourneyPalette.white,
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: -0.2,
   },
   modalBackdrop: {
     flex: 1,
@@ -434,16 +634,23 @@ const styles = StyleSheet.create({
   citySheetContent: {
     flex: 1,
     minHeight: 0,
-    gap: 14,
+    gap: 16,
+  },
+  citySearchBox: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   citySearchInput: {
-    minHeight: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
+    flex: 1,
+    minHeight: 52,
     color: JourneyPalette.ink,
+    fontSize: 15,
+    fontWeight: '600',
   },
   hotBlock: {
     gap: 10,
@@ -462,9 +669,7 @@ const styles = StyleSheet.create({
     minHeight: 38,
     borderRadius: 999,
     paddingHorizontal: 14,
-    backgroundColor: JourneyPalette.cardAlt,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.surfaceVariant,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -478,10 +683,17 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     paddingTop: 6,
-    paddingBottom: 6,
-    color: JourneyPalette.inkSoft,
+    paddingBottom: 8,
+    color: JourneyPalette.muted,
     fontSize: 12,
     fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  cityRow: {
+    paddingVertical: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   disabledAction: {
     opacity: 0.55,

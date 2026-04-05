@@ -1,11 +1,9 @@
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from 'react-native-paper';
 
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 function formatDateRange(event: EventRecord): string {
@@ -30,56 +28,41 @@ function formatDateRange(event: EventRecord): string {
 }
 
 function buildSummary(event: EventRecord): string {
-  const parts = [`${event.photoCount} 张照片`];
-  if (event.locationName?.trim()) {
-    parts.push(event.locationName.trim());
+  const narrative = (event.storyText || event.fullStory || '').replace(/\s+/g, ' ').trim();
+  if (narrative) {
+    const firstSentence = narrative.split(/[。！？!?]/)[0]?.trim() || narrative;
+    return firstSentence.length > 32 ? `${firstSentence.slice(0, 32).trim()}…` : firstSentence;
   }
-  return parts.join(' · ');
+
+  if (event.locationName?.trim()) {
+    return event.locationName.trim();
+  }
+
+  return `${event.photoCount} 张照片`;
 }
 
-function getActionMeta(event: EventRecord): string {
-  const statusMeta = getEventStatusMeta(event);
-  if (statusMeta.tone === 'ready') {
-    return '已完成';
-  }
-  if (statusMeta.tone === 'stale') {
-    return '待更新';
-  }
-  if (statusMeta.tone === 'failed') {
-    return '需重试';
-  }
-  return '整理中';
+function buildMeta(event: EventRecord): string {
+  return `${formatDateRange(event)} · ${event.photoCount}张照片`;
 }
 
 type TimelineEventCardProps = {
   event: EventRecord;
-  isLastInSection: boolean;
   onPress: (eventId: string) => void;
   onLongPress?: (event: EventRecord) => void;
-  statusLabel?: string;
-  statusTone?: 'ready' | 'stale' | 'failed' | 'processing' | 'importing';
 };
 
 export function TimelineEventCard({
   event,
-  isLastInSection,
   onPress,
   onLongPress,
-  statusLabel,
-  statusTone,
 }: TimelineEventCardProps) {
-  const statusMeta = getEventStatusMeta(event);
   const title = event.title?.trim() ? event.title : '未命名事件';
   const coverUri = getPreferredEventCoverUri(event);
-
-  const displayStatusLabel = statusLabel || (statusMeta.tone !== 'ready' ? statusMeta.label : null);
-  const displayStatusTone = statusTone || statusMeta.tone;
 
   return (
     <Pressable
       style={({ pressed }) => [
         styles.card,
-        isLastInSection && styles.cardLast,
         pressed && styles.cardPressed,
       ]}
       onPress={() => onPress(event.id)}
@@ -94,46 +77,19 @@ export function TimelineEventCard({
             <MaterialCommunityIcons name="image-outline" size={24} color={JourneyPalette.muted} />
           </View>
         )}
-        <View style={styles.photoCountBadge}>
-          <Text style={styles.photoCountText}>{event.photoCount}</Text>
-        </View>
       </View>
 
       <View style={styles.content}>
-        <View style={styles.titleRow}>
-          <Text numberOfLines={1} style={styles.title}>
-            {title}
-          </Text>
-          {displayStatusLabel && displayStatusTone !== 'ready' && (
-            <View style={[
-              styles.statusTag, 
-              displayStatusTone === 'failed' && styles.statusTagFailed,
-              (displayStatusTone === 'processing' || displayStatusTone === 'importing') && styles.statusTagRunning
-            ]}>
-              <Text style={[
-                styles.statusTagText,
-                displayStatusTone === 'failed' && styles.statusTagTextFailed,
-                (displayStatusTone === 'processing' || displayStatusTone === 'importing') && styles.statusTagTextRunning
-              ]}>
-                {displayStatusLabel}
-              </Text>
-            </View>
-          )}
-        </View>
+        <Text numberOfLines={1} style={styles.title}>
+          {title}
+        </Text>
 
         <Text numberOfLines={2} style={styles.summary}>
           {buildSummary(event)}
         </Text>
 
         <View style={styles.bottomRow}>
-          <Text style={styles.dateMeta}>{formatDateRange(event)}</Text>
-          <View style={styles.enterHint}>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={16}
-              color={JourneyPalette.muted}
-            />
-          </View>
+          <Text style={styles.dateMeta}>{buildMeta(event)}</Text>
         </View>
       </View>
     </Pressable>
@@ -142,34 +98,24 @@ export function TimelineEventCard({
 
 const styles = StyleSheet.create({
   card: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 32,
+    marginHorizontal: 20,
+    marginBottom: 24,
     borderWidth: 0,
-    backgroundColor: JourneyPalette.card,
-    padding: 10,
+    backgroundColor: 'transparent',
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 16,
-    shadowColor: JourneyPalette.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.04,
-    shadowRadius: 24,
-    elevation: 4,
-  },
-  cardLast: {
-    marginBottom: 0,
   },
   cardPressed: {
     transform: [{ scale: 0.97 }],
-    backgroundColor: JourneyPalette.surfaceVariant,
-    opacity: 0.95,
+    opacity: 0.7,
   },
   thumbFrame: {
-    width: 120,
-    height: 120,
+    width: 110,
+    height: 110,
     borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: JourneyPalette.cardMuted,
+    backgroundColor: JourneyPalette.cardSoft,
   },
   thumbImage: {
     width: '100%',
@@ -179,98 +125,36 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardSoft,
-  },
-  photoCountBadge: {
-    position: 'absolute',
-    right: 8,
-    top: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  photoCountText: {
-    color: JourneyPalette.white,
-    fontSize: 11,
-    fontWeight: '900',
+    backgroundColor: JourneyPalette.cardMuted,
   },
   content: {
     flex: 1,
-    gap: 2,
-    paddingVertical: 6,
-    paddingRight: 8,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    paddingRight: 10,
   },
   title: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '900',
     color: JourneyPalette.ink,
     letterSpacing: -0.5,
   },
-  statusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: JourneyPalette.cardSoft,
-  },
-  statusTagFailed: {
-    backgroundColor: JourneyPalette.dangerSoft,
-  },
-  statusTagRunning: {
-    backgroundColor: JourneyPalette.accentSoft,
-  },
-  statusTagText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: JourneyPalette.muted,
-    textTransform: 'uppercase',
-  },
-  statusTagTextFailed: {
-    color: JourneyPalette.danger,
-  },
-  statusTagTextRunning: {
-    color: JourneyPalette.accent,
-  },
   summary: {
     color: JourneyPalette.inkSoft,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 19.6,
     fontWeight: '500',
     marginTop: 4,
   },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 'auto',
-    paddingTop: 12,
+    marginTop: 10,
   },
   dateMeta: {
     color: JourneyPalette.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 1,
     textTransform: 'uppercase',
-  },
-  enterHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  enterHintText: {
-    color: JourneyPalette.accent,
-    fontSize: 12,
-    fontWeight: '800',
   },
 });

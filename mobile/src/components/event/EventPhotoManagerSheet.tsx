@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,6 +9,8 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -17,12 +19,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  SectionLabel,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, SectionLabel, SurfaceCard } from '@/components/ui/revamp';
 import {
   importSelectedLibraryAssets,
   type ImportResult,
@@ -42,12 +39,52 @@ type EventPhotoManagerSheetProps = {
   onChanged: (params: { deletedCurrentEvent: boolean }) => void;
 };
 
+type SheetPanelProps = {
+  title: string;
+  subtitle?: string;
+  headerAction?: ReactNode;
+  headerBottom?: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  bodyStyle?: StyleProp<ViewStyle>;
+  footerStyle?: StyleProp<ViewStyle>;
+};
+
 function isNotFoundError(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === 'object' &&
     'response' in error &&
     Number((error as { response?: { status?: number } }).response?.status) === 404
+  );
+}
+
+function SheetPanel({
+  title,
+  subtitle,
+  headerAction,
+  headerBottom,
+  footer,
+  children,
+  style,
+  bodyStyle,
+  footerStyle,
+}: SheetPanelProps) {
+  return (
+    <View style={[styles.sheet, style]}>
+      <View style={styles.sheetHandle} />
+      <View style={styles.sheetHeader}>
+        <View style={styles.sheetHeaderCopy}>
+          <Text style={styles.sheetTitle}>{title}</Text>
+          {subtitle ? <Text style={styles.sheetSubtitle}>{subtitle}</Text> : null}
+        </View>
+        {headerAction ? <View style={styles.sheetHeaderAction}>{headerAction}</View> : null}
+      </View>
+      {headerBottom ? <View style={styles.sheetHeaderBottom}>{headerBottom}</View> : null}
+      <View style={[styles.sheetBody, bodyStyle]}>{children}</View>
+      {footer ? <View style={[styles.sheetFooter, footerStyle]}>{footer}</View> : null}
+    </View>
   );
 }
 
@@ -252,66 +289,11 @@ export function EventPhotoManagerSheet({
     [event, refreshOrCloseDeletedEvent],
   );
 
-  const gridHeader = (
-    <View style={styles.gridHeader}>
-      <View style={styles.toolbarCard}>
-        <View style={styles.toolbarTopRow}>
-          <View style={styles.toolbarCopy}>
-            <Text style={styles.toolbarTitle}>
-              {selectionMode
-                ? `已选 ${selectedPhotoIds.length} 张`
-                : `共 ${event?.photos.length ?? 0} 张`}
-            </Text>
-          </View>
-          {selectionMode ? (
-            <Pressable
-              onPress={() => setSelectedPhotoIds([])}
-              style={({ pressed }) => [styles.toolbarPill, pressed && styles.pressed]}
-            >
-              <MaterialCommunityIcons
-                name="close-circle-outline"
-                size={16}
-                color={JourneyPalette.ink}
-              />
-              <Text style={styles.toolbarPillText}>取消选择</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        <View style={styles.toolbarRow}>
-          <Pressable
-            onPress={() => setPickerVisible(true)}
-            disabled={pickerSubmitting || isActionLoading}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && styles.pressed,
-              (pickerSubmitting || isActionLoading) && styles.disabledAction,
-            ]}
-          >
-            <MaterialCommunityIcons name="image-plus" size={16} color={JourneyPalette.ink} />
-            <Text style={styles.toolbarButtonText}>添加照片</Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => setSelectedPhotoIds((event?.photos ?? []).map((photo) => photo.id))}
-            disabled={(event?.photos.length ?? 0) === 0 || isActionLoading}
-            style={({ pressed }) => [
-              styles.toolbarButton,
-              pressed && styles.pressed,
-              ((event?.photos.length ?? 0) === 0 || isActionLoading) && styles.disabledAction,
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="checkbox-multiple-marked-outline"
-              size={16}
-              color={JourneyPalette.ink}
-            />
-            <Text style={styles.toolbarButtonText}>全选</Text>
-          </Pressable>
-        </View>
-      </View>
+  const gridHeader = selectionMode ? (
+    <View style={styles.modeBar}>
+      <Text style={styles.modeBarText}>{`已选择 ${selectedPhotoIds.length} 张照片`}</Text>
     </View>
-  );
+  ) : null;
 
   return (
     <>
@@ -319,46 +301,51 @@ export function EventPhotoManagerSheet({
         <GestureHandlerRootView style={styles.gestureRoot}>
           <View style={styles.modalBackdrop}>
             <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
-            <BottomSheetScaffold
-              title="管理照片"
-              onClose={canClose ? handleClose : undefined}
+
+            <SheetPanel
+              title="照片管理"
+              headerAction={
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="添加照片"
+                  onPress={() => setPickerVisible(true)}
+                  disabled={pickerSubmitting || isActionLoading}
+                  style={({ pressed }) => [
+                    styles.addPhotoButton,
+                    pressed && styles.pressed,
+                    (pickerSubmitting || isActionLoading) && styles.disabledAction,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="image-plus"
+                    size={20}
+                    color={JourneyPalette.accent}
+                  />
+                </Pressable>
+              }
+              headerBottom={gridHeader}
               style={styles.modalSheet}
               bodyStyle={styles.modalBody}
               footer={
                 selectionMode ? (
-                  <View style={styles.batchActions}>
-                    <ActionButton
-                      label="移出事件"
-                      tone="secondary"
-                      style={styles.flexButton}
-                      disabled={isActionLoading}
-                      onPress={() => {
-                        Alert.alert('移出事件', '照片会从当前事件中移出，但不会被删除。', [
-                          { text: '取消', style: 'cancel' },
-                          {
-                            text: '移出',
-                            onPress: () => {
-                              void runPhotoMutation(
-                                () => photoApi.reassignPhotosToEvent(selectedPhotoIds, null),
-                                '移出事件失败',
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                    />
-                    <ActionButton
-                      label="移动"
-                      tone="secondary"
-                      style={styles.flexButton}
-                      disabled={isActionLoading}
+                  <View style={styles.contextActions}>
+                    <Pressable
                       onPress={() => setMovePickerVisible(true)}
-                    />
-                    <ActionButton
-                      label="删除照片"
-                      tone="danger"
-                      style={styles.flexButton}
                       disabled={isActionLoading}
+                      style={({ pressed }) => [
+                        styles.contextActionButton,
+                        pressed && styles.pressed,
+                        isActionLoading && styles.disabledAction,
+                      ]}
+                    >
+                      <MaterialCommunityIcons
+                        name="arrow-right-bold-box-outline"
+                        size={18}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.contextActionText}>移动</Text>
+                    </Pressable>
+                    <Pressable
                       onPress={() => {
                         Alert.alert(
                           '删除照片',
@@ -378,10 +365,21 @@ export function EventPhotoManagerSheet({
                           ],
                         );
                       }}
-                    />
+                      disabled={isActionLoading}
+                      style={({ pressed }) => [
+                        styles.contextActionButton,
+                        styles.contextDeleteButton,
+                        pressed && styles.pressed,
+                        isActionLoading && styles.disabledAction,
+                      ]}
+                    >
+                      <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FFFFFF" />
+                      <Text style={styles.contextActionText}>删除</Text>
+                    </Pressable>
                   </View>
                 ) : null
               }
+              footerStyle={selectionMode ? styles.contextFooter : undefined}
             >
               {loading ? (
                 <SurfaceCard style={styles.loadingState}>
@@ -395,8 +393,8 @@ export function EventPhotoManagerSheet({
                     selectedIds={selectedPhotoIds}
                     onSelectionChange={setSelectedPhotoIds}
                     emptyText="这个事件还没有可管理的照片"
-                    header={gridHeader}
                     browseTapBehavior="select-or-open-on-double"
+                    variant="photo-manager"
                     onItemPress={(_item, index: number) => {
                       if (!event || event.photos.length === 0) {
                         return;
@@ -407,7 +405,7 @@ export function EventPhotoManagerSheet({
                   />
                 </View>
               )}
-            </BottomSheetScaffold>
+            </SheetPanel>
           </View>
         </GestureHandlerRootView>
       </Modal>
@@ -448,10 +446,10 @@ export function EventPhotoManagerSheet({
             onPress={() => setMovePickerVisible(false)}
             disabled={isActionLoading}
           />
-          <BottomSheetScaffold
+
+          <SheetPanel
             title="移动目标选择"
-            hint={`已选 ${selectedPhotoIds.length} 张`}
-            onClose={isActionLoading ? undefined : () => setMovePickerVisible(false)}
+            subtitle={`已选 ${selectedPhotoIds.length} 张`}
             style={styles.moveSheet}
           >
             <ScrollView contentContainerStyle={styles.moveContent}>
@@ -531,7 +529,7 @@ export function EventPhotoManagerSheet({
                 />
               </SurfaceCard>
             </ScrollView>
-          </BottomSheetScaffold>
+          </SheetPanel>
         </View>
       </Modal>
 
@@ -551,11 +549,66 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(15, 23, 42, 0.34)',
+    backgroundColor: 'rgba(2, 6, 23, 0.4)',
+  },
+  sheet: {
+    position: 'relative',
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    backgroundColor: JourneyPalette.background,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  sheetHandle: {
+    position: 'absolute',
+    top: 12,
+    left: '50%',
+    marginLeft: -22,
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.lineStrong,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  sheetHeaderCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  sheetHeaderAction: {
+    justifyContent: 'center',
+  },
+  sheetTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  sheetSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  sheetHeaderBottom: {
+    flexShrink: 0,
+  },
+  sheetBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  sheetFooter: {
+    paddingHorizontal: 24,
+    paddingBottom: 48,
   },
   modalSheet: {
     height: '88%',
-    paddingBottom: 18,
   },
   modalBody: {
     flex: 1,
@@ -563,67 +616,27 @@ const styles = StyleSheet.create({
   },
   moveSheet: {
     height: '78%',
-    paddingBottom: 18,
   },
-  gridHeader: {
-    paddingBottom: 10,
-  },
-  toolbarCard: {
+  addPhotoButton: {
+    width: 44,
+    height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.card,
-    padding: 16,
-    gap: 12,
-  },
-  toolbarTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  toolbarCopy: {
-    flex: 1,
-  },
-  toolbarTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  toolbarRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  toolbarButton: {
-    minHeight: 40,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
+    borderColor: '#F1F5F9',
     backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  toolbarButtonText: {
+  modeBar: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  modeBarText: {
+    color: JourneyPalette.muted,
+    fontSize: 13,
     fontWeight: '700',
-    color: JourneyPalette.ink,
-  },
-  toolbarPill: {
-    minHeight: 38,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  toolbarPillText: {
-    fontWeight: '700',
-    color: JourneyPalette.ink,
   },
   loadingState: {
     alignItems: 'center',
@@ -637,32 +650,55 @@ const styles = StyleSheet.create({
   gridContainer: {
     flex: 1,
     minHeight: 0,
-    paddingTop: 8,
   },
-  batchActions: {
+  contextFooter: {
+    marginTop: 0,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    backgroundColor: '#020617',
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 44,
+  },
+  contextActions: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
-  flexButton: {
+  contextActionButton: {
     flex: 1,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  contextDeleteButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.22)',
+  },
+  contextActionText: {
+    color: JourneyPalette.white,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   moveContent: {
-    paddingTop: 4,
-    gap: 14,
+    gap: 16,
+    paddingBottom: 8,
   },
   moveCard: {
-    gap: 10,
+    gap: 12,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   targetEventList: {
     gap: 10,
   },
   targetEventItem: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.background,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     gap: 4,
   },
   targetEventTitle: {
@@ -673,22 +709,21 @@ const styles = StyleSheet.create({
     color: JourneyPalette.inkSoft,
   },
   fieldInput: {
-    minHeight: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
+    minHeight: 56,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.background,
+    paddingHorizontal: 18,
     color: JourneyPalette.ink,
+    fontSize: 16,
   },
   mutedText: {
     color: JourneyPalette.inkSoft,
   },
   disabledAction: {
-    opacity: 0.55,
+    opacity: 0.45,
   },
   pressed: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.92,
+    transform: [{ scale: 0.97 }],
+    opacity: 0.7,
   },
 });

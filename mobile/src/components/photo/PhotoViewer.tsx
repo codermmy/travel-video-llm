@@ -3,7 +3,6 @@ import {
   FlatList,
   Image,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -13,11 +12,14 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { JourneyPalette } from '@/styles/colors';
 import type { EventPhotoItem } from '@/types/event';
 import { formatDateTime } from '@/utils/dateUtils';
 import { getPhotoOriginalCandidates, getPreferredPhotoThumbnailUri } from '@/utils/mediaRefs';
+import { isCoordinateLocationText } from '@/utils/locationDisplay';
 
 type PhotoViewerProps = {
   photos: EventPhotoItem[];
@@ -25,12 +27,56 @@ type PhotoViewerProps = {
   onBack: () => void;
 };
 
-function formatGps(photo: EventPhotoItem): string | null {
-  const { gpsLat, gpsLon } = photo;
-  if (typeof gpsLat !== 'number' || typeof gpsLon !== 'number') {
+const THUMB_STRIP_STEP = 62;
+const GLASS_WHITE = 'rgba(255,255,255,0.15)';
+const GLASS_WHITE_STRONG = 'rgba(255,255,255,0.2)';
+const WHITE_SOFT = 'rgba(255,255,255,0.72)';
+const WHITE_MUTED = 'rgba(255,255,255,0.62)';
+const NOOP = () => {};
+
+function normalizeText(value?: string | null): string | null {
+  if (typeof value !== 'string') {
     return null;
   }
-  return `${gpsLat.toFixed(4)}, ${gpsLon.toFixed(4)}`;
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function extractSemanticLocationLabels(photo: EventPhotoItem | null | undefined): {
+  cityLabel: string | null;
+  placeLabel: string | null;
+} {
+  const landmarkHint = normalizeText(photo?.vision?.landmark_hint);
+  if (!landmarkHint || isCoordinateLocationText(landmarkHint)) {
+    return { cityLabel: null, placeLabel: null };
+  }
+
+  const segments = landmarkHint
+    .split(/\s*[·•｜|/，,]\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length >= 2) {
+    return {
+      cityLabel: segments[0] ?? null,
+      placeLabel: segments.slice(1).join(' · ') || null,
+    };
+  }
+
+  return {
+    cityLabel: null,
+    placeLabel: landmarkHint,
+  };
+}
+
+function formatLocationText(photo: EventPhotoItem | null | undefined): string {
+  const { cityLabel, placeLabel } = extractSemanticLocationLabels(photo);
+  if (cityLabel && placeLabel) {
+    return `${cityLabel} · ${placeLabel}`;
+  }
+
+  return cityLabel || placeLabel || '未知地点';
 }
 
 export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerProps) {
@@ -65,7 +111,7 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
 
   useEffect(() => {
     stripRef.current?.scrollTo({
-      x: Math.max(currentIndex - 1, 0) * 76,
+      x: Math.max(currentIndex - 1, 0) * THUMB_STRIP_STEP,
       animated: true,
     });
   }, [currentIndex]);
@@ -76,57 +122,57 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
     getPhotoOriginalCandidates(currentPhoto)[failedCandidateIndices[currentPhoto.id] ?? 0] == null,
   );
 
-  const footerText = useMemo(() => {
+  const countText = useMemo(() => {
+    const total = Math.max(photos.length, 1);
+    const current = photos.length > 0 ? currentIndex + 1 : 1;
+    return `${current} / ${total}`;
+  }, [currentIndex, photos.length]);
+
+  const dateText = useMemo(() => {
     if (!currentPhoto?.shootTime) {
-      return null;
+      return '未知时间';
     }
 
     try {
       return formatDateTime(currentPhoto.shootTime);
     } catch {
-      return currentPhoto.shootTime;
+      return normalizeText(currentPhoto.shootTime) || '未知时间';
     }
   }, [currentPhoto?.shootTime]);
 
-  const captionText = useMemo(() => currentPhoto?.caption || null, [currentPhoto?.caption]);
+  const captionText = useMemo(() => normalizeText(currentPhoto?.caption), [currentPhoto?.caption]);
 
-  const gpsText = useMemo(() => {
-    if (!currentPhoto) {
-      return null;
-    }
-    return formatGps(currentPhoto);
-  }, [currentPhoto]);
-
-  const locationText = useMemo(() => {
-    if (!currentPhoto) {
-      return null;
-    }
-    return gpsText;
-  }, [currentPhoto, gpsText]);
+  const locationText = useMemo(() => formatLocationText(currentPhoto), [currentPhoto]);
 
   const onMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width <= 0) {
       return;
     }
+
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
     setCurrentIndex(Math.min(Math.max(nextIndex, 0), Math.max(photos.length - 1, 0)));
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.topBar}>
         <Pressable
           onPress={onBack}
-          style={({ pressed }) => [styles.topChip, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.topButton, pressed && styles.pressed]}
         >
-          <MaterialCommunityIcons name="chevron-left" size={20} color="#FFFFFF" />
-          <Text style={styles.topChipText}>返回</Text>
+          <MaterialCommunityIcons name="chevron-left" size={20} color={JourneyPalette.white} />
         </Pressable>
-        <View style={styles.topChip}>
-          <Text style={styles.topChipText}>
-            {photos.length > 0 ? currentIndex + 1 : 0} / {photos.length}
-          </Text>
+
+        <View style={styles.countPill}>
+          <Text style={styles.countText}>{countText}</Text>
         </View>
+
+        <Pressable
+          onPress={NOOP}
+          style={({ pressed }) => [styles.topButton, pressed && styles.pressed]}
+        >
+          <MaterialCommunityIcons name="dots-horizontal" size={20} color={JourneyPalette.white} />
+        </Pressable>
       </View>
 
       {photos.length > 0 ? (
@@ -146,33 +192,31 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
 
             return (
               <View style={[styles.slide, { width, height }]}>
-                <View style={[styles.stageFrame, { width }]}>
-                  {uri ? (
-                    <Image
-                      source={{ uri }}
-                      style={[styles.image, { width, height: height * 0.7 }]}
-                      resizeMode="contain"
-                      onError={() => {
-                        setFailedCandidateIndices((prev) => ({
-                          ...prev,
-                          [item.id]: (prev[item.id] ?? 0) + 1,
-                        }));
-                      }}
-                    />
-                  ) : (
-                    <View style={[styles.errorPlaceholder, { width: width * 0.76 }]}>
-                      <View style={styles.errorIconWrap}>
-                        <MaterialCommunityIcons
-                          name="image-broken-variant"
-                          size={28}
-                          color="#A9B7D6"
-                        />
-                      </View>
-                      <Text style={styles.errorTitle}>图片加载失败</Text>
-                      <Text style={styles.errorText}>本地候选地址已失效，可以稍后再试。</Text>
+                {uri ? (
+                  <Image
+                    source={{ uri }}
+                    style={[styles.image, { width, height }]}
+                    resizeMode="contain"
+                    onError={() => {
+                      setFailedCandidateIndices((prev) => ({
+                        ...prev,
+                        [item.id]: (prev[item.id] ?? 0) + 1,
+                      }));
+                    }}
+                  />
+                ) : (
+                  <View style={[styles.errorPlaceholder, { width: Math.min(width - 72, 296) }]}>
+                    <View style={styles.errorIconWrap}>
+                      <MaterialCommunityIcons
+                        name="image-broken-variant"
+                        size={24}
+                        color="rgba(255,255,255,0.7)"
+                      />
                     </View>
-                  )}
-                </View>
+                    <Text style={styles.errorTitle}>图片加载失败</Text>
+                    <Text style={styles.errorText}>本地候选地址已失效，可以稍后再试。</Text>
+                  </View>
+                )}
               </View>
             );
           }}
@@ -180,227 +224,287 @@ export function PhotoViewer({ photos, initialIndex = 0, onBack }: PhotoViewerPro
       ) : (
         <View style={styles.emptyStage}>
           <View style={styles.errorIconWrap}>
-            <MaterialCommunityIcons name="image-off-outline" size={28} color="#A9B7D6" />
+            <MaterialCommunityIcons
+              name="image-off-outline"
+              size={24}
+              color="rgba(255,255,255,0.7)"
+            />
           </View>
           <Text style={styles.errorTitle}>没有可查看的照片</Text>
           <Text style={styles.errorText}>返回上一页后可以从事件详情继续补图。</Text>
         </View>
       )}
 
-      <View style={[styles.bottomPanel, photos.length === 0 && styles.bottomPanelMuted]}>
-        <View style={styles.metaBlock}>
-          {footerText ? <Text style={styles.metaTitle}>{footerText}</Text> : null}
-          {locationText ? <Text style={styles.metaLine}>地点 / GPS · {locationText}</Text> : null}
-          {captionText ? <Text style={styles.captionText}>{captionText}</Text> : null}
-          {!footerText && !locationText && !captionText ? (
-            <Text style={styles.metaLine}>照片元信息会在这里展示</Text>
-          ) : null}
-        </View>
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.8)']}
+        locations={[0.08, 0.62]}
+        style={styles.bottomGradient}
+      >
+        <View style={styles.bottomContent}>
+          <View style={styles.metaBlock}>
+            <Text numberOfLines={1} style={styles.locationText}>
+              {locationText}
+            </Text>
+            <Text style={styles.dateText}>{dateText}</Text>
+            {captionText ? (
+              <Text numberOfLines={2} style={styles.captionText}>
+                {captionText}
+              </Text>
+            ) : null}
+          </View>
 
-        <ScrollView
-          ref={stripRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filmstrip}
-        >
-          {photos.map((photo, index) => {
-            const thumbUri =
-              getPreferredPhotoThumbnailUri(photo) ||
-              getPhotoOriginalCandidates(photo)[0] ||
-              undefined;
-            const active = currentIndex === index;
-
-            return (
+          {currentPhoto ? (
+            <View style={styles.actionRow}>
               <Pressable
-                key={photo.id}
-                onPress={() => {
-                  listRef.current?.scrollToIndex({ index, animated: true });
-                  setCurrentIndex(index);
-                }}
+                onPress={NOOP}
+                style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons
+                  name="pencil-outline"
+                  size={20}
+                  color={JourneyPalette.white}
+                />
+              </Pressable>
+              <Pressable
+                onPress={NOOP}
+                style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons
+                  name="circle-outline"
+                  size={20}
+                  color={JourneyPalette.white}
+                />
+              </Pressable>
+              <Pressable
+                onPress={NOOP}
                 style={({ pressed }) => [
-                  styles.thumbCell,
-                  active && styles.thumbCellActive,
+                  styles.actionButton,
+                  styles.actionButtonDanger,
+                  styles.actionButtonPush,
                   pressed && styles.pressed,
                 ]}
               >
-                {thumbUri ? (
-                  <Image source={{ uri: thumbUri }} style={styles.thumbImage} resizeMode="cover" />
-                ) : (
-                  <View style={[styles.thumbImage, styles.thumbFallback]}>
-                    <MaterialCommunityIcons name="image-outline" size={16} color="#97A5C4" />
-                  </View>
-                )}
+                <MaterialCommunityIcons
+                  name="trash-can-outline"
+                  size={20}
+                  color={JourneyPalette.danger}
+                />
               </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+            </View>
+          ) : null}
+
+          {photos.length > 0 ? (
+            <ScrollView
+              ref={stripRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filmstrip}
+            >
+              {photos.map((photo, index) => {
+                const thumbUri =
+                  getPreferredPhotoThumbnailUri(photo) ||
+                  getPhotoOriginalCandidates(photo)[0] ||
+                  undefined;
+                const active = currentIndex === index;
+
+                return (
+                  <Pressable
+                    key={photo.id}
+                    onPress={() => {
+                      listRef.current?.scrollToIndex({ index, animated: true });
+                      setCurrentIndex(index);
+                    }}
+                    style={({ pressed }) => [
+                      styles.thumbCell,
+                      active && styles.thumbCellActive,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    {thumbUri ? (
+                      <Image
+                        source={{ uri: thumbUri }}
+                        style={styles.thumbImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.thumbImage, styles.thumbFallback]}>
+                        <MaterialCommunityIcons
+                          name="image-outline"
+                          size={16}
+                          color="rgba(255,255,255,0.55)"
+                        />
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+        </View>
+      </LinearGradient>
 
       {currentImageFailed ? (
         <View style={styles.failureBanner}>
-          <Text style={styles.failureBannerTitle}>加载失败兜底</Text>
-          <Text style={styles.failureBannerText}>
-            当前图片的本地候选地址已失效，查看器会保持清晰失败占位，而不是黑屏。
-          </Text>
+          <Text style={styles.failureBannerTitle}>当前图片未能加载</Text>
+          <Text style={styles.failureBannerText}>本地候选地址已失效，已切换为柔和占位。</Text>
         </View>
       ) : null}
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#09101D',
+    backgroundColor: '#000000',
   },
   topBar: {
     position: 'absolute',
-    top: 10,
-    left: 14,
-    right: 14,
+    top: 54,
+    left: 20,
+    right: 20,
     zIndex: 20,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
   },
-  topChip: {
-    minHeight: 38,
-    borderRadius: 999,
-    backgroundColor: 'rgba(10, 20, 38, 0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(157, 179, 230, 0.18)',
-    paddingHorizontal: 12,
-    flexDirection: 'row',
+  topButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: GLASS_WHITE,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
   },
-  topChipText: {
-    color: '#F4F7FF',
+  countPill: {
+    borderRadius: 20,
+    backgroundColor: GLASS_WHITE,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countText: {
+    color: JourneyPalette.white,
     fontSize: 13,
     fontWeight: '800',
   },
   slide: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 24,
-    paddingBottom: 188,
-  },
-  stageFrame: {
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#000000',
   },
   image: {
     maxWidth: '100%',
+    maxHeight: '100%',
   },
   errorPlaceholder: {
-    minHeight: 260,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: 'rgba(149, 173, 223, 0.16)',
-    backgroundColor: 'rgba(16, 27, 47, 0.94)',
+    minHeight: 220,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 28,
   },
   errorIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
   },
   errorTitle: {
-    color: '#F1F5FF',
-    fontSize: 16,
-    fontWeight: '900',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 15,
+    fontWeight: '800',
   },
   errorText: {
     marginTop: 8,
-    color: '#A8B7D9',
-    fontSize: 13,
-    lineHeight: 19,
+    color: WHITE_MUTED,
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: 'center',
-  },
-  bottomPanel: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 18,
-    borderRadius: 24,
-    backgroundColor: 'rgba(9, 17, 31, 0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(157, 179, 230, 0.16)',
-    padding: 14,
-    gap: 14,
-  },
-  bottomPanelMuted: {
-    backgroundColor: 'rgba(9, 17, 31, 0.72)',
   },
   emptyStage: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  bottomGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: 64,
+  },
+  bottomContent: {
+    marginBottom: 44,
+    paddingVertical: 32,
     paddingHorizontal: 24,
-    paddingBottom: 188,
-    gap: 8,
   },
   metaBlock: {
-    gap: 4,
+    marginBottom: 24,
   },
-  metaTitle: {
-    color: '#F4F7FF',
-    fontSize: 15,
+  locationText: {
+    marginBottom: 8,
+    color: WHITE_SOFT,
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
-  metaLine: {
-    color: '#D1DBF3',
-    fontSize: 12,
+  dateText: {
+    marginBottom: 16,
+    color: JourneyPalette.white,
+    fontSize: 18,
+    fontWeight: '800',
   },
   captionText: {
-    color: '#AFC0E7',
+    color: WHITE_SOFT,
     fontSize: 13,
     lineHeight: 19,
   },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  actionButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: GLASS_WHITE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonDanger: {
+    backgroundColor: GLASS_WHITE_STRONG,
+  },
+  actionButtonPush: {
+    marginLeft: 'auto',
+  },
   filmstrip: {
     gap: 10,
-  },
-  failureBanner: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 174,
-    borderRadius: 18,
-    backgroundColor: 'rgba(14,22,38,0.76)',
-    borderWidth: 1,
-    borderColor: 'rgba(151,181,255,0.12)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 4,
-  },
-  failureBannerTitle: {
-    color: '#EEF4FF',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  failureBannerText: {
-    color: 'rgba(227,235,255,0.76)',
-    fontSize: 12,
-    lineHeight: 18,
+    marginTop: 18,
+    paddingRight: 24,
   },
   thumbCell: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(157, 179, 230, 0.16)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    opacity: 0.54,
   },
   thumbCellActive: {
-    borderColor: '#F4F7FF',
-    transform: [{ scale: 1.04 }],
+    borderColor: 'rgba(255,255,255,0.88)',
+    opacity: 1,
   },
   thumbImage: {
     width: '100%',
@@ -409,10 +513,30 @@ const styles = StyleSheet.create({
   thumbFallback: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  failureBanner: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 212,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  failureBannerTitle: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  failureBannerText: {
+    marginTop: 4,
+    color: WHITE_MUTED,
+    fontSize: 12,
+    lineHeight: 17,
   },
   pressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.92,
+    transform: [{ scale: 0.97 }],
+    opacity: 0.7,
   },
 });

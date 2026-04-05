@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Spec - 待补地点列表 (Missing Locations)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; --muted: #94A3B8; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', sans-serif; background: #F1F5F9; display: flex; justify-content: center; padding: 40px; }
+        .phone {
+            width: 375px; height: 812px; background: white; border-radius: 50px; border: 10px solid var(--ink);
+            position: relative; overflow: hidden; display: flex; flex-direction: column;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.2);
+        }
+        .header { padding: 60px 24px 24px; }
+        .title-huge { font-size: 32px; font-weight: 900; letter-spacing: -1.2px; }
+        
+        .scroll-content { flex: 1; overflow-y: auto; padding: 0 24px 40px; }
+        .label-group { font-size: 11px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; }
+
+        .pending-card {
+            background: var(--surface); padding: 20px; border-radius: 28px; display: flex; gap: 16px; align-items: center; margin-bottom: 16px;
+        }
+        .pending-thumb { width: 70px; height: 70px; border-radius: 16px; background: #E2E8F0; }
+        .pending-info { flex: 1; }
+        .pending-info h4 { font-size: 17px; font-weight: 800; color: var(--ink); }
+        .pending-info p { font-size: 13px; color: var(--muted); font-weight: 600; margin-top: 4px; }
+        .btn-fix { color: var(--accent); font-size: 12px; font-weight: 900; text-transform: uppercase; }
+
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div class="header">
+            <h1 class="title-huge">待补全地点</h1>
+            <p style="color: var(--ink-soft); font-size: 14px; font-weight: 600; margin-top: 4px;">补充后，它们将正确出现在地图上</p>
+        </div>
+        <div class="scroll-content">
+            <div class="label-group">待处理事件</div>
+            <div class="pending-card">
+                <div class="pending-thumb"></div>
+                <div class="pending-info">
+                    <h4>未命名回忆</h4>
+                    <p>12 张照片 · 03月15日</p>
+                </div>
+                <div class="btn-fix">去补全</div>
+            </div>
+            <div class="pending-card">
+                <div class="pending-thumb" style="background: #CBD5E1;"></div>
+                <div class="pending-info">
+                    <h4>山间漫步</h4>
+                    <p>8 张照片 · 03月12日</p>
+                </div>
+                <div class="btn-fix">去补全</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
-import { getCompactLocationText, getReadableLocationText } from '@/utils/locationDisplay';
+import { getCompactLocationText } from '@/utils/locationDisplay';
 
 type EventCardListProps = {
   events: EventRecord[];
@@ -22,27 +22,31 @@ type EventCardListProps = {
   onClose: () => void;
 };
 
-function formatDate(dateString?: string | null): string {
-  if (!dateString) return '';
+function formatDateLabel(dateString?: string | null): string {
+  if (!dateString) {
+    return '未知日期';
+  }
+
   const date = new Date(dateString);
-  return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  if (Number.isNaN(date.getTime())) {
+    return '未知日期';
+  }
+
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${month}月${day}日`;
 }
 
-function buildDateRange(event: EventRecord): string {
-  if (!event.startTime) {
-    return '时间待补充';
-  }
-  const start = formatDate(event.startTime);
-  const end = event.endTime ? formatDate(event.endTime) : '';
-  return end ? `${start} - ${end}` : start;
+function buildRowMeta(event: EventRecord): string {
+  return `${formatDateLabel(event.startTime || event.endTime)} · ${event.photoCount ?? 0}张照片`;
 }
 
 function getClusterTitle(events: EventRecord[]): string {
-  const firstLocation = events.map((event) => getReadableLocationText(event)).find(Boolean);
-  if (firstLocation) {
-    return `${firstLocation} 附近的回忆`;
+  const districtLabel = events.map((event) => getCompactLocationText(event)).find(Boolean);
+  if (districtLabel) {
+    return `${districtLabel}附近的回忆`;
   }
-  return '这个地点附近的回忆';
+  return '附近的回忆';
 }
 
 export function EventCardList({ events, onPressDetails, onClose }: EventCardListProps) {
@@ -125,53 +129,52 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
   if (isSingle) {
     const event = sortedEvents[0];
     const coverUri = getPreferredEventCoverUri(event);
-    const locationText = getCompactLocationText(event);
 
     return (
       <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
         <View style={styles.handleTouchArea} {...handlePanResponder.panHandlers}>
           <View style={styles.handle} />
         </View>
-        <View style={styles.singleCard}>
-          <View style={styles.singleCoverWrap}>
-            {coverUri ? (
-              <Image source={{ uri: coverUri }} style={styles.singleCover} resizeMode="cover" />
-            ) : (
-              <View style={[styles.singleCover, styles.coverFallback]}>
-                <Ionicons name="image-outline" size={22} color={JourneyPalette.muted} />
-              </View>
-            )}
-          </View>
+        <View style={styles.listHeader}>
+          <Text numberOfLines={1} style={styles.listHeaderTitle}>
+            {title}
+          </Text>
+        </View>
 
-          <View style={styles.singleInfo}>
-            <View style={styles.singleTitleRow}>
-              <Text numberOfLines={1} style={styles.singleTitle}>
-                {event.title || '未命名事件'}
+        <View style={styles.listContent}>
+          <Pressable
+            style={({ pressed }) => [styles.listRow, pressed && styles.listRowPressed]}
+            onPress={() => onPressDetails(event.id)}
+          >
+            <View style={styles.rowThumbWrap}>
+              {coverUri ? (
+                <Image source={{ uri: coverUri }} style={styles.rowThumb} resizeMode="cover" />
+              ) : (
+                <View style={[styles.rowThumb, styles.coverFallback]}>
+                  <Ionicons name="image-outline" size={16} color={JourneyPalette.muted} />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.rowInfo}>
+              <Text numberOfLines={1} style={styles.rowTitle}>
+                {event.title || '未命名回忆'}
+              </Text>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                numberOfLines={1}
+                style={styles.rowMeta}
+              >
+                {buildRowMeta(event)}
               </Text>
             </View>
-            <Text numberOfLines={1} style={styles.singleMeta}>
-              {buildDateRange(event)} · {event.photoCount} 张照片
-            </Text>
-            <View style={styles.singleBottomRow}>
-              <View style={styles.singleLocationRow}>
-                <Ionicons
-                  name="location-outline"
-                  size={14}
-                  color={locationText ? JourneyPalette.accent : JourneyPalette.muted}
-                />
-                <Text numberOfLines={1} style={styles.singleLocationText}>
-                  {locationText || '地点待补充'}
-                </Text>
-              </View>
-              <Pressable
-                style={styles.singleActionPrimary}
-                onPress={() => onPressDetails(event.id)}
-              >
-                <Text style={styles.singleActionPrimaryText}>进入详情</Text>
-                <Ionicons name="chevron-forward" size={16} color={JourneyPalette.white} />
-              </Pressable>
+
+            <View style={styles.rowEnter}>
+              <Text style={styles.rowEnterText}>详情</Text>
+              <Ionicons name="chevron-forward" size={14} color={JourneyPalette.accent} />
             </View>
-          </View>
+          </Pressable>
         </View>
       </Animated.View>
     );
@@ -184,13 +187,16 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
       </View>
 
       <View style={styles.listHeader}>
-        <View style={styles.listHeaderCopy}>
-          <Text style={styles.listHeaderTitle}>{title}</Text>
-          <Text style={styles.listHeaderMeta}>{sortedEvents.length} 个事件</Text>
-        </View>
+        <Text numberOfLines={1} style={styles.listHeaderTitle}>
+          {title}
+        </Text>
       </View>
 
-      <ScrollView style={styles.listScroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.listScroll}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+      >
         {sortedEvents.map((event, index) => {
           const coverUri = getPreferredEventCoverUri(event);
 
@@ -216,16 +222,21 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
 
               <View style={styles.rowInfo}>
                 <Text numberOfLines={1} style={styles.rowTitle}>
-                  {event.title || '未命名事件'}
+                  {event.title || '未命名回忆'}
                 </Text>
-                <Text numberOfLines={1} style={styles.rowMeta}>
-                  {buildDateRange(event)} · {event.photoCount} 张照片
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                  numberOfLines={1}
+                  style={styles.rowMeta}
+                >
+                  {buildRowMeta(event)}
                 </Text>
               </View>
 
               <View style={styles.rowEnter}>
-                <Text style={styles.rowEnterText}>进入</Text>
-                <Ionicons name="chevron-forward" size={16} color={JourneyPalette.accent} />
+                <Text style={styles.rowEnterText}>详情</Text>
+                <Ionicons name="chevron-forward" size={14} color={JourneyPalette.accent} />
               </View>
             </Pressable>
           );
@@ -241,139 +252,60 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 16,
     right: 16,
-    borderRadius: 36,
+    borderRadius: 32,
     borderWidth: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: JourneyPalette.white,
     shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
     shadowRadius: 30,
     elevation: 12,
     overflow: 'hidden',
+    padding: 12,
   },
   handle: {
     alignSelf: 'center',
-    width: 44,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    marginTop: 12,
-    marginBottom: 12,
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2E8F0',
   },
   handleTouchArea: {
-    paddingTop: 4,
-  },
-  singleCard: {
-    flexDirection: 'row',
-    gap: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
-  singleCoverWrap: {
-    width: 100,
-    height: 120,
-    borderRadius: 24,
-    overflow: 'hidden',
-    backgroundColor: JourneyPalette.surfaceVariant,
-  },
-  singleCover: {
-    width: '100%',
-    height: '100%',
-  },
-  singleInfo: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  singleTitleRow: {
-    gap: 4,
-  },
-  singleTitle: {
-    color: JourneyPalette.ink,
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-  },
-  singleMeta: {
-    color: JourneyPalette.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  singleBottomRow: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  singleLocationRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    minWidth: 0,
-  },
-  singleLocationText: {
-    flex: 1,
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  singleActionPrimary: {
-    minHeight: 44,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 18,
-  },
-  singleActionPrimaryText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '900',
+    paddingBottom: 12,
   },
   listHeader: {
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  listHeaderCopy: {
-    flex: 1,
+    paddingTop: 4,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   listHeaderTitle: {
     color: JourneyPalette.ink,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '900',
     letterSpacing: -0.5,
-  },
-  listHeaderMeta: {
-    marginTop: 2,
-    color: JourneyPalette.muted,
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
   },
   listScroll: {
     maxHeight: 320,
   },
+  listContent: {
+    gap: 4,
+  },
   listRow: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.04)',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: JourneyPalette.white,
+    borderRadius: 18,
   },
   listRowPressed: {
     backgroundColor: JourneyPalette.surfaceVariant,
+    opacity: 0.7,
+    transform: [{ scale: 0.97 }],
   },
   listRowLast: {
     borderBottomWidth: 0,
@@ -381,7 +313,7 @@ const styles = StyleSheet.create({
   rowThumbWrap: {
     width: 64,
     height: 64,
-    borderRadius: 16,
+    borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: JourneyPalette.surfaceVariant,
   },
@@ -395,27 +327,28 @@ const styles = StyleSheet.create({
   },
   rowInfo: {
     flex: 1,
-    gap: 4,
+    gap: 2,
+    minWidth: 0,
   },
   rowTitle: {
     color: JourneyPalette.ink,
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   rowMeta: {
     color: JourneyPalette.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   rowEnter: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
   },
   rowEnterText: {
     color: JourneyPalette.accent,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '900',
   },
 });

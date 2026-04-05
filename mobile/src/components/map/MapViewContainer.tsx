@@ -17,9 +17,7 @@ import {
   returnToInitialState,
 } from '@/utils/mapClusterUtils';
 import { getCompactLocationText } from '@/utils/locationDisplay';
-import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
-import type { JourneyStateKind } from '@/utils/statusLanguage';
 import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
 
 declare function require(moduleName: string): unknown;
@@ -39,20 +37,6 @@ interface MapViewContainerProps {
 }
 
 type AMapLoadStatus = 'idle' | 'ready' | 'missing_keys' | 'module_error';
-
-function getClusterTone(events: EventRecord[]): JourneyStateKind {
-  const tones = events.map((event) => getEventStatusMeta(event).tone);
-  if (tones.includes('failed')) {
-    return 'failed';
-  }
-  if (tones.includes('stale')) {
-    return 'stale';
-  }
-  if (tones.includes('importing') || tones.includes('processing')) {
-    return 'processing';
-  }
-  return 'ready';
-}
 
 export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   events,
@@ -339,7 +323,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
               coverUrl={getPreferredEventCoverUri(cluster.events[0])}
               clusterCount={cluster.count}
               isSelected={selectedClusterId === cluster.id}
-              tone={getClusterTone(cluster.events)}
               onPress={() => handleClusterPress(cluster.id)}
             />
           </MarkerComponent>

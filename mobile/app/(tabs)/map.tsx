@@ -5,7 +5,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActionButton, InlineBanner } from '@/components/ui/revamp';
 import { MapViewContainer } from '@/components/map/MapViewContainer';
 import { eventApi } from '@/services/api/eventApi';
 import { JourneyPalette } from '@/styles/colors';
@@ -56,9 +55,7 @@ export default function MapScreen() {
   );
   const filteredMappableEvents = allMappableEvents;
 
-  const scopeLabel = selectedScope
-    ? `${selectedScope.locationLabel || '该地点'} ${selectedScope.eventCount}个事件`
-    : '欢迎来到您的旅行日记';
+  const scopeLabel = `${selectedScope?.locationLabel?.trim() || '全部区域'} · ${selectedScope?.eventCount ?? 0} 个回忆`;
 
   const handleSelectionScopeChange = useCallback((scope: SelectedMapScope | null) => {
     setSelectedScope((current) => {
@@ -132,7 +129,7 @@ export default function MapScreen() {
         topInset={insets.top}
       />
 
-      <View pointerEvents="box-none" style={[styles.topOverlay, { top: insets.top + 20 }]}>
+      <View pointerEvents="box-none" style={styles.topOverlay}>
         <View style={styles.topBar}>
           <View style={styles.scopePill}>
             <Text selectable numberOfLines={1} style={styles.scopePillText}>
@@ -140,15 +137,18 @@ export default function MapScreen() {
             </Text>
           </View>
           <View style={styles.toolRow}>
-            <Pressable style={styles.toolButton} onPress={() => router.push('/')}>
+            <Pressable
+              style={({ pressed }) => [styles.toolButton, pressed && styles.pressed]}
+              onPress={() => router.push('/')}
+            >
               <MaterialCommunityIcons
                 name="image-filter-hdr"
-                size={18}
+                size={20}
                 color={JourneyPalette.ink}
               />
             </Pressable>
             <Pressable
-              style={styles.toolButton}
+              style={({ pressed }) => [styles.toolButton, pressed && styles.pressed]}
               onPress={() => {
                 if (canResetView) {
                   setResetToken((value) => value + 1);
@@ -159,7 +159,7 @@ export default function MapScreen() {
             >
               <MaterialCommunityIcons
                 name={canResetView ? 'crosshairs-gps' : 'dots-horizontal'}
-                size={18}
+                size={20}
                 color={JourneyPalette.ink}
               />
             </Pressable>
@@ -167,27 +167,26 @@ export default function MapScreen() {
         </View>
 
         {pendingLocationEvents.length > 0 ? (
-          <InlineBanner
-            icon="map-marker-alert-outline"
-            title={
-              pendingLocationEvents.length === 1
-                ? '有 1 个事件待补地点'
-                : `${pendingLocationEvents.length} 个事件待补地点`
-            }
-            body={
-              pendingLocationEvents.length === 1
-                ? `${pendingLocationEvents[0].title || '未命名事件'} 还没有地点`
-                : '补充后就能正确出现在地图上'
-            }
-            action={
-              <ActionButton
-                label={pendingLocationEvents.length === 1 ? '去补充' : '查看'}
-                tone="secondary"
-                fullWidth={false}
-                onPress={handlePendingLocationPress}
-              />
-            }
-          />
+          <View style={styles.pendingBanner}>
+            <MaterialCommunityIcons name="information-outline" size={16} color="#B45309" />
+            <Text
+              selectable
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+              numberOfLines={1}
+              style={styles.pendingBannerText}
+            >
+              有 {pendingLocationEvents.length} 个事件需要补充地点
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.pendingBannerAction, pressed && styles.pressed]}
+              onPress={handlePendingLocationPress}
+            >
+              <Text selectable style={styles.pendingBannerActionText}>
+                去处理
+              </Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
     </View>
@@ -238,6 +237,7 @@ const styles = StyleSheet.create({
   },
   topOverlay: {
     position: 'absolute',
+    top: 54,
     left: 16,
     right: 16,
     gap: 12,
@@ -245,20 +245,19 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   scopePill: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
+    height: 48,
+    borderRadius: 24,
     paddingHorizontal: 20,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,255,255,0.95)',
     justifyContent: 'center',
     shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
+    shadowOpacity: 0.08,
+    shadowRadius: 25,
     elevation: 4,
   },
   scopePillText: {
@@ -277,11 +276,41 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: JourneyPalette.white,
     shadowColor: JourneyPalette.shadow,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
+    shadowOpacity: 0.08,
+    shadowRadius: 25,
     elevation: 4,
+  },
+  pendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.warningSoft,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  pendingBannerText: {
+    flex: 1,
+    color: '#92400E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pendingBannerAction: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pendingBannerActionText: {
+    color: '#B45309',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  pressed: {
+    transform: [{ scale: 0.97 }],
+    opacity: 0.7,
   },
 });

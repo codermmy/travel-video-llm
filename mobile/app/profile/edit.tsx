@@ -7,6 +7,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,19 +18,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  EmptyStateCard,
-  PageContent,
-  PageHeader,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, EmptyStateCard } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 
 const NICKNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,64}$/;
 const MAX_AVATAR_SIZE = 1024 * 1024;
+const NICKNAME_FALLBACK = '这台设备';
+const ABOUT_FALLBACK = '一个热爱旅行的摄影师';
 
 type PermissionType = 'media' | 'camera' | null;
 
@@ -38,11 +34,12 @@ export default function EditProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(NICKNAME_FALLBACK);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState<PermissionType>(null);
+  const [about, setAbout] = useState(ABOUT_FALLBACK);
 
   const loadUser = useCallback(async () => {
     try {
@@ -50,7 +47,7 @@ export default function EditProfileScreen() {
       setLoadError(null);
       const user = await userApi.getCurrentUser();
       setCurrentUser(user);
-      setNickname(user.nickname || '');
+      setNickname(user.nickname?.trim() || NICKNAME_FALLBACK);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : '请稍后重试');
     } finally {
@@ -62,10 +59,31 @@ export default function EditProfileScreen() {
     void loadUser();
   }, [loadUser]);
 
-  const avatarLetter = useMemo(() => {
-    const source = nickname.trim() || currentUser?.nickname?.trim() || 'D';
-    return source.slice(0, 1).toUpperCase();
+  const avatarLetter = useMemo(() => nickname.slice(0, 1).toUpperCase(), [nickname]);
+
+  const handleNicknameFocus = useCallback(() => {
+    if (nickname.trim() === NICKNAME_FALLBACK && !currentUser?.nickname?.trim()) {
+      setNickname('');
+    }
   }, [currentUser?.nickname, nickname]);
+
+  const handleNicknameBlur = useCallback(() => {
+    if (!nickname.trim()) {
+      setNickname(NICKNAME_FALLBACK);
+    }
+  }, [nickname]);
+
+  const handleAboutFocus = useCallback(() => {
+    if (about.trim() === ABOUT_FALLBACK) {
+      setAbout('');
+    }
+  }, [about]);
+
+  const handleAboutBlur = useCallback(() => {
+    if (!about.trim()) {
+      setAbout(ABOUT_FALLBACK);
+    }
+  }, [about]);
 
   const uploadAvatarAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
     if (asset.fileSize && asset.fileSize > MAX_AVATAR_SIZE) {
@@ -173,80 +191,114 @@ export default function EditProfileScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
       >
-        <PageContent>
-          <PageHeader
-            title="个人资料"
-            rightSlot={
-              <ActionButton
-                label="返回"
-                tone="secondary"
-                icon="arrow-left"
-                fullWidth={false}
-                onPress={() => router.back()}
-              />
-            }
-          />
-
-          {permissionDenied ? (
-            <View style={styles.permissionBlock}>
-              <PermissionRecoveryCard
-                mode={permissionDenied}
-                context="avatar-source"
-                onDismiss={() => setPermissionDenied(null)}
-              />
-            </View>
-          ) : null}
-
-          <SurfaceCard style={styles.profileCard}>
+        <ScrollView
+          style={styles.scrollView}
+          contentInsetAdjustmentBehavior="automatic"
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.header}>
             <Pressable
-              onPress={() => setSourceSheetVisible(true)}
-              style={({ pressed }) => [styles.avatarRow, pressed && styles.rowPressed]}
+              onPress={() => router.back()}
+              style={({ pressed }) => [
+                styles.headerAction,
+                styles.headerActionStart,
+                pressed && styles.pressed,
+              ]}
             >
-              <Text style={styles.rowLabel}>头像</Text>
-              <View style={styles.avatarRowTrailing}>
-                <View style={styles.avatarWrap}>
-                  {currentUser?.avatar_url ? (
-                    <Image source={{ uri: currentUser.avatar_url }} style={styles.avatarImage} />
-                  ) : (
-                    <View style={styles.avatarFallback}>
-                      <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
-                    </View>
-                  )}
-                  {avatarUploading ? (
-                    <View style={styles.avatarLoadingMask}>
-                      <ActivityIndicator color="#FFFFFF" />
-                    </View>
-                  ) : null}
-                </View>
-                <MaterialCommunityIcons
-                  name="chevron-right"
-                  size={18}
-                  color={JourneyPalette.muted}
-                />
-              </View>
+              <Text style={styles.headerCancelText}>取消</Text>
             </Pressable>
 
-            <View style={styles.divider} />
+            <View style={styles.headerTitleWrap}>
+              <Text style={styles.headerTitle}>编辑资料</Text>
+            </View>
 
-            <View style={styles.fieldBlock}>
-              <Text style={styles.rowLabel}>昵称</Text>
+            <Pressable
+              onPress={() => void onSave()}
+              disabled={saving || avatarUploading}
+              style={({ pressed }) => [
+                styles.headerAction,
+                styles.headerActionEnd,
+                (pressed || saving || avatarUploading) && styles.pressed,
+                (saving || avatarUploading) && styles.headerActionDisabled,
+              ]}
+            >
+              {saving ? <ActivityIndicator size="small" color={JourneyPalette.accent} /> : null}
+              <Text style={styles.headerSaveText}>保存</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.content}>
+            {permissionDenied ? (
+              <View style={styles.permissionBlock}>
+                <PermissionRecoveryCard
+                  mode={permissionDenied}
+                  context="avatar-source"
+                  onDismiss={() => setPermissionDenied(null)}
+                />
+              </View>
+            ) : null}
+
+            <Pressable
+              onPress={() => setSourceSheetVisible(true)}
+              style={({ pressed }) => [styles.avatarBlock, pressed && styles.pressed]}
+            >
+              <View style={styles.avatarCircle}>
+                {currentUser?.avatar_url ? (
+                  <Image source={{ uri: currentUser.avatar_url }} style={styles.avatarImage} />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
+                  </View>
+                )}
+
+                {avatarUploading ? (
+                  <View style={styles.avatarLoadingMask}>
+                    <ActivityIndicator color={JourneyPalette.white} />
+                  </View>
+                ) : null}
+
+                <View style={styles.avatarBadge}>
+                  <MaterialCommunityIcons name="camera" size={16} color={JourneyPalette.white} />
+                </View>
+              </View>
+
+              <Text style={styles.avatarActionText}>更换头像</Text>
+            </Pressable>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>你的昵称</Text>
               <TextInput
                 style={styles.input}
                 value={nickname}
                 onChangeText={setNickname}
-                placeholder="请输入昵称"
+                onFocus={handleNicknameFocus}
+                onBlur={handleNicknameBlur}
+                placeholder=""
                 maxLength={64}
                 placeholderTextColor={JourneyPalette.muted}
+                selectionColor={JourneyPalette.accent}
+              />
+              <Text style={styles.helperText}>昵称仅在生成故事标题时作为参考。</Text>
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.fieldLabel}>关于你</Text>
+              <TextInput
+                style={[styles.input, styles.aboutInput]}
+                value={about}
+                onChangeText={setAbout}
+                onFocus={handleAboutFocus}
+                onBlur={handleAboutBlur}
+                placeholder=""
+                placeholderTextColor={JourneyPalette.muted}
+                selectionColor={JourneyPalette.accent}
+                multiline
+                textAlignVertical="top"
               />
             </View>
-          </SurfaceCard>
-
-          <ActionButton
-            label={saving ? '保存中...' : '保存'}
-            onPress={onSave}
-            disabled={saving || avatarUploading}
-          />
-        </PageContent>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
 
       <Modal
@@ -257,11 +309,8 @@ export default function EditProfileScreen() {
       >
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSourceSheetVisible(false)} />
-          <BottomSheetScaffold
-            title="更换头像"
-            onClose={() => setSourceSheetVisible(false)}
-            style={styles.sheet}
-          >
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
             <View style={styles.sheetActions}>
               <ActionButton
                 label="从相册选择"
@@ -287,7 +336,7 @@ export default function EditProfileScreen() {
                 onPress={() => setSourceSheetVisible(false)}
               />
             </View>
-          </BottomSheetScaffold>
+          </View>
         </View>
       </Modal>
     </>
@@ -297,66 +346,111 @@ export default function EditProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.background,
+  },
+  scrollView: {
+    flex: 1,
+    backgroundColor: JourneyPalette.background,
+  },
+  scrollContent: {
+    paddingBottom: 0,
   },
   centerState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.background,
   },
   errorWrap: {
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 16,
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.background,
   },
-  permissionBlock: {
-    width: '100%',
-  },
-  profileCard: {
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-    overflow: 'hidden',
-  },
-  avatarRow: {
-    minHeight: 76,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 16,
   },
-  avatarRowTrailing: {
+  headerAction: {
+    minWidth: 68,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  avatarWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    overflow: 'hidden',
+  headerActionStart: {
+    justifyContent: 'flex-start',
+  },
+  headerActionEnd: {
+    justifyContent: 'flex-end',
+  },
+  headerActionDisabled: {
+    opacity: 0.72,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  headerCancelText: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  headerTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  headerSaveText: {
+    color: JourneyPalette.accent,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  content: {
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
+  },
+  permissionBlock: {
+    marginBottom: 32,
+  },
+  avatarBlock: {
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 48,
+  },
+  avatarCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    overflow: 'visible',
   },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
+    borderRadius: 60,
   },
   avatarFallback: {
     width: '100%',
     height: '100%',
-    borderRadius: 26,
+    borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   avatarFallbackText: {
     color: JourneyPalette.ink,
-    fontSize: 20,
+    fontSize: 48,
     fontWeight: '900',
   },
   avatarLoadingMask: {
@@ -364,34 +458,59 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.42)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 60,
   },
-  divider: {
-    height: 1,
-    backgroundColor: JourneyPalette.line,
-    marginLeft: 18,
+  avatarBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.accent,
+    borderWidth: 4,
+    borderColor: JourneyPalette.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  fieldBlock: {
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    gap: 12,
-  },
-  rowLabel: {
-    color: JourneyPalette.ink,
-    fontSize: 16,
+  avatarActionText: {
+    color: JourneyPalette.accent,
+    fontSize: 14,
     fontWeight: '800',
   },
-  input: {
-    minHeight: 50,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
-    color: JourneyPalette.ink,
-    fontSize: 15,
+  formGroup: {
+    marginBottom: 32,
   },
-  rowPressed: {
-    opacity: 0.92,
+  fieldLabel: {
+    color: JourneyPalette.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 12,
+  },
+  input: {
+    minHeight: 56,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    color: JourneyPalette.ink,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  aboutInput: {
+    minHeight: 120,
+  },
+  helperText: {
+    marginTop: 10,
+    color: JourneyPalette.muted,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  pressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.97 }],
   },
   modalBackdrop: {
     flex: 1,
@@ -399,7 +518,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.34)',
   },
   sheet: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    backgroundColor: JourneyPalette.background,
+    paddingTop: 12,
+    paddingHorizontal: 20,
     paddingBottom: 18,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.cardMuted,
+    alignSelf: 'center',
+    marginBottom: 18,
   },
   sheetActions: {
     gap: 12,

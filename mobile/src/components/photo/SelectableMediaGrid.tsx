@@ -7,10 +7,10 @@ import Animated, { useAnimatedRef, useAnimatedScrollHandler } from 'react-native
 
 import { JourneyPalette } from '@/styles/colors';
 
-const COLUMNS = 3;
-const GRID_GAP = 8;
-const GRID_HORIZONTAL_PADDING = 2;
-const GRID_BOTTOM_PADDING = 8;
+const DEFAULT_COLUMNS = 3;
+const DEFAULT_GRID_GAP = 8;
+const DEFAULT_GRID_HORIZONTAL_PADDING = 2;
+const DEFAULT_GRID_BOTTOM_PADDING = 8;
 const LONG_PRESS_DURATION_MS = 180;
 const AUTO_SCROLL_START_THRESHOLD = 0.12;
 const AUTO_SCROLL_END_THRESHOLD = 0.88;
@@ -25,6 +25,8 @@ export type SelectableMediaGridItem = {
 
 type BrowseTapBehavior = 'open' | 'select' | 'select-or-open-on-double';
 
+type SelectableMediaGridVariant = 'default' | 'photo-manager';
+
 type SelectableMediaGridProps = {
   items: SelectableMediaGridItem[];
   selectedIds: string[];
@@ -36,6 +38,7 @@ type SelectableMediaGridProps = {
   onEndReached?: () => void;
   onItemPress?: (item: SelectableMediaGridItem, index: number) => void;
   browseTapBehavior?: BrowseTapBehavior;
+  variant?: SelectableMediaGridVariant;
 };
 
 type DragSelectableItem = SelectableMediaGridItem & {
@@ -46,20 +49,43 @@ type MediaTileProps = {
   item: SelectableMediaGridItem;
   size: number;
   selected: boolean;
+  variant: SelectableMediaGridVariant;
+  gap: number;
 };
 
-const MediaTile = memo(function MediaTile({ item, size, selected }: MediaTileProps) {
+const MediaTile = memo(function MediaTile({ item, size, selected, variant, gap }: MediaTileProps) {
+  const isPhotoManagerVariant = variant === 'photo-manager';
+
   return (
-    <View style={[styles.tile, { width: size, height: size }]}>
+    <View
+      style={[
+        styles.tile,
+        !isPhotoManagerVariant && selected && styles.tileSelected,
+        isPhotoManagerVariant ? styles.photoManagerTile : styles.defaultTile,
+        { width: size, height: size, marginBottom: gap },
+      ]}
+    >
       <Image source={{ uri: item.uri ?? undefined }} style={styles.tileImage} />
-      <View style={[styles.tileOverlay, selected && styles.tileOverlaySelected]} />
-      <View style={[styles.checkBadge, selected && styles.checkBadgeSelected]}>
-        <MaterialCommunityIcons
-          name={selected ? 'check-bold' : 'plus'}
-          size={14}
-          color={selected ? '#FFF9F2' : JourneyPalette.ink}
-        />
-      </View>
+      <View
+        style={[
+          styles.tileOverlay,
+          isPhotoManagerVariant && styles.photoManagerTileOverlay,
+          selected &&
+            (isPhotoManagerVariant
+              ? styles.photoManagerTileOverlaySelected
+              : styles.tileOverlaySelected),
+        ]}
+      />
+      {selected ? (
+        <View
+          style={[
+            isPhotoManagerVariant ? styles.photoManagerCheckBadge : styles.checkBadge,
+            styles.checkBadgeSelected,
+          ]}
+        >
+          <MaterialCommunityIcons name="check-bold" size={12} color={JourneyPalette.white} />
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -83,6 +109,7 @@ export function SelectableMediaGrid({
   onEndReached,
   onItemPress,
   browseTapBehavior = 'open',
+  variant = 'default',
 }: SelectableMediaGridProps) {
   const animatedListRef = useAnimatedRef<FlatList<DragSelectableItem>>();
   const selectedIdsRef = useRef(selectedIds);
@@ -108,6 +135,24 @@ export function SelectableMediaGrid({
     }
   }, [footer, footerHeight]);
 
+  const gridLayout = useMemo(
+    () =>
+      variant === 'photo-manager'
+        ? {
+            columns: 4,
+            gap: 2,
+            horizontalPadding: 2,
+            bottomPadding: 2,
+          }
+        : {
+            columns: DEFAULT_COLUMNS,
+            gap: DEFAULT_GRID_GAP,
+            horizontalPadding: DEFAULT_GRID_HORIZONTAL_PADDING,
+            bottomPadding: DEFAULT_GRID_BOTTOM_PADDING,
+          },
+    [variant],
+  );
+
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const tileSize = useMemo(() => {
@@ -116,9 +161,12 @@ export function SelectableMediaGrid({
     }
 
     return Math.floor(
-      (containerWidth - GRID_HORIZONTAL_PADDING * 2 - GRID_GAP * (COLUMNS - 1)) / COLUMNS,
+      (containerWidth -
+        gridLayout.horizontalPadding * 2 -
+        gridLayout.gap * (gridLayout.columns - 1)) /
+        gridLayout.columns,
     );
-  }, [containerWidth]);
+  }, [containerWidth, gridLayout]);
 
   const dragItems = useMemo<DragSelectableItem[]>(
     () =>
@@ -171,18 +219,18 @@ export function SelectableMediaGrid({
     key: 'dragId',
     list: {
       animatedRef: animatedListRef,
-      numColumns: COLUMNS,
+      numColumns: gridLayout.columns,
       itemSize: {
         width: tileSize,
         height: tileSize,
       },
       contentInset: {
-        left: GRID_HORIZONTAL_PADDING,
-        right: GRID_HORIZONTAL_PADDING,
-        bottom: GRID_BOTTOM_PADDING + footerHeight,
+        left: gridLayout.horizontalPadding,
+        right: gridLayout.horizontalPadding,
+        bottom: gridLayout.bottomPadding + footerHeight,
       },
-      rowGap: GRID_GAP,
-      columnGap: GRID_GAP,
+      rowGap: gridLayout.gap,
+      columnGap: gridLayout.gap,
     },
     longPressGesture: {
       enabled: true,
@@ -317,11 +365,17 @@ export function SelectableMediaGrid({
     ({ item, index }: { item: DragSelectableItem; index: number }) => (
       <GestureDetector gesture={dragSelect.gestures.createItemPressHandler(item.dragId, index)}>
         <View>
-          <MediaTile item={item} size={tileSize} selected={selectedIdSet.has(item.id)} />
+          <MediaTile
+            item={item}
+            size={tileSize}
+            selected={selectedIdSet.has(item.id)}
+            variant={variant}
+            gap={gridLayout.gap}
+          />
         </View>
       </GestureDetector>
     ),
-    [dragSelect.gestures, selectedIdSet, tileSize],
+    [dragSelect.gestures, gridLayout.gap, selectedIdSet, tileSize, variant],
   );
 
   const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
@@ -349,7 +403,7 @@ export function SelectableMediaGrid({
           ref={animatedListRef}
           style={styles.list}
           data={dragItems}
-          numColumns={COLUMNS}
+          numColumns={gridLayout.columns}
           renderItem={renderItem}
           keyExtractor={(item) => item.dragId}
           onScroll={scrollHandler}
@@ -358,8 +412,14 @@ export function SelectableMediaGrid({
           onEndReachedThreshold={0.4}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews
-          contentContainerStyle={styles.contentContainer}
-          columnWrapperStyle={styles.columnWrapper}
+          contentContainerStyle={[
+            styles.contentContainer,
+            {
+              paddingHorizontal: gridLayout.horizontalPadding,
+              paddingBottom: gridLayout.bottomPadding,
+            },
+          ]}
+          columnWrapperStyle={{ gap: gridLayout.gap }}
           ListFooterComponent={renderFooter}
         />
       </GestureDetector>
@@ -375,18 +435,20 @@ const styles = StyleSheet.create({
   list: {
     flex: 1,
   },
-  contentContainer: {
-    paddingHorizontal: GRID_HORIZONTAL_PADDING,
-    paddingBottom: GRID_BOTTOM_PADDING,
-  },
-  columnWrapper: {
-    gap: GRID_GAP,
-  },
+  contentContainer: {},
   tile: {
-    marginBottom: GRID_GAP,
-    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#E8E2D7',
+    backgroundColor: JourneyPalette.cardMuted,
+  },
+  defaultTile: {
+    borderRadius: 14,
+  },
+  photoManagerTile: {
+    borderRadius: 0,
+  },
+  tileSelected: {
+    borderWidth: 4,
+    borderColor: JourneyPalette.accent,
   },
   tileImage: {
     width: '100%',
@@ -394,39 +456,47 @@ const styles = StyleSheet.create({
   },
   tileOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(23, 33, 42, 0.08)',
+    backgroundColor: 'rgba(2, 6, 23, 0.04)',
+  },
+  photoManagerTileOverlay: {
+    backgroundColor: 'transparent',
   },
   tileOverlaySelected: {
-    backgroundColor: 'rgba(37, 93, 88, 0.32)',
+    backgroundColor: 'transparent',
+  },
+  photoManagerTileOverlaySelected: {
+    backgroundColor: 'rgba(2, 6, 23, 0.14)',
   },
   checkBadge: {
     position: 'absolute',
     top: 10,
     right: 10,
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: 'rgba(33, 45, 56, 0.16)',
-    backgroundColor: 'rgba(255, 249, 242, 0.88)',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkBadgeSelected: {
-    borderColor: 'rgba(255, 249, 242, 0.18)',
     backgroundColor: JourneyPalette.accent,
+  },
+  photoManagerCheckBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyState: {
     flex: 1,
     minHeight: 220,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   emptyText: {
     textAlign: 'center',

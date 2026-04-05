@@ -1,18 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
 
-import {
-  EmptyStateCard,
-  PageContent,
-  PageHeader,
-  SectionLabel,
-  StatusPill,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { EmptyStateCard, PageContent } from '@/components/ui/revamp';
 import { ImportTaskDetailScreen } from '@/screens/import-task-detail-screen';
 import {
   getImportTaskSourceLabel,
@@ -25,9 +17,7 @@ import {
   buildImportTaskSummary,
   formatImportTaskTime,
   getImportTaskOverallProgress,
-  getImportTaskProgressColor,
   getImportTaskStatusIcon,
-  getImportTaskStatusLabel,
   getImportTaskStatusTone,
 } from '@/utils/importTaskPresentation';
 
@@ -49,154 +39,121 @@ function sortTasksWithFocus(tasks: ImportTaskRecord[], focusedTaskId: string | n
   });
 }
 
-function TaskListRow(props: { task: ImportTaskRecord; onPress: () => void; isLast: boolean }) {
-  const summary = buildImportTaskSummary(props.task, getImportTaskSourceLabel(props.task.source));
-  const tone = getImportTaskStatusTone(props.task);
+function getTaskDisplayTitle(task: ImportTaskRecord | null): string {
+  const title = task?.title?.trim();
+  return title ? title : '未命名任务';
+}
+
+function getTaskDisplaySummary(task: ImportTaskRecord | null): string {
+  if (!task) {
+    return '正在准备整理内容';
+  }
+
+  const summary = buildImportTaskSummary(task, getImportTaskSourceLabel(task.source)).trim();
+  return summary ? summary : '正在准备整理内容';
+}
+
+function getHistorySummary(task: ImportTaskRecord): string {
+  const summary = buildImportTaskSummary(task, getImportTaskSourceLabel(task.source)).trim();
+  return summary ? summary : '暂无摘要';
+}
+
+function getTaskTimeLabel(value: string | null | undefined): string {
+  if (!value) {
+    return '刚刚';
+  }
+
+  const label = formatImportTaskTime(value).trim();
+  return label ? label : '刚刚';
+}
+
+function getTaskEtaLabel(task: ImportTaskRecord | null): string {
+  if (!task) {
+    return '片刻';
+  }
+
+  if (task.status === 'completed') {
+    return '已完成';
+  }
+
+  if (task.status === 'failed') {
+    return '处理中断';
+  }
+
+  const activePhase = task.phases[task.activePhase];
+  if (activePhase.status === 'completed') {
+    return '即将完成';
+  }
+
+  return '片刻';
+}
+
+function getHeroMeta(task: ImportTaskRecord | null): string {
+  if (!task) {
+    return '启动于 刚刚 · 预计还需 片刻';
+  }
+
+  return `启动于 ${getTaskTimeLabel(task.createdAt)} · 预计还需 ${getTaskEtaLabel(task)}`;
+}
+
+function getToneBackground(task: ImportTaskRecord): string {
+  const tone = getImportTaskStatusTone(task);
+
+  if (tone === 'failed') {
+    return JourneyPalette.dangerSoft;
+  }
+  if (tone === 'ready') {
+    return JourneyPalette.successSoft;
+  }
+
+  return JourneyPalette.surfaceVariant;
+}
+
+function getToneIconColor(task: ImportTaskRecord): string {
+  const tone = getImportTaskStatusTone(task);
+
+  if (tone === 'failed') {
+    return JourneyPalette.danger;
+  }
+  if (tone === 'ready') {
+    return JourneyPalette.success;
+  }
+
+  return JourneyPalette.accent;
+}
+
+function HistoryRow(props: { task: ImportTaskRecord; onPress: () => void; isLast: boolean }) {
+  const summary = getHistorySummary(props.task);
 
   return (
     <View>
       <Pressable
         onPress={props.onPress}
-        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.historyRow, pressed && styles.pressed]}
       >
-        <View style={styles.rowLead}>
-          <View style={[
-            styles.rowIconWrap,
-            tone === 'failed' && styles.rowIconWrapFailed,
-            tone === 'analyzing' && styles.rowIconWrapRunning,
-            tone === 'ready' && styles.rowIconWrapReady,
-          ]}>
-            <MaterialCommunityIcons
-              name={getImportTaskStatusIcon(props.task)}
-              size={20}
-              color={
-                tone === 'failed'
-                  ? JourneyPalette.danger
-                  : tone === 'ready'
-                    ? JourneyPalette.success
-                    : JourneyPalette.accent
-              }
-            />
-          </View>
-
-          <View style={styles.rowCopy}>
-            <Text numberOfLines={1} style={styles.rowTitle}>
-              {getImportTaskSourceLabel(props.task.source)}
-            </Text>
-            <Text numberOfLines={1} style={styles.rowSummary}>
-              {summary}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.rowMeta}>
-          <Text style={styles.rowTime}>{formatImportTaskTime(props.task.createdAt)}</Text>
-          <MaterialCommunityIcons name="chevron-right" size={16} color={JourneyPalette.muted} />
-        </View>
-      </Pressable>
-      {!props.isLast ? <View style={styles.rowDivider} /> : null}
-    </View>
-  );
-}
-
-function buildOverviewTitle(params: {
-  runningTasks: ImportTaskRecord[];
-  failedTasks: ImportTaskRecord[];
-  completedTasks: ImportTaskRecord[];
-}) {
-  if (params.runningTasks.length > 1) {
-    return `${params.runningTasks.length} 个批次正在并行整理`;
-  }
-  if (params.runningTasks.length === 1) {
-    return `${getImportTaskSourceLabel(params.runningTasks[0].source)}正在整理`;
-  }
-  if (params.failedTasks.length > 1) {
-    return `${params.failedTasks.length} 个批次需要处理`;
-  }
-  if (params.failedTasks.length === 1) {
-    return `${getImportTaskSourceLabel(params.failedTasks[0].source)}需要处理`;
-  }
-  if (params.completedTasks.length > 0) {
-    return `最近一轮${getImportTaskSourceLabel(params.completedTasks[0].source)}已完成`;
-  }
-  return '还没有导入记录';
-}
-
-function buildOverviewBody(params: {
-  runningTasks: ImportTaskRecord[];
-  failedTasks: ImportTaskRecord[];
-  completedTasks: ImportTaskRecord[];
-}) {
-  if (params.runningTasks.length > 1) {
-    return '新的导入会追加成独立批次继续处理，不会覆盖上一批。先看“进行中”列表即可。';
-  }
-  if (params.runningTasks.length === 1) {
-    return buildImportTaskSummary(
-      params.runningTasks[0],
-      getImportTaskSourceLabel(params.runningTasks[0].source),
-    );
-  }
-  if (params.failedTasks.length > 1) {
-    return '失败批次会单独保留，互不影响。逐个进入详情查看中断阶段即可。';
-  }
-  if (params.failedTasks.length === 1) {
-    return buildImportTaskSummary(
-      params.failedTasks[0],
-      getImportTaskSourceLabel(params.failedTasks[0].source),
-    );
-  }
-  if (params.completedTasks.length > 0) {
-    return buildImportTaskSummary(
-      params.completedTasks[0],
-      getImportTaskSourceLabel(params.completedTasks[0].source),
-    );
-  }
-  return '导入从别的入口发起，这里只负责回看状态、失败和历史记录。';
-}
-
-function buildOverviewMeta(params: {
-  runningTasks: ImportTaskRecord[];
-  failedTasks: ImportTaskRecord[];
-  completedTasks: ImportTaskRecord[];
-}) {
-  if (params.runningTasks.length > 1) {
-    return `当前有 ${params.runningTasks.length} 个批次同时在跑`;
-  }
-  if (params.runningTasks.length === 1) {
-    return `启动于 ${formatImportTaskTime(params.runningTasks[0].createdAt)}`;
-  }
-  if (params.failedTasks.length > 0) {
-    return `待处理 ${params.failedTasks.length} 个批次`;
-  }
-  if (params.completedTasks.length > 0) {
-    return `最近完成于 ${formatImportTaskTime(params.completedTasks[0].updatedAt)}`;
-  }
-  return '等待从别处发起新的导入';
-}
-
-function TaskGroup(props: {
-  title: string;
-  tasks: ImportTaskRecord[];
-  onPressTask: (taskId: string) => void;
-  action?: ReactNode;
-}) {
-  if (props.tasks.length === 0) {
-    return null;
-  }
-
-  return (
-    <View style={styles.sectionBlock}>
-      <SectionLabel title={props.title} action={props.action} />
-      <View style={styles.groupCard}>
-        {props.tasks.map((task, index) => (
-          <TaskListRow
-            key={task.id}
-            task={task}
-            onPress={() => props.onPressTask(task.id)}
-            isLast={index === props.tasks.length - 1}
+        <View style={[styles.historyIcon, { backgroundColor: getToneBackground(props.task) }]}>
+          <MaterialCommunityIcons
+            name={getImportTaskStatusIcon(props.task)}
+            size={20}
+            color={getToneIconColor(props.task)}
           />
-        ))}
-      </View>
+        </View>
+
+        <View style={styles.historyCopy}>
+          <Text numberOfLines={1} style={styles.historyTitle}>
+            {getTaskDisplayTitle(props.task)}
+          </Text>
+          <Text numberOfLines={2} style={styles.historySummary}>
+            {summary}
+          </Text>
+        </View>
+
+        <Text style={styles.historyTime}>
+          {getTaskTimeLabel(props.task.updatedAt || props.task.createdAt)}
+        </Text>
+      </Pressable>
+
+      {!props.isLast ? <View style={styles.historyDivider} /> : null}
     </View>
   );
 }
@@ -265,6 +222,7 @@ export default function ImportTasksScreen() {
     if (runningTasks.length === 0) {
       return currentTask ? getImportTaskOverallProgress(currentTask) : 0;
     }
+
     return (
       runningTasks.reduce((sum, task) => sum + getImportTaskOverallProgress(task), 0) /
       runningTasks.length
@@ -293,6 +251,10 @@ export default function ImportTasksScreen() {
         : remainingCompletedTasks.slice(0, HISTORY_PREVIEW_LIMIT),
     [remainingCompletedTasks, showAllHistory],
   );
+  const historyRows = useMemo(
+    () => [...remainingRunningTasks, ...remainingFailedTasks, ...historyTasks],
+    [historyTasks, remainingFailedTasks, remainingRunningTasks],
+  );
 
   const openTaskDetail = useCallback(
     (nextTaskId: string) => {
@@ -310,15 +272,8 @@ export default function ImportTasksScreen() {
 
   return (
     <PageContent style={styles.pageContent}>
-      <PageHeader
-        eyebrow="PROCESSING"
-        title="整理中心"
-        subtitle={
-          hasParallelRunningTasks
-            ? '多批次并行处理，请稍候。'
-            : '静候佳音，系统正在为你精选瞬间。'
-        }
-      />
+      <Text style={styles.pageTitle}>整理中心</Text>
+      <Text style={styles.pageSubtitle}>AI 正在实验室中精心冲印</Text>
 
       {currentTask ? (
         <Pressable
@@ -329,240 +284,228 @@ export default function ImportTasksScreen() {
             }
           }}
           style={({ pressed }) => [
-            styles.currentCardWrap,
-            !hasParallelRunningTasks && pressed && styles.pressed,
+            styles.heroCard,
+            pressed && !hasParallelRunningTasks && styles.pressed,
           ]}
         >
-          <View style={styles.currentCard}>
-            <View style={styles.currentHeader}>
-              <StatusPill
-                label={
-                  hasParallelRunningTasks
-                    ? `${runningTasks.length} 个进行中`
-                    : getImportTaskStatusLabel(currentTask)
-                }
-                tone={hasParallelRunningTasks ? 'analyzing' : getImportTaskStatusTone(currentTask)}
-              />
-              <Text style={styles.currentTime}>
-                {hasParallelRunningTasks
-                  ? `${runningTasks.length} 批次`
-                  : formatImportTaskTime(currentTask.createdAt)}
-              </Text>
-            </View>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>Analyzing</Text>
+          </View>
 
-            <Text style={styles.currentTitle}>
-              {buildOverviewTitle({ runningTasks, failedTasks, completedTasks })}
-            </Text>
-            <Text style={styles.currentBody}>
-              {buildOverviewBody({ runningTasks, failedTasks, completedTasks })}
-            </Text>
+          <Text numberOfLines={2} style={styles.heroTitle}>
+            {getTaskDisplayTitle(currentTask)}
+          </Text>
+          <Text numberOfLines={2} style={styles.heroBody}>
+            {getTaskDisplaySummary(currentTask)}
+          </Text>
 
-            <View style={styles.currentProgressMeta}>
-              <Text style={styles.currentProgressLabel}>
-                {hasParallelRunningTasks
-                  ? '平均进度'
-                  : currentTask.phases[currentTask.activePhase].label}
-              </Text>
-              <Text style={styles.currentProgressValue}>{Math.round(overviewProgress * 100)}%</Text>
-            </View>
+          <View style={styles.progressContainer}>
             <ProgressBar
               progress={overviewProgress}
-              color={
-                hasParallelRunningTasks
-                  ? JourneyPalette.accent
-                  : getImportTaskProgressColor(currentTask)
-              }
-              style={styles.currentProgressBar}
+              color={JourneyPalette.accent}
+              style={styles.progressBar}
             />
-
-            <Text style={styles.currentMetaText}>
-              {hasParallelRunningTasks
-                ? buildOverviewMeta({ runningTasks, failedTasks, completedTasks })
-                : `轻触进入详情 · ${buildOverviewMeta({
-                    runningTasks,
-                    failedTasks,
-                    completedTasks,
-                  })}`}
-            </Text>
+            <View style={styles.progressMeta}>
+              <Text style={styles.progressLabel}>正在生成故事情节</Text>
+              <Text style={styles.progressValue}>{`${Math.round(overviewProgress * 100)}%`}</Text>
+            </View>
           </View>
+
+          <Text style={styles.heroMeta}>{getHeroMeta(currentTask)}</Text>
         </Pressable>
       ) : (
         <EmptyStateCard
           icon="timeline-outline"
           title="实验室静候中"
           description="导入照片后，这里将展示 AI 分析、地点聚合和故事生成的每一个精准瞬间。"
+          style={styles.emptyStateCard}
         />
       )}
 
-      <TaskGroup title="进行中" tasks={remainingRunningTasks} onPressTask={openTaskDetail} />
-      <TaskGroup title="需要处理" tasks={remainingFailedTasks} onPressTask={openTaskDetail} />
-      <TaskGroup
-        title="最近记录"
-        tasks={historyTasks}
-        onPressTask={openTaskDetail}
-        action={
-          remainingCompletedTasks.length > HISTORY_PREVIEW_LIMIT ? (
-            <Pressable
-              onPress={() => setShowAllHistory((value) => !value)}
-              style={({ pressed }) => [styles.historyToggle, pressed && styles.pressed]}
-            >
-              <Text style={styles.historyToggleText}>{showAllHistory ? '收起' : '更多'}</Text>
-            </Pressable>
-          ) : undefined
-        }
-      />
+      {historyRows.length > 0 ? (
+        <>
+          <View style={styles.historyLabelRow}>
+            <Text style={styles.historyLabel}>历史记录</Text>
+            {remainingCompletedTasks.length > HISTORY_PREVIEW_LIMIT ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setShowAllHistory((value) => !value)}
+                style={({ pressed }) => [styles.historyToggle, pressed && styles.pressed]}
+              >
+                <MaterialCommunityIcons
+                  name={showAllHistory ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={JourneyPalette.muted}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View>
+            {historyRows.map((task, index) => (
+              <HistoryRow
+                key={task.id}
+                task={task}
+                onPress={() => openTaskDetail(task.id)}
+                isLast={index === historyRows.length - 1}
+              />
+            ))}
+          </View>
+        </>
+      ) : null}
     </PageContent>
   );
 }
 
 const styles = StyleSheet.create({
   pageContent: {
-    gap: 32,
-    backgroundColor: '#FFFFFF',
-    paddingBottom: 60,
+    backgroundColor: JourneyPalette.background,
+    gap: 0,
+    paddingTop: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 100,
   },
-  currentCardWrap: {
-    borderRadius: 32,
-    overflow: 'hidden',
-  },
-  currentCard: {
-    padding: 24,
-    gap: 20,
-    backgroundColor: JourneyPalette.surfaceVariant,
-  },
-  currentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  currentTime: {
-    color: JourneyPalette.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  currentTitle: {
+  pageTitle: {
     color: JourneyPalette.ink,
-    fontSize: 28,
+    fontSize: 34,
     fontWeight: '900',
-    lineHeight: 34,
-    letterSpacing: -0.8,
+    letterSpacing: -1.2,
+    marginTop: 20,
+    marginBottom: 4,
   },
-  currentBody: {
+  pageSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
+    marginBottom: 32,
+  },
+  heroCard: {
+    backgroundColor: JourneyPalette.surfaceVariant,
+    borderRadius: 32,
+    padding: 28,
+    marginBottom: 40,
+  },
+  emptyStateCard: {
+    marginBottom: 40,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    marginBottom: 16,
+    borderRadius: 8,
+    backgroundColor: JourneyPalette.accentSoft,
+  },
+  heroBadgeText: {
+    color: JourneyPalette.accent,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  heroBody: {
     color: JourneyPalette.inkSoft,
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '500',
   },
-  currentProgressMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: -8,
+  progressContainer: {
+    marginVertical: 24,
   },
-  currentProgressLabel: {
-    color: JourneyPalette.ink,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  currentProgressValue: {
-    color: JourneyPalette.accent,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  currentProgressBar: {
+  progressBar: {
     height: 6,
     borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.05)',
   },
-  currentMetaText: {
-    color: JourneyPalette.muted,
+  progressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 12,
+  },
+  progressLabel: {
+    color: JourneyPalette.ink,
     fontSize: 13,
+    fontWeight: '800',
+  },
+  progressValue: {
+    color: JourneyPalette.accent,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  heroMeta: {
+    color: JourneyPalette.muted,
+    fontSize: 12,
     fontWeight: '700',
+    letterSpacing: 1,
   },
-  sectionBlock: {
-    gap: 16,
+  historyLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
   },
-  groupCard: {
-    padding: 0,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
+  historyLabel: {
+    color: JourneyPalette.muted,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 2,
   },
-  row: {
-    paddingVertical: 20,
+  historyToggle: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+    paddingVertical: 16,
   },
-  rowLead: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 16,
-  },
-  rowIconWrap: {
+  historyIcon: {
     width: 44,
     height: 44,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: JourneyPalette.surfaceVariant,
   },
-  rowIconWrapRunning: {
-    backgroundColor: JourneyPalette.accentSoft,
-  },
-  rowIconWrapReady: {
-    backgroundColor: JourneyPalette.successSoft,
-  },
-  rowIconWrapFailed: {
-    backgroundColor: JourneyPalette.dangerSoft,
-  },
-  rowCopy: {
+  historyCopy: {
     flex: 1,
     gap: 4,
   },
-  rowTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  rowTitle: {
+  historyTitle: {
     color: JourneyPalette.ink,
     fontSize: 17,
     fontWeight: '800',
-    letterSpacing: -0.2,
   },
-  rowSummary: {
+  historySummary: {
     color: JourneyPalette.muted,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
     fontWeight: '500',
   },
-  rowMeta: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  rowTime: {
+  historyTime: {
     color: JourneyPalette.muted,
     fontSize: 12,
     fontWeight: '700',
   },
-  rowDivider: {
+  historyDivider: {
     height: 1,
-    backgroundColor: JourneyPalette.line,
-    marginTop: 20,
-  },
-  historyToggle: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  historyToggleText: {
-    color: JourneyPalette.accent,
-    fontSize: 13,
-    fontWeight: '800',
+    backgroundColor: JourneyPalette.cardSoft,
   },
   pressed: {
-    opacity: 0.7,
+    opacity: 0.72,
   },
 });

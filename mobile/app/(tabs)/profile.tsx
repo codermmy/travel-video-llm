@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,10 +14,12 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Snackbar } from 'react-native-paper';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
 import { UploadProgress } from '@/components/upload/UploadProgress';
+import { eventApi } from '@/services/api/eventApi';
 import {
   clearImportCache,
   getImportCacheSummary,
@@ -54,9 +56,44 @@ type GroupHeaderProps = {
 
 function GroupHeader({ title }: GroupHeaderProps) {
   return (
-    <View style={styles.groupHeader}>
+    <View>
       <Text style={styles.groupTitle}>{title}</Text>
     </View>
+  );
+}
+
+type IconActionButtonProps = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+  accessibilityLabel: string;
+  loading?: boolean;
+  tint?: string;
+};
+
+function IconActionButton({
+  icon,
+  onPress,
+  accessibilityLabel,
+  loading = false,
+  tint = JourneyPalette.ink,
+}: IconActionButtonProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      disabled={loading}
+      onPress={(event) => {
+        event.stopPropagation();
+        onPress();
+      }}
+      style={({ pressed }) => [styles.iconActionButton, pressed && styles.rowPressed]}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={tint} />
+      ) : (
+        <MaterialCommunityIcons name={icon} size={18} color={tint} />
+      )}
+    </Pressable>
   );
 }
 
@@ -64,29 +101,26 @@ type ListRowProps = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
   subtitle?: string;
-  value?: string;
   onPress?: () => void;
-  destructive?: boolean;
-  emphasizeValue?: boolean;
-  loading?: boolean;
+  iconTint?: string;
+  iconBackgroundColor?: string;
+  rightSlot?: ReactNode;
+  showChevron?: boolean;
 };
 
 function ListRow({
   icon,
   title,
   subtitle,
-  value,
   onPress,
-  destructive = false,
-  emphasizeValue = false,
-  loading = false,
+  iconTint = JourneyPalette.ink,
+  iconBackgroundColor = JourneyPalette.surfaceVariant,
+  rightSlot,
+  showChevron = Boolean(onPress),
 }: ListRowProps) {
-  const tint = destructive ? JourneyPalette.danger : JourneyPalette.accent;
-  const iconBackground = destructive ? JourneyPalette.dangerSoft : JourneyPalette.accentSoft;
-
   return (
     <Pressable
-      disabled={!onPress || loading}
+      disabled={!onPress}
       onPress={onPress}
       style={({ pressed }) => [
         styles.listRow,
@@ -94,38 +128,40 @@ function ListRow({
         pressed && onPress ? styles.rowPressed : null,
       ]}
     >
-      <View style={[styles.rowIconWrap, { backgroundColor: iconBackground }]}>
-        <MaterialCommunityIcons name={icon} size={18} color={tint} />
+      <View style={[styles.rowIconWrap, { backgroundColor: iconBackgroundColor }]}>
+        <MaterialCommunityIcons name={icon} size={20} color={iconTint} />
       </View>
 
       <View style={styles.rowCopy}>
-        <Text style={[styles.rowTitle, destructive && styles.rowTitleDanger]}>{title}</Text>
+        <Text style={styles.rowTitle}>{title}</Text>
         {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
       </View>
 
-      <View style={styles.rowTrailing}>
-        {loading ? (
-          <ActivityIndicator size="small" color={destructive ? JourneyPalette.danger : tint} />
-        ) : value ? (
-          <Text style={[styles.rowValue, emphasizeValue && styles.rowValueEmphasized]}>
-            {value}
-          </Text>
-        ) : null}
-        {onPress ? (
-          <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
-        ) : null}
-      </View>
+      {rightSlot || showChevron ? (
+        <View style={styles.rowTrailing}>
+          {rightSlot}
+          {showChevron ? (
+            <MaterialCommunityIcons
+              name="chevron-right"
+              size={20}
+              color={JourneyPalette.cardMuted}
+            />
+          ) : null}
+        </View>
+      ) : null}
     </Pressable>
   );
 }
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [localData, setLocalData] = useState<LocalDataSummary | null>(null);
+  const [memoryCount, setMemoryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [runningTaskCount, setRunningTaskCount] = useState(0);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -139,13 +175,18 @@ export default function ProfileScreen() {
   const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
-      const [profile, importSummary] = await Promise.all([
+      const [profile, importSummary, events] = await Promise.all([
         userApi.getCurrentUser(),
         getImportCacheSummary(),
+        eventApi.listAllEvents().catch((loadError) => {
+          console.warn('load profile event summary failed', loadError);
+          return [];
+        }),
       ]);
 
       setUser(profile);
       setLocalData(importSummary);
+      setMemoryCount(events.length);
       setError(null);
     } catch (loadError) {
       console.warn('load settings failed', loadError);
@@ -170,26 +211,34 @@ export default function ProfileScreen() {
   }, []);
 
   const avatarLetter = useMemo(() => {
-    const source = user?.nickname?.trim() || 'D';
+    const source = user?.nickname?.trim() || user?.device_id?.trim() || '这台设备';
     return source.slice(0, 1).toUpperCase();
-  }, [user?.nickname]);
+  }, [user?.device_id, user?.nickname]);
 
-  const metricItems = useMemo(
+  const identityName = useMemo(
+    () => user?.nickname?.trim() || user?.device_id?.trim() || '这台设备',
+    [user?.device_id, user?.nickname],
+  );
+
+  const statItems = useMemo(
     () => [
       {
-        label: '导入记录',
-        value: `${localData?.assetCount ?? 0} 条`,
+        label: '回忆',
+        value: String(memoryCount.toLocaleString('zh-CN')),
+        onPress: () => router.push('/(tabs)'),
       },
       {
-        label: '后台任务',
-        value: `${runningTaskCount} 个`,
+        label: '记录',
+        value: String((localData?.assetCount ?? 0).toLocaleString('zh-CN')),
+        onPress: () => router.push('/profile/import-tasks'),
       },
       {
-        label: '隐私保护',
-        value: '默认开启',
+        label: '任务',
+        value: String(runningTaskCount.toLocaleString('zh-CN')),
+        onPress: () => router.push('/profile/import-tasks'),
       },
     ],
-    [localData?.assetCount, runningTaskCount],
+    [localData?.assetCount, memoryCount, router, runningTaskCount],
   );
 
   const handleClearLocalCache = useCallback(() => {
@@ -317,17 +366,15 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      contentInsetAdjustmentBehavior="automatic"
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>我的</Text>
-      </View>
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.pageTitle, { marginTop: insets.top + 16 - 40 }]}>我的</Text>
 
-      <View style={styles.identityCard}>
         <Pressable
           onPress={openProfileEditor}
           style={({ pressed }) => [styles.identityRow, pressed && styles.rowPressed]}
@@ -335,83 +382,80 @@ export default function ProfileScreen() {
           {user.avatar_url ? (
             <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
           ) : (
-            <LinearGradient
-              colors={[JourneyPalette.ink, '#475569']}
-              style={styles.avatarFallback}
-            >
+            <View style={styles.avatarFallback}>
               <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
-            </LinearGradient>
+            </View>
           )}
 
           <View style={styles.identityCopy}>
-            <Text style={styles.identityTitle}>{user.nickname?.trim() || '这台设备'}</Text>
-            <View style={{ flexDirection: 'row' }}>
-              <View style={styles.deviceBadge}>
-                <Text style={styles.deviceBadgeText}>本机设备 · 已加密</Text>
-              </View>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.identityTitle}>
+              {identityName}
+            </Text>
+            <View style={styles.deviceBadge}>
+              <Text style={styles.deviceBadgeText}>本机加密 · 安全</Text>
             </View>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color={JourneyPalette.muted} />
+
+          <MaterialCommunityIcons name="chevron-right" size={24} color={JourneyPalette.cardMuted} />
         </Pressable>
 
-        <View style={styles.metricRow}>
-          {metricItems.map((item) => (
-            <View key={item.label} style={styles.metricPill}>
-              <Text numberOfLines={1} style={styles.metricValue}>
+        <View style={styles.statRow}>
+          {statItems.map((item) => (
+            <Pressable
+              key={item.label}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}
+              onPress={item.onPress}
+              style={({ pressed }) => [styles.statCard, pressed && styles.rowPressed]}
+            >
+              <Text numberOfLines={1} style={styles.statValue}>
                 {item.value}
               </Text>
-              <Text style={styles.metricLabel}>{item.label}</Text>
-            </View>
+              <Text style={styles.statLabel}>{item.label}</Text>
+            </Pressable>
           ))}
         </View>
-      </View>
 
-      <View style={styles.sectionBlock}>
-        <GroupHeader title="回忆中心" />
-        <View style={styles.groupCard}>
+        <View style={styles.sectionBlock}>
+          <GroupHeader title="实验室" />
           <ListRow
             icon="timeline-clock-outline"
+            iconTint={JourneyPalette.ink}
+            iconBackgroundColor={JourneyPalette.surfaceVariant}
             title="整理任务"
-            subtitle="查看正在进行的 AI 分析与生成"
-            value={runningTaskCount > 0 ? `${runningTaskCount} 个正在整理` : undefined}
-            emphasizeValue
+            subtitle="管理 AI 故事生成"
             onPress={() => router.push('/profile/import-tasks')}
           />
-          <View style={styles.groupDivider} />
           <ListRow
             icon="image-plus"
-            title="补导照片"
-            subtitle="手动添加漏掉的精彩瞬间"
+            iconTint={JourneyPalette.ink}
+            iconBackgroundColor={JourneyPalette.surfaceVariant}
+            title="添加照片"
             onPress={() => setPickerVisible(true)}
           />
         </View>
-      </View>
 
-      <View style={styles.sectionBlock}>
-        <GroupHeader title="隐私与安全" />
-        <View style={styles.groupCard}>
-          <ListRow 
-            icon="shield-check-outline" 
-            title="端侧隐私保护" 
-            subtitle="照片特征仅保留在本地设备"
-            value="已开启" 
-          />
-        </View>
-      </View>
-
-      <View style={styles.sectionBlock}>
-        <GroupHeader title="实验性功能" />
-        <View style={styles.groupCard}>
+        <View style={[styles.sectionBlock, styles.sectionBlockSpaced]}>
+          <GroupHeader title="通用" />
           <ListRow
-            icon="delete-sweep-outline"
-            title="清空导入缓存"
-            subtitle="不影响已生成的事件和故事"
-            destructive
-            loading={cleaning}
-            onPress={handleClearLocalCache}
+            icon="shield-check-outline"
+            iconTint={JourneyPalette.success}
+            iconBackgroundColor={JourneyPalette.surfaceVariant}
+            title="隐私保护"
+            subtitle="照片仅在本机分析"
+            showChevron={false}
+            rightSlot={
+              <IconActionButton
+                icon="delete-sweep-outline"
+                accessibilityLabel="清空导入缓存"
+                loading={cleaning}
+                onPress={handleClearLocalCache}
+                tint={JourneyPalette.danger}
+              />
+            }
           />
         </View>
-      </View>
+      </ScrollView>
 
       <ImportProgressModal
         visible={canShowImportProgress}
@@ -455,7 +499,7 @@ export default function ProfileScreen() {
       <Snackbar visible={Boolean(snackbar)} onDismiss={() => setSnackbar('')} duration={2500}>
         {snackbar}
       </Snackbar>
-    </ScrollView>
+    </>
   );
 }
 
@@ -466,19 +510,15 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 64,
-    paddingBottom: 120,
-    gap: 32,
-  },
-  pageHeader: {
-    paddingHorizontal: 0,
-    marginBottom: 8,
+    paddingTop: 60,
+    paddingBottom: 100,
   },
   pageTitle: {
     fontSize: 34,
     fontWeight: '900',
     color: JourneyPalette.ink,
     letterSpacing: -1.2,
+    marginBottom: 32,
   },
   centerState: {
     flex: 1,
@@ -513,26 +553,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '800',
   },
-  identityCard: {
-    gap: 32,
-  },
   identityRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 20,
+    marginBottom: 40,
   },
   avatarImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: JourneyPalette.surfaceVariant,
   },
   avatarFallback: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: JourneyPalette.ink,
   },
   avatarFallbackText: {
     color: '#FFFFFF',
@@ -541,24 +580,20 @@ const styles = StyleSheet.create({
   },
   identityCopy: {
     flex: 1,
-    gap: 4,
   },
   identityTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '900',
     color: JourneyPalette.ink,
     letterSpacing: -0.5,
-  },
-  identityTrailing: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
   },
   deviceBadge: {
     backgroundColor: JourneyPalette.surfaceVariant,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginTop: 6,
   },
   deviceBadgeText: {
     color: JourneyPalette.muted,
@@ -566,80 +601,73 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textTransform: 'uppercase',
   },
-  metricRow: {
+  statRow: {
     flexDirection: 'row',
     gap: 12,
+    marginBottom: 40,
   },
-  metricPill: {
+  statCard: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 20,
     paddingHorizontal: 12,
     borderRadius: 24,
     backgroundColor: JourneyPalette.surfaceVariant,
     alignItems: 'center',
-    gap: 4,
   },
-  metricValue: {
+  statValue: {
     color: JourneyPalette.ink,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
   },
-  metricLabel: {
+  statLabel: {
     color: JourneyPalette.muted,
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
+    marginTop: 4,
   },
   sectionBlock: {
     gap: 16,
   },
-  groupHeader: {
-    paddingHorizontal: 0,
-  },
   groupTitle: {
     color: JourneyPalette.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
     textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    letterSpacing: 2,
   },
-  groupCard: {
-    borderRadius: 28,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
-  },
-  groupDivider: {
-    marginLeft: 60,
-    height: 1,
-    backgroundColor: JourneyPalette.line,
+  sectionBlockSpaced: {
+    marginTop: 40,
   },
   listRow: {
-    minHeight: 68,
-    paddingHorizontal: 4,
-    paddingVertical: 14,
+    paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   listRowStatic: {
     opacity: 1,
   },
   rowPressed: {
     opacity: 0.7,
+    transform: [{ scale: 0.97 }],
   },
   rowIconWrap: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: JourneyPalette.surfaceVariant,
   },
   rowCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   rowTitle: {
     color: JourneyPalette.ink,
@@ -647,13 +675,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.2,
   },
-  rowTitleDanger: {
-    color: JourneyPalette.danger,
-  },
   rowSubtitle: {
     color: JourneyPalette.muted,
     fontSize: 13,
-    lineHeight: 18,
     fontWeight: '500',
   },
   rowTrailing: {
@@ -661,15 +685,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  rowValue: {
-    color: JourneyPalette.muted,
-    fontSize: 14,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  rowValueEmphasized: {
-    color: JourneyPalette.accent,
-    fontSize: 14,
-    fontWeight: '800',
+  iconActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
 });

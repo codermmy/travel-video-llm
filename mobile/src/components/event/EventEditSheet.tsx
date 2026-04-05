@@ -87,6 +87,7 @@ export function EventEditSheet({
         : { photoId: null, uri: null },
     [detail],
   );
+
   const currentCoverUri =
     detail?.localCoverUri ?? automaticCover.uri ?? detail?.coverPhotoUrl ?? null;
   const isCustomCover = Boolean(
@@ -163,92 +164,95 @@ export function EventEditSheet({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <View style={styles.modalBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={isSaving} />
-        <View style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>编辑事件</Text>
-            <Pressable
-              onPress={handleClose}
-              disabled={isSaving || isUpdatingCover}
-              style={({ pressed }) => [
-                styles.modalCloseBtn,
-                pressed && styles.pressed,
-                (isSaving || isUpdatingCover) && styles.disabledAction,
-              ]}
-            >
-              <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
-            </Pressable>
-          </View>
+      <View style={styles.backdrop}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={handleClose}
+          disabled={isSaving || isUpdatingCover}
+        />
+
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
 
           <ScrollView contentContainerStyle={styles.content}>
-            <View style={styles.coverCard}>
-              <Text style={styles.fieldLabel}>封面</Text>
-              <View style={styles.coverRow}>
-                <View style={styles.coverPreview}>
-                  {currentCoverUri ? (
-                    <Image source={{ uri: currentCoverUri }} style={styles.coverImage} />
-                  ) : (
-                    <View style={styles.coverFallback}>
-                      <MaterialCommunityIcons
-                        name="image-outline"
-                        size={28}
-                        color={JourneyPalette.muted}
-                      />
-                    </View>
-                  )}
-                </View>
-                <View style={styles.coverActions}>
+            <View style={styles.block}>
+              <Text style={styles.blockLabel}>封面</Text>
+
+              <View style={styles.coverPreview}>
+                {currentCoverUri ? (
+                  <Image
+                    source={{ uri: currentCoverUri }}
+                    style={styles.coverImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.coverFallback}>
+                    <MaterialCommunityIcons
+                      name="image-outline"
+                      size={30}
+                      color={JourneyPalette.muted}
+                    />
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.inlineActions}>
+                <Pressable
+                  onPress={() => setCoverPickerVisible((previous) => !previous)}
+                  disabled={loadingDetail || isUpdatingCover}
+                  style={({ pressed }) => [
+                    styles.inlineAction,
+                    pressed && styles.pressed,
+                    (loadingDetail || isUpdatingCover) && styles.disabledAction,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name="image-edit-outline"
+                    size={18}
+                    color={JourneyPalette.ink}
+                  />
+                  <Text style={styles.inlineActionText}>更换封面</Text>
+                </Pressable>
+
+                {isCustomCover ? (
                   <Pressable
-                    onPress={() => setCoverPickerVisible((previous) => !previous)}
-                    disabled={loadingDetail || isUpdatingCover}
+                    onPress={() => {
+                      void handleResetCover();
+                    }}
+                    disabled={isUpdatingCover}
                     style={({ pressed }) => [
-                      styles.coverActionButton,
+                      styles.inlineAction,
                       pressed && styles.pressed,
-                      (loadingDetail || isUpdatingCover) && styles.disabledAction,
+                      isUpdatingCover && styles.disabledAction,
                     ]}
                   >
-                    <Text style={styles.coverActionText}>更换封面</Text>
+                    <MaterialCommunityIcons name="restore" size={18} color={JourneyPalette.ink} />
+                    <Text style={styles.inlineActionText}>恢复默认</Text>
                   </Pressable>
-                  {isCustomCover ? (
-                    <Pressable
-                      onPress={() => {
-                        void handleResetCover();
-                      }}
-                      disabled={isUpdatingCover}
-                      style={({ pressed }) => [
-                        styles.coverActionButton,
-                        styles.coverActionButtonSecondary,
-                        pressed && styles.pressed,
-                        isUpdatingCover && styles.disabledAction,
-                      ]}
-                    >
-                      <Text style={styles.coverActionText}>恢复默认</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
+                ) : null}
               </View>
             </View>
 
             {coverPickerVisible ? (
               loadingDetail ? (
-                <View style={styles.loadingCoverState}>
+                <View style={styles.loadingState}>
                   <ActivityIndicator color={JourneyPalette.accent} />
                 </View>
               ) : (
-                <PhotoGrid
-                  photos={detail?.photos ?? []}
-                  onPhotoPress={(photo) => {
-                    void handleSelectCoverPhoto(photo);
-                  }}
-                  emptyText="这个事件还没有可用封面"
-                  selectedPhotoId={detail?.selectedCoverPhotoId ?? automaticCover.photoId}
-                />
+                <View style={styles.block}>
+                  <PhotoGrid
+                    photos={detail?.photos ?? []}
+                    onPhotoPress={(photo) => {
+                      void handleSelectCoverPhoto(photo);
+                    }}
+                    emptyText="这个事件还没有可用封面"
+                    selectedPhotoId={detail?.selectedCoverPhotoId ?? automaticCover.photoId}
+                  />
+                </View>
               )
             ) : null}
 
-            <View style={styles.formGroup}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>事件标题</Text>
               <TextInput
                 value={editTitle}
@@ -259,7 +263,7 @@ export function EventEditSheet({
               />
             </View>
 
-            <View style={styles.formGroup}>
+            <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>地点</Text>
               <TextInput
                 value={editLocationName}
@@ -271,7 +275,7 @@ export function EventEditSheet({
             </View>
           </ScrollView>
 
-          <View style={styles.modalActions}>
+          <View style={styles.footer}>
             <Pressable
               onPress={() => {
                 if (!event) {
@@ -302,10 +306,11 @@ export function EventEditSheet({
                   ],
                 );
               }}
-              style={({ pressed }) => [styles.modalDangerBtn, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
             >
-              <Text style={styles.modalDangerBtnText}>删除事件</Text>
+              <Text style={styles.dangerButtonText}>删除事件</Text>
             </Pressable>
+
             <Pressable
               onPress={() => {
                 if (!event) {
@@ -327,16 +332,16 @@ export function EventEditSheet({
                 })();
               }}
               style={({ pressed }) => [
-                styles.modalPrimaryBtn,
+                styles.primaryButton,
                 pressed && styles.pressed,
                 isSaving && styles.disabledAction,
               ]}
               disabled={isSaving}
             >
               {isSaving ? (
-                <ActivityIndicator color="#FFF9F2" />
+                <ActivityIndicator color={JourneyPalette.white} />
               ) : (
-                <Text style={styles.modalPrimaryBtnText}>保存</Text>
+                <Text style={styles.primaryButtonText}>保存</Text>
               )}
             </Pressable>
           </View>
@@ -347,64 +352,48 @@ export function EventEditSheet({
 }
 
 const styles = StyleSheet.create({
-  modalBackdrop: {
+  backdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(21, 32, 31, 0.42)',
+    backgroundColor: 'rgba(2, 6, 23, 0.4)',
   },
-  modalSheet: {
+  sheet: {
     maxHeight: '88%',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    backgroundColor: JourneyPalette.card,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 20,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    backgroundColor: JourneyPalette.background,
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    paddingBottom: 48,
   },
-  modalHandle: {
+  handle: {
     alignSelf: 'center',
-    width: 46,
+    width: 44,
     height: 5,
     borderRadius: 999,
     backgroundColor: JourneyPalette.lineStrong,
-    marginBottom: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: JourneyPalette.ink,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
+    marginBottom: 24,
   },
   content: {
-    paddingTop: 16,
-    paddingBottom: 8,
+    gap: 24,
+    paddingBottom: 16,
+  },
+  block: {
     gap: 16,
   },
-  coverCard: {
-    gap: 12,
-  },
-  coverRow: {
-    gap: 12,
+  blockLabel: {
+    color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   coverPreview: {
     width: '100%',
     height: 188,
     borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   coverImage: {
     width: '100%',
@@ -415,87 +404,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coverActions: {
+  inlineActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  inlineAction: {
+    minHeight: 48,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
-  coverActionButton: {
-    flex: 1,
-    minHeight: 46,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: JourneyPalette.cardAlt,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  coverActionButtonSecondary: {
-    backgroundColor: JourneyPalette.card,
-  },
-  coverActionText: {
+  inlineActionText: {
     color: JourneyPalette.ink,
     fontSize: 14,
     fontWeight: '700',
   },
-  loadingCoverState: {
+  loadingState: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 24,
   },
-  formGroup: {
-    gap: 8,
+  fieldGroup: {
+    gap: 10,
   },
   fieldLabel: {
-    fontSize: 13,
-    fontWeight: '800',
     color: JourneyPalette.ink,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   fieldInput: {
-    minHeight: 48,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: '#FFF9F2',
-    paddingHorizontal: 14,
-    color: JourneyPalette.ink,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
-  },
-  modalPrimaryBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryBtnText: {
-    color: '#FFF9F2',
-    fontWeight: '800',
-  },
-  modalDangerBtn: {
-    minHeight: 48,
-    borderRadius: 999,
+    minHeight: 56,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.surfaceVariant,
     paddingHorizontal: 18,
+    color: JourneyPalette.ink,
+    fontSize: 16,
+  },
+  footer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  dangerButton: {
+    minHeight: 56,
+    borderRadius: 999,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: JourneyPalette.dangerSoft,
-    borderWidth: 1,
-    borderColor: JourneyPalette.dangerBorder,
   },
-  modalDangerBtnText: {
+  dangerButtonText: {
     color: JourneyPalette.danger,
     fontWeight: '800',
   },
+  primaryButton: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: JourneyPalette.accent,
+  },
+  primaryButtonText: {
+    color: JourneyPalette.white,
+    fontWeight: '800',
+    fontSize: 16,
+  },
   disabledAction: {
-    opacity: 0.55,
+    opacity: 0.45,
   },
   pressed: {
-    transform: [{ scale: 0.985 }],
-    opacity: 0.92,
+    transform: [{ scale: 0.97 }],
+    opacity: 0.7,
   },
 });
