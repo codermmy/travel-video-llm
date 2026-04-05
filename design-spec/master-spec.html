@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TravelVideoLLM 极致重构规范 - 全场景总览</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', sans-serif; background: #FFFFFF; color: var(--ink); padding: 60px 40px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header { margin-bottom: 60px; border-bottom: 1px solid #F1F5F9; padding-bottom: 40px; }
+        header h1 { font-size: 48px; font-weight: 900; letter-spacing: -2px; }
+        header p { font-size: 18px; color: var(--ink-soft); margin-top: 10px; }
+
+        .section-group { margin-bottom: 80px; }
+        .section-group h2 { font-size: 24px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); margin-bottom: 32px; border-left: 4px solid var(--accent); padding-left: 16px; }
+
+        .spec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 32px; }
+        .card { cursor: pointer; transition: 0.3s; text-decoration: none; color: inherit; }
+        .card:hover { transform: translateY(-8px); }
+        .iframe-preview { width: 100%; height: 480px; border-radius: 24px; border: 1px solid #F1F5F9; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.05); margin-bottom: 16px; pointer-events: none; }
+        .iframe-preview iframe { width: 100%; height: 100%; border: none; transform: scale(0.85); transform-origin: top center; }
+        .card h3 { font-size: 20px; font-weight: 900; }
+        .card p { font-size: 14px; color: var(--ink-soft); margin-top: 4px; }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>极致设计规范总览 (V2)</h1>
+            <p>全场景覆盖：从照片管理到地点补全，定义每一个像素的呼吸感。</p>
+        </header>
+
+        <!-- 核心消费场景 -->
+        <div class="section-group">
+            <h2>回忆与叙事 (Main Flows)</h2>
+            <div class="spec-grid">
+                <a href="pages/memories.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/memories.html"></iframe></div>
+                    <h3>回忆主页</h3>
+                    <p>沉浸式 Hero 与静默时光轴</p>
+                </a>
+                <a href="pages/event-detail.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/event-detail.html"></iframe></div>
+                    <h3>事件详情</h3>
+                    <p>浮动播放中心与右上角三点菜单</p>
+                </a>
+                <a href="pages/photo-viewer.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/photo-viewer.html"></iframe></div>
+                    <h3>大图查看</h3>
+                    <p>全黑背景沉浸态、通透控制栏</p>
+                </a>
+                <a href="pages/map-gallery.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/map-gallery.html"></iframe></div>
+                    <h3>地图探索</h3>
+                    <p>功能性回归：1:1 还原现有逻辑</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- 生产与管理场景 -->
+        <div class="section-group">
+            <h2>生产、管理与修复 (Utility)</h2>
+            <div class="spec-grid">
+                <a href="pages/import-selector.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/import-selector.html"></iframe></div>
+                    <h3>照片选择导入</h3>
+                    <p>全幅网格、胶囊状统计工具栏</p>
+                </a>
+                <a href="pages/photo-manager.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/photo-manager.html"></iframe></div>
+                    <h3>管理模式</h3>
+                    <p>添加入口、批量删除/移动工具栏</p>
+                </a>
+                <a href="pages/location-fix.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/location-fix.html"></iframe></div>
+                    <h3>地点补全</h3>
+                    <p>搜索与推荐列表的通透布局</p>
+                </a>
+                <a href="pages/processing-lab.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/processing-lab.html"></iframe></div>
+                    <h3>整理中心</h3>
+                    <p>冲印实验室质感、高科技进度条</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- 身份与设置 -->
+        <div class="section-group">
+            <h2>身份与资料 (Identity)</h2>
+            <div class="spec-grid">
+                <a href="pages/profile-reborn.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/profile-reborn.html"></iframe></div>
+                    <h3>我的中心</h3>
+                    <p>数据看板与分组功能列表</p>
+                </a>
+                <a href="pages/profile-edit.html" class="card">
+                    <div class="iframe-preview"><iframe src="pages/profile-edit.html"></iframe></div>
+                    <h3>资料编辑</h3>
+                    <p>呼吸感头像上传、无边框输入框</p>
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

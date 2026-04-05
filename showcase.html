@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TravelVideoLLM 全场景重构提案</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #FFFFFF;
+            --ink: #020617;
+            --ink-soft: #475569;
+            --accent: #2563EB;
+            --surface: #F8FAFC;
+            --muted: #94A3B8;
+            --radius: 32px;
+            --shadow: 0 20px 40px rgba(2, 6, 23, 0.05);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: #F1F5F9;
+            color: var(--ink);
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        header h1 {
+            font-size: 42px;
+            font-weight: 900;
+            letter-spacing: -2px;
+            margin-bottom: 12px;
+        }
+
+        /* 手机模型 */
+        .showcase-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+        }
+
+        .phone-frame {
+            background: white;
+            width: 300px;
+            height: 640px;
+            margin: 0 auto;
+            border-radius: 40px;
+            border: 8px solid var(--ink);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.1);
+            overflow: hidden;
+            position: relative;
+            background-color: var(--bg);
+        }
+
+        .screen-content {
+            height: 100%;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 统一标题 */
+        .title-huge { font-size: 32px; font-weight: 900; letter-spacing: -1.2px; }
+        .label-group { font-size: 11px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin: 24px 20px 12px; }
+
+        /* 地图页 */
+        .map-bg {
+            flex: 1;
+            background: #E2E8F0 url('https://images.unsplash.com/photo-1526772662000-3f88f10405ff?auto=format&fit=crop&w=800&q=80') center/cover;
+            position: relative;
+        }
+        .map-overlay {
+            position: absolute;
+            top: 40px; left: 16px; right: 16px;
+            display: flex; gap: 10px;
+        }
+        .map-pill {
+            flex: 1; height: 44px; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+            border-radius: 22px; display: flex; align-items: center; padding: 0 16px; font-weight: 800; font-size: 13px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+        }
+        .map-marker {
+            position: absolute; top: 40%; left: 50%;
+            width: 54px; height: 54px; border-radius: 27px; background: white; padding: 3px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+        }
+        .map-marker img { width: 100%; height: 100%; border-radius: 24px; object-fit: cover; }
+        .map-marker .dot { position: absolute; left: -2px; bottom: -2px; width: 16px; height: 16px; border-radius: 8px; background: #10B981; border: 3px solid white; }
+
+        .map-sheet {
+            position: absolute; bottom: 16px; left: 16px; right: 16px;
+            background: white; border-radius: 32px; padding: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        /* 选择器 */
+        .picker-header { padding: 40px 20px 10px; }
+        .grid-wrap {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 0 4px;
+        }
+        .grid-item { aspect-ratio: 1; background: #F1F5F9; position: relative; }
+        .grid-item.selected::after {
+            content: "✓"; position: absolute; top: 8px; right: 8px; width: 20px; height: 20px;
+            background: var(--accent); color: white; border-radius: 10px; display: flex;
+            align-items: center; justify-content: center; font-size: 12px; font-weight: 900;
+        }
+        .picker-footer { padding: 20px; background: white; border-top: 1px solid #F1F5F9; }
+        .btn-main { height: 54px; background: var(--ink); border-radius: 16px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; }
+
+        /* 设计说明 */
+        .note { margin-top: 16px; padding: 16px; background: white; border-radius: 20px; font-size: 13px; }
+        .note h4 { font-weight: 900; color: var(--accent); margin-bottom: 6px; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>全场景极简重构</h1>
+        <p>通透、静默、顺滑的端侧回忆体验</p>
+    </header>
+
+    <div class="showcase-grid">
+        
+        <!-- 页面 1: 地图探索 -->
+        <div class="item">
+            <div class="phone-frame">
+                <div class="screen-content">
+                    <div class="map-bg">
+                        <div class="map-overlay">
+                            <div class="map-pill">杭州 3 个回忆</div>
+                            <div style="width: 44px; height: 44px; border-radius: 22px; background: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 20px rgba(0,0,0,0.05);">
+                                <svg width="18" height="18" fill="var(--ink)" viewBox="0 0 16 16"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.5-12.5a.5.5 0 0 1 1 0V7h3a.5.5 0 0 1 0 1h-3v3.5a.5.5 0 0 1-1 0V8h-3a.5.5 0 0 1 0-1h3V3.5z"/></svg>
+                            </div>
+                        </div>
+                        <div class="map-marker">
+                            <img src="https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=200&q=80">
+                            <div class="dot"></div>
+                        </div>
+                        <div class="map-sheet">
+                            <div style="display:flex; gap:12px; align-items:center;">
+                                <div style="width:60px; height:60px; border-radius:12px; background:#F1F5F9;"></div>
+                                <div style="flex:1;">
+                                    <h5 style="font-weight:900; font-size:16px;">西湖漫步</h5>
+                                    <p style="font-size:12px; color:var(--muted); font-weight:700;">03月15日 · 12张照片</p>
+                                </div>
+                                <svg width="16" height="16" fill="var(--accent)" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="note">
+                <h4>地图：地理艺术画廊</h4>
+                <ul>
+                    <li>移除实体边框，改用高通透浮窗</li>
+                    <li>Marker 尺寸修正，状态点更精致</li>
+                    <li>底部详情卡片采用 36px 超大圆角</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 页面 2: 照片选择器 -->
+        <div class="item">
+            <div class="phone-frame">
+                <div class="screen-content">
+                    <div class="picker-header">
+                        <div class="title-huge">选择照片</div>
+                        <p style="font-size:13px; color:var(--ink-soft); font-weight:600; margin-top:4px;">共 1,240 张，轻触选择</p>
+                    </div>
+                    <div style="padding: 16px 20px;">
+                        <div style="background:var(--surface); padding:12px; border-radius:20px; display:flex; gap:8px;">
+                            <div style="background:white; padding:6px 12px; border-radius:999px; font-size:11px; font-weight:900; box-shadow:0 4px 8px rgba(0,0,0,0.02);">全选全部</div>
+                            <div style="background:white; padding:6px 12px; border-radius:999px; font-size:11px; font-weight:900; color:var(--muted);">三月</div>
+                        </div>
+                    </div>
+                    <div class="grid-wrap" style="flex:1;">
+                        <div class="grid-item selected"></div><div class="grid-item"></div><div class="grid-item selected"></div>
+                        <div class="grid-item"></div><div class="grid-item"></div><div class="grid-item"></div>
+                        <div class="grid-item"></div><div class="grid-item"></div><div class="grid-item"></div>
+                        <div class="grid-item"></div><div class="grid-item"></div><div class="grid-item"></div>
+                    </div>
+                    <div class="picker-footer">
+                        <div class="btn-main">开始导入 2 张</div>
+                    </div>
+                </div>
+            </div>
+            <div class="note">
+                <h4>选择器：全幅画廊交互</h4>
+                <ul>
+                    <li>移除冗余装饰，让照片撑满视觉</li>
+                    <li>工具栏胶囊化，悬浮于网格之上</li>
+                    <li>主动作按钮比例优化，触感更扎实</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 页面 3: 整理中心 -->
+        <div class="item">
+            <div class="phone-frame">
+                <div class="screen-content">
+                    <div class="picker-header">
+                        <div class="title-huge">整理中心</div>
+                        <p style="font-size:13px; color:var(--ink-soft); font-weight:600; margin-top:4px;">正在实验室中精心冲印</p>
+                    </div>
+                    <div style="margin: 20px; background: var(--surface); padding: 24px; border-radius: 32px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                            <span style="font-size:10px; font-weight:900; color:var(--accent); background:#DBEAFE; padding:4px 8px; border-radius:6px;">ANALYZING</span>
+                            <span style="font-size:11px; font-weight:700; color:var(--muted);">14:20</span>
+                        </div>
+                        <h4 style="font-size:22px; font-weight:900; letter-spacing:-0.5px;">云南旅行回忆</h4>
+                        <p style="font-size:14px; color:var(--ink-soft); margin-top:8px; line-height:1.4;">正在为您提炼 42 段精彩瞬间的故事...</p>
+                        <div style="height:6px; background:rgba(0,0,0,0.05); border-radius:3px; margin:20px 0; overflow:hidden;">
+                            <div style="width:65%; height:100%; background:var(--accent);"></div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:800;">
+                            <span>故事生成</span><span style="color:var(--accent);">65%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="note">
+                <h4>实验室：专业与纯净</h4>
+                <ul>
+                    <li>告别日志式列表，采用大卡片聚焦</li>
+                    <li>色彩极简：仅在进度关键点使用亮蓝</li>
+                    <li>动线指向明确：轻触即可进入详情</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 页面 4: 权限与我的 -->
+        <div class="item">
+            <div class="phone-frame">
+                <div class="screen-content">
+                    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; text-align:center;">
+                        <div style="width:80px; height:80px; border-radius:28px; background:var(--surface); display:flex; align-items:center; justify-content:center; margin-bottom:24px;">
+                            <svg width="32" height="32" fill="var(--muted)" viewBox="0 0 16 16"><path d="M11 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM8 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm.256 7a4.474 4.474 0 0 1-.229-1.004H3c.001-.246.154-.986.832-1.664C4.484 10.68 5.711 10 8 10c.26 0 .507.009.74.025.226-.341.496-.65.804-.918C9.077 9.038 8.564 9 8 9c-5 0-6 3-6 4s1 1 1 1h5.256Z"/></svg>
+                        </div>
+                        <h3 style="font-size:24px; font-weight:900;">开启相册权限</h3>
+                        <p style="font-size:15px; color:var(--ink-soft); margin-top:12px; line-height:1.6;">开启权限后，AI 才能在本地为你整理那些尘封的精彩瞬间。</p>
+                        <div class="btn-main" style="width:100%; margin-top:32px;">立即开启</div>
+                        <p style="font-size:13px; color:var(--muted); font-weight:700; margin-top:16px;">稍后再说</p>
+                    </div>
+                </div>
+            </div>
+            <div class="note">
+                <h4>引导：从警示到邀请</h4>
+                <ul>
+                    <li>移除系统感浓重的红/黄警告色</li>
+                    <li>使用温和的高级灰与大留白引导</li>
+                    <li>将权限获取作为“开启美好”的必经之路</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+</body>
+</html>

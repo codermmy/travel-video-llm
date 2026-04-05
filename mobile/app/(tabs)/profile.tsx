@@ -330,30 +330,28 @@ export default function ProfileScreen() {
       <View style={styles.identityCard}>
         <Pressable
           onPress={openProfileEditor}
-          style={({ pressed }) => [pressed && styles.rowPressed]}
+          style={({ pressed }) => [styles.identityRow, pressed && styles.rowPressed]}
         >
-          <View style={styles.identityRow}>
-            {user.avatar_url ? (
-              <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
-            ) : (
-              <LinearGradient
-                colors={[JourneyPalette.heroTop, JourneyPalette.heroBottom]}
-                style={styles.avatarFallback}
-              >
-                <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
-              </LinearGradient>
-            )}
+          {user.avatar_url ? (
+            <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
+          ) : (
+            <LinearGradient
+              colors={[JourneyPalette.ink, '#475569']}
+              style={styles.avatarFallback}
+            >
+              <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
+            </LinearGradient>
+          )}
 
-            <View style={styles.identityCopy}>
-              <Text style={styles.identityTitle}>{user.nickname?.trim() || '这台设备'}</Text>
-            </View>
-            <View style={styles.identityTrailing}>
+          <View style={styles.identityCopy}>
+            <Text style={styles.identityTitle}>{user.nickname?.trim() || '这台设备'}</Text>
+            <View style={{ flexDirection: 'row' }}>
               <View style={styles.deviceBadge}>
-                <Text style={styles.deviceBadgeText}>本机</Text>
+                <Text style={styles.deviceBadgeText}>本机设备 · 已加密</Text>
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
             </View>
           </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color={JourneyPalette.muted} />
         </Pressable>
 
         <View style={styles.metricRow}>
@@ -369,38 +367,45 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.sectionBlock}>
-        <GroupHeader title="任务与导入" />
+        <GroupHeader title="回忆中心" />
         <View style={styles.groupCard}>
           <ListRow
             icon="timeline-clock-outline"
-            title="导入任务"
-            value={runningTaskCount > 0 ? `${runningTaskCount} 任务` : '查看'}
+            title="整理任务"
+            subtitle="查看正在进行的 AI 分析与生成"
+            value={runningTaskCount > 0 ? `${runningTaskCount} 个正在整理` : undefined}
             emphasizeValue
             onPress={() => router.push('/profile/import-tasks')}
           />
           <View style={styles.groupDivider} />
           <ListRow
             icon="image-plus"
-            title="导入照片"
-            value={localData.assetCount > 0 ? `${localData.assetCount} 条` : '开始'}
+            title="补导照片"
+            subtitle="手动添加漏掉的精彩瞬间"
             onPress={() => setPickerVisible(true)}
           />
         </View>
       </View>
 
       <View style={styles.sectionBlock}>
-        <GroupHeader title="设备与隐私" />
+        <GroupHeader title="隐私与安全" />
         <View style={styles.groupCard}>
-          <ListRow icon="shield-lock-outline" title="隐私承诺" value="默认" />
+          <ListRow 
+            icon="shield-check-outline" 
+            title="端侧隐私保护" 
+            subtitle="照片特征仅保留在本地设备"
+            value="已开启" 
+          />
         </View>
       </View>
 
       <View style={styles.sectionBlock}>
-        <GroupHeader title="数据管理" />
+        <GroupHeader title="实验性功能" />
         <View style={styles.groupCard}>
           <ListRow
-            icon="trash-can-outline"
-            title="清理导入记录"
+            icon="delete-sweep-outline"
+            title="清空导入缓存"
+            subtitle="不影响已生成的事件和故事"
             destructive
             loading={cleaning}
             onPress={handleClearLocalCache}
@@ -457,213 +462,214 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: '#FFFFFF',
   },
   content: {
-    paddingHorizontal: 18,
-    paddingTop: 24,
-    paddingBottom: 112,
-    gap: 24,
+    paddingHorizontal: 24,
+    paddingTop: 64,
+    paddingBottom: 120,
+    gap: 32,
   },
   pageHeader: {
-    gap: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
+    marginBottom: 8,
   },
   pageTitle: {
-    fontSize: 31,
-    fontWeight: '800',
+    fontSize: 34,
+    fontWeight: '900',
     color: JourneyPalette.ink,
+    letterSpacing: -1.2,
   },
   centerState: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: JourneyPalette.cardAlt,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 32,
   },
   loadingOrb: {
-    width: 76,
-    height: 76,
-    borderRadius: 28,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 18,
-    backgroundColor: JourneyPalette.accentSoft,
+    marginBottom: 24,
+    backgroundColor: JourneyPalette.cardSoft,
   },
   errorText: {
     color: JourneyPalette.danger,
-    marginBottom: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
   },
   retryButton: {
     borderRadius: 999,
-    backgroundColor: JourneyPalette.accent,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    backgroundColor: JourneyPalette.ink,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
   },
   retryButtonText: {
-    color: '#FFF9F2',
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   identityCard: {
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: 'rgba(255,255,255,0.84)',
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 18,
+    gap: 32,
   },
   identityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 20,
   },
   avatarImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   avatarFallback: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarFallbackText: {
-    color: '#FFF9F2',
-    fontSize: 28,
-    fontWeight: '800',
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: '900',
   },
   identityCopy: {
     flex: 1,
-    gap: 5,
+    gap: 4,
   },
   identityTitle: {
-    fontSize: 26,
-    fontWeight: '800',
+    fontSize: 28,
+    fontWeight: '900',
     color: JourneyPalette.ink,
+    letterSpacing: -0.5,
   },
   identityTrailing: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   deviceBadge: {
-    minHeight: 30,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: JourneyPalette.accentSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: JourneyPalette.surfaceVariant,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   deviceBadgeText: {
-    color: JourneyPalette.accent,
-    fontSize: 12,
-    fontWeight: '800',
+    color: JourneyPalette.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
   },
   metricRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
   },
   metricPill: {
     flex: 1,
-    minHeight: 82,
-    borderRadius: 20,
-    backgroundColor: JourneyPalette.card,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
+    paddingVertical: 16,
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    justifyContent: 'space-between',
+    borderRadius: 24,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    gap: 4,
   },
   metricValue: {
     color: JourneyPalette.ink,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.5,
   },
   metricLabel: {
-    color: JourneyPalette.inkSoft,
+    color: JourneyPalette.muted,
     fontSize: 12,
-    lineHeight: 16,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sectionBlock: {
-    gap: 12,
+    gap: 16,
   },
   groupHeader: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
   },
   groupTitle: {
-    color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '800',
+    color: JourneyPalette.muted,
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
   },
   groupCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
   },
   groupDivider: {
-    marginLeft: 68,
+    marginLeft: 60,
     height: 1,
     backgroundColor: JourneyPalette.line,
   },
   listRow: {
-    minHeight: 60,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    minHeight: 68,
+    paddingHorizontal: 4,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
   },
   listRowStatic: {
     opacity: 1,
   },
   rowPressed: {
-    backgroundColor: 'rgba(228, 236, 255, 0.5)',
+    opacity: 0.7,
   },
   rowIconWrap: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   rowCopy: {
     flex: 1,
-    gap: 3,
+    gap: 2,
   },
   rowTitle: {
     color: JourneyPalette.ink,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   rowTitleDanger: {
     color: JourneyPalette.danger,
   },
   rowSubtitle: {
-    color: JourneyPalette.inkSoft,
+    color: JourneyPalette.muted,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '500',
   },
   rowTrailing: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginLeft: 8,
   },
   rowValue: {
-    color: JourneyPalette.inkSoft,
+    color: JourneyPalette.muted,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
   rowValueEmphasized: {
-    color: JourneyPalette.ink,
+    color: JourneyPalette.accent,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });

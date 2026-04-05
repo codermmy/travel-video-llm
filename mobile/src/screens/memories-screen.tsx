@@ -440,14 +440,20 @@ export default function MemoriesScreen() {
   );
 
   const renderTimelineCard = useCallback(
-    ({ item, index, section }: { item: EventRecord; index: number; section: MonthSection }) => (
-      <TimelineEventCard
-        event={item}
-        isLastInSection={index === section.data.length - 1}
-        onPress={goToEventDetail}
-        onLongPress={setActionEvent}
-      />
-    ),
+    ({ item, index, section }: { item: EventRecord; index: number; section: MonthSection }) => {
+      const status = getEventStatusMeta(item);
+      return (
+        <TimelineEventCard
+          event={item}
+          isLastInSection={index === section.data.length - 1}
+          onPress={goToEventDetail}
+          onLongPress={setActionEvent}
+          // Only show labels for non-ready statuses
+          statusLabel={status.tone !== 'ready' ? status.label : undefined}
+          statusTone={status.tone !== 'ready' ? status.tone : undefined}
+        />
+      );
+    },
     [goToEventDetail],
   );
 
@@ -460,15 +466,15 @@ export default function MemoriesScreen() {
       {(failedEventCount > 0 || activeEventCount > 0) && events.length > 0 ? (
         <InlineBanner
           icon={failedEventCount > 0 ? 'alert-circle-outline' : 'timeline-clock-outline'}
-          title={failedEventCount > 0 ? '有回忆需要处理' : '回忆仍在整理中'}
+          title={failedEventCount > 0 ? '有回忆需要处理' : '整理中'}
           body={
             failedEventCount > 0
-              ? `${failedEventCount} 个回忆需重试。`
-              : runningTaskSummary || `${activeEventCount} 个回忆仍在整理中。`
+              ? `${failedEventCount} 个批次需重试。`
+              : runningTaskSummary || `${activeEventCount} 个批次正在整理。`
           }
           action={
             <ActionButton
-              label="查看任务"
+              label="查看"
               tone="secondary"
               fullWidth={false}
               onPress={() => router.push('/profile/import-tasks')}
@@ -485,16 +491,16 @@ export default function MemoriesScreen() {
           {heroCoverUri ? (
             <Image source={{ uri: heroCoverUri }} style={styles.heroImage} resizeMode="cover" />
           ) : (
-            <LinearGradient colors={['#D7E2FF', '#EEF4FF']} style={styles.heroImageFallback}>
+            <View style={styles.heroImageFallback}>
               <MaterialCommunityIcons
                 name="image-filter-hdr"
                 size={34}
-                color={JourneyPalette.accent}
+                color={JourneyPalette.muted}
               />
-            </LinearGradient>
+            </View>
           )}
           <LinearGradient
-            colors={['rgba(15,23,42,0.08)', 'rgba(15,23,42,0.62)']}
+            colors={['transparent', 'rgba(0,0,0,0.7)']}
             style={styles.heroShade}
           />
           <View style={styles.heroCopy}>
@@ -508,19 +514,29 @@ export default function MemoriesScreen() {
               {buildMemoryTeaser(heroEvent)}
             </Text>
             <View style={styles.heroActions}>
-              <ActionButton
-                label={heroEventTone === 'ready' ? '继续回看' : '查看详情'}
-                tone="secondary"
-                fullWidth={false}
-                onPress={() => goToEventDetail(heroEvent.id)}
-                style={styles.heroPrimaryAction}
-              />
-              <ActionButton
-                label={heroEventTone === 'ready' ? '播放回忆' : '查看照片'}
-                fullWidth={false}
-                onPress={heroEventTone === 'ready' ? openHeroStory : openHeroPhotos}
-                style={styles.heroSecondaryAction}
-              />
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  if (heroEventTone === 'ready') {
+                    openHeroStory();
+                  } else {
+                    goToEventDetail(heroEvent.id);
+                  }
+                }}
+                style={({ pressed }) => [
+                  styles.heroPrimaryAction,
+                  pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] }
+                ]}
+              >
+                <MaterialCommunityIcons 
+                  name={heroEventTone === 'ready' ? 'play' : 'arrow-right'} 
+                  size={18} 
+                  color="#FFFFFF" 
+                />
+                <Text style={styles.heroPrimaryActionText}>
+                  {heroEventTone === 'ready' ? '播放回忆' : '查看详情'}
+                </Text>
+              </Pressable>
             </View>
           </View>
         </Pressable>
@@ -531,12 +547,9 @@ export default function MemoriesScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <View style={styles.loadingOrb}>
-          <MaterialCommunityIcons name="image-filter-hdr" size={30} color={JourneyPalette.accent} />
-        </View>
-        <ActivityIndicator size="large" color={JourneyPalette.accent} />
+        <ActivityIndicator size="large" color={JourneyPalette.ink} />
         <Text selectable style={styles.loadingTitle}>
-          正在加载回忆
+          加载中...
         </Text>
       </View>
     );
@@ -545,17 +558,15 @@ export default function MemoriesScreen() {
   if (error) {
     return (
       <View style={styles.center}>
-        <View style={[styles.loadingOrb, styles.errorOrb]}>
-          <MaterialCommunityIcons
-            name="alert-circle-outline"
-            size={30}
-            color={JourneyPalette.danger}
-          />
-        </View>
+        <MaterialCommunityIcons
+          name="alert-circle-outline"
+          size={36}
+          color={JourneyPalette.danger}
+        />
         <Text selectable style={styles.errorText}>
           {error}
         </Text>
-        <ActionButton label="重新加载" onPress={() => void refresh()} fullWidth={false} />
+        <ActionButton label="重试" onPress={() => void refresh()} fullWidth={false} />
       </View>
     );
   }
@@ -563,45 +574,43 @@ export default function MemoriesScreen() {
   return (
     <View style={styles.container}>
       {events.length === 0 ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.welcomeContent}
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.welcomeContainer}>
           <View style={styles.welcomeHero}>
-            <LinearGradient colors={['#EEF4FF', '#F9FBFF']} style={styles.welcomeHeroTop}>
-              <Text selectable style={styles.welcomeTitle}>
-                开始整理回忆
-              </Text>
-              <Text selectable style={styles.welcomeBody}>
-                导入照片后，系统会自动生成回忆。
-              </Text>
-            </LinearGradient>
+            <Text selectable style={styles.welcomeTitle}>
+              尚无回忆
+            </Text>
+            <Text selectable style={styles.welcomeBody}>
+              导入你的旅行照片，我们将为你自动聚合地点、提炼故事，并生成专属的电影级回忆。
+            </Text>
 
             <View style={styles.welcomeActions}>
-              <ActionButton label="整理最近 200 张" onPress={handleRecentImport} />
-              <ActionButton label="手动补导入" tone="secondary" onPress={handleManualImport} />
+              <Pressable 
+                style={({ pressed }) => [styles.primaryImportBtn, pressed && { opacity: 0.85 }]}
+                onPress={handleRecentImport}
+              >
+                <MaterialCommunityIcons name="magic-staff" size={20} color="#FFFFFF" />
+                <Text style={styles.primaryImportBtnText}>一键整理最近 200 张</Text>
+              </Pressable>
+              
+              <Pressable 
+                style={({ pressed }) => [styles.secondaryImportBtn, pressed && { backgroundColor: JourneyPalette.surfaceVariant }]}
+                onPress={handleManualImport}
+              >
+                <Text style={styles.secondaryImportBtnText}>手动选择照片导入</Text>
+              </Pressable>
             </View>
 
             {showSettings ? (
-              <InlineBanner
-                icon="cog-outline"
-                title="需要相册权限"
-                body="请先开启系统相册权限。"
-                tone="warm"
-                action={
-                  <ActionButton
-                    label="打开设置"
-                    tone="secondary"
-                    fullWidth={false}
-                    onPress={openAppSettings}
-                  />
-                }
-              />
+              <View style={styles.permissionBox}>
+                <MaterialCommunityIcons name="cog-outline" size={20} color={JourneyPalette.warning} />
+                <Text style={styles.permissionText}>需要相册权限，请前往系统设置开启</Text>
+                <Pressable onPress={openAppSettings} style={styles.permissionBtn}>
+                  <Text style={styles.permissionBtnText}>去设置</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
-        </ScrollView>
+        </View>
       ) : (
         <SectionList
           style={styles.list}
@@ -912,21 +921,30 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   pageTitle: {
-    fontSize: 32,
+    fontSize: 38,
     fontWeight: '900',
+    letterSpacing: -1.5,
     color: JourneyPalette.ink,
+    marginBottom: 2,
   },
   pageSubtitle: {
     color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 24,
+    fontWeight: '500',
   },
   heroCard: {
-    height: 268,
-    borderRadius: 30,
+    height: 440,
+    borderRadius: 32,
     overflow: 'hidden',
-    backgroundColor: JourneyPalette.card,
-    boxShadow: '0 22px 40px rgba(15, 23, 42, 0.10)',
+    backgroundColor: JourneyPalette.cardSoft,
+    borderWidth: 0,
+    shadowColor: JourneyPalette.shadow,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.05,
+    shadowRadius: 32,
+    elevation: 8,
+    marginBottom: 8,
   },
   heroImage: {
     width: '100%',
@@ -936,45 +954,64 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: JourneyPalette.cardMuted,
   },
   heroShade: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.1)', // Very subtle overall dim
   },
   heroCopy: {
     position: 'absolute',
-    left: 18,
-    right: 18,
-    bottom: 18,
+    left: 24,
+    right: 24,
+    bottom: 28,
     gap: 8,
   },
   heroKicker: {
-    color: 'rgba(255,255,255,0.86)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
     fontWeight: '800',
-    letterSpacing: 1.1,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   heroTitle: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 36,
     fontWeight: '900',
+    letterSpacing: -1,
+    lineHeight: 40,
   },
   heroSummary: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 13,
-    lineHeight: 19,
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
+    maxWidth: '95%',
+    marginTop: 4,
   },
   heroActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
+    marginTop: 16,
   },
   heroPrimaryAction: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
+    backgroundColor: JourneyPalette.accent,
+    minHeight: 56,
+    borderRadius: 999,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: JourneyPalette.accent,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  heroSecondaryAction: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderColor: 'rgba(255,255,255,0.32)',
+  heroPrimaryActionText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 16,
   },
   progressCard: {
     gap: 12,
@@ -1094,70 +1131,87 @@ const styles = StyleSheet.create({
   filterCountBadgeTextActive: {
     color: JourneyPalette.accent,
   },
-  welcomeContent: {
-    paddingHorizontal: 16,
-    paddingTop: 22,
-    paddingBottom: 28,
+  welcomeContainer: {
+    flex: 1,
+    backgroundColor: JourneyPalette.background,
+    justifyContent: 'center',
+    paddingHorizontal: 32,
   },
   welcomeHero: {
     gap: 16,
-  },
-  welcomeHeroTop: {
-    borderRadius: 30,
-    padding: 22,
-    gap: 12,
+    marginBottom: 40,
   },
   welcomeTitle: {
-    fontSize: 30,
+    fontSize: 40,
     fontWeight: '900',
     color: JourneyPalette.ink,
+    letterSpacing: -1.5,
   },
   welcomeBody: {
+    fontSize: 16,
+    lineHeight: 26,
     color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 22,
+    fontWeight: '500',
+    marginBottom: 16,
   },
-  promiseRow: {
+  welcomeActions: {
+    gap: 16,
+  },
+  primaryImportBtn: {
+    backgroundColor: JourneyPalette.ink,
+    minHeight: 64,
+    borderRadius: 20,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 12,
+    shadowColor: JourneyPalette.ink,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
   },
-  promiseIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    backgroundColor: JourneyPalette.accentSoft,
+  primaryImportBtnText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  secondaryImportBtn: {
+    backgroundColor: JourneyPalette.cardSoft,
+    minHeight: 64,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  promiseCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  promiseTitle: {
+  secondaryImportBtnText: {
     color: JourneyPalette.ink,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '800',
   },
-  promiseBody: {
-    color: JourneyPalette.inkSoft,
+  permissionBox: {
+    marginTop: 24,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.warningSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  permissionText: {
+    flex: 1,
     fontSize: 13,
-    lineHeight: 19,
+    color: JourneyPalette.warning,
+    fontWeight: '700',
   },
-  promiseDivider: {
-    height: 1,
-    backgroundColor: JourneyPalette.line,
-    marginVertical: 4,
+  permissionBtn: {
+    backgroundColor: JourneyPalette.warning,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
-  welcomeActions: {
-    gap: 10,
-  },
-  welcomeHint: {
-    color: JourneyPalette.inkSoft,
+  permissionBtnText: {
+    color: '#FFFFFF',
     fontSize: 12,
-    lineHeight: 19,
-    textAlign: 'center',
-    paddingHorizontal: 10,
+    fontWeight: '800',
   },
   filteredContent: {
     paddingBottom: 24,

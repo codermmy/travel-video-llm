@@ -11,41 +11,46 @@ type MonthHeaderProps = {
 export function MonthHeader({ section }: MonthHeaderProps) {
   return (
     <View style={styles.container}>
-      <View style={styles.badge}>
+      <View style={styles.row}>
         <Text style={styles.title}>{section.title}</Text>
+        <View style={styles.line} />
+        <Text style={styles.meta}>
+          {section.eventCount} 个回忆
+        </Text>
       </View>
-      <Text style={styles.meta}>
-        {section.eventCount} 个事件 · {section.photoCount} 张照片
-      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: 18,
-    paddingBottom: 10,
-    paddingHorizontal: 14,
+    paddingTop: 32,
+    paddingBottom: 16,
+    paddingHorizontal: 16,
     backgroundColor: 'transparent',
   },
-  badge: {
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.cardMuted,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   title: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '900',
     color: JourneyPalette.ink,
-    letterSpacing: 0.4,
+    letterSpacing: -0.5,
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: JourneyPalette.line,
+    opacity: 0.6,
   },
   meta: {
-    marginTop: 8,
     fontSize: 12,
+    fontWeight: '800',
     color: JourneyPalette.muted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
 });

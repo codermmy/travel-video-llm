@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Spec - 编辑资料 (Profile Edit)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root { --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; --muted: #94A3B8; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', sans-serif; background: #F1F5F9; display: flex; justify-content: center; padding: 40px; }
+        .phone {
+            width: 375px; height: 812px; background: white; border-radius: 50px; border: 10px solid var(--ink);
+            position: relative; overflow: hidden; display: flex; flex-direction: column;
+            box-shadow: 0 50px 100px rgba(0,0,0,0.2);
+        }
+        .header { padding: 60px 24px 20px; display: flex; align-items: center; justify-content: space-between; }
+        .btn-cancel { color: var(--ink-soft); font-weight: 700; font-size: 15px; }
+        .btn-save { color: var(--accent); font-weight: 900; font-size: 15px; }
+
+        .content { flex: 1; padding: 32px 24px; }
+        
+        /* 头像上传区 */
+        .avatar-upload { text-align: center; margin-bottom: 48px; }
+        .avatar-wrap { width: 120px; height: 120px; border-radius: 60px; background: var(--surface); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; position: relative; }
+        .avatar-wrap span { font-size: 48px; font-weight: 900; color: var(--ink); }
+        .avatar-badge { position: absolute; bottom: 0; right: 0; width: 36px; height: 36px; border-radius: 18px; background: var(--accent); border: 4px solid white; display: flex; align-items: center; justify-content: center; }
+
+        /* 高级表单区 */
+        .form-group { margin-bottom: 32px; }
+        .label { font-size: 11px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; display: block; }
+        .input-box { background: var(--surface); border-radius: 16px; padding: 18px 20px; font-size: 17px; font-weight: 700; color: var(--ink); width: 100%; border: none; outline: none; }
+        .input-hint { font-size: 13px; color: var(--muted); margin-top: 10px; font-weight: 500; }
+
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div class="header">
+            <span class="btn-cancel">取消</span>
+            <h3 style="font-weight: 900; letter-spacing: -0.5px;">编辑资料</h3>
+            <span class="btn-save">保存</span>
+        </div>
+        <div class="content">
+            <div class="avatar-upload">
+                <div class="avatar-wrap">
+                    <span>M</span>
+                    <div class="avatar-badge">
+                        <svg width="16" height="16" fill="white" viewBox="0 0 16 16"><path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/><path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4H2zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1zm9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/></svg>
+                    </div>
+                </div>
+                <p style="color: var(--accent); font-size: 14px; font-weight: 800;">更换头像</p>
+            </div>
+
+            <div class="form-group">
+                <label class="label">你的昵称</label>
+                <div class="input-box">这台设备</div>
+                <p class="input-hint">昵称仅在生成故事标题时作为参考。</p>
+            </div>
+
+            <div class="form-group">
+                <label class="label">关于你</label>
+                <div class="input-box" style="min-height: 120px; vertical-align: top;">一个热爱旅行的摄影师</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

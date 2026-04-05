@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Spec - 整理中心 (Processing Lab)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #020617; --ink-soft: #475569; --accent: #2563EB; --surface: #F8FAFC; --muted: #94A3B8;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', sans-serif; background: #F1F5F9; display: flex; justify-content: center; padding: 40px; }
+
+        .phone {
+            width: 375px; height: 812px; background: white; border-radius: 50px; border: 10px solid var(--ink);
+            position: relative; overflow: hidden; display: flex; flex-direction: column;
+            background-color: white; box-shadow: 0 50px 100px rgba(0,0,0,0.2);
+        }
+
+        .status-bar { height: 44px; padding: 0 30px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 700; }
+
+        .scroll-content { flex: 1; overflow-y: auto; padding: 20px 24px 100px; }
+
+        .page-title { font-size: 34px; font-weight: 900; letter-spacing: -1.2px; margin-bottom: 4px; }
+        .page-subtitle { font-size: 15px; color: var(--ink-soft); font-weight: 500; margin-bottom: 32px; }
+
+        /* 主任务大卡片 */
+        .lab-card {
+            background: var(--surface); border-radius: 32px; padding: 28px; margin-bottom: 40px;
+            position: relative; overflow: hidden;
+        }
+        .lab-badge { display: inline-block; background: #DBEAFE; color: var(--accent); font-size: 10px; font-weight: 900; padding: 4px 10px; border-radius: 8px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; }
+        .lab-title { font-size: 24px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 8px; }
+        .lab-body { font-size: 15px; color: var(--ink-soft); line-height: 1.5; font-weight: 500; }
+
+        /* 极简进度条 */
+        .progress-container { margin: 24px 0; }
+        .progress-bar { height: 6px; background: rgba(0,0,0,0.05); border-radius: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: var(--accent); width: 65%; border-radius: 10px; }
+        .progress-meta { display: flex; justify-content: space-between; margin-top: 12px; }
+        .progress-label { font-size: 13px; font-weight: 800; color: var(--ink); }
+        .progress-value { font-size: 14px; font-weight: 900; color: var(--accent); }
+
+        /* 历史记录流 */
+        .label-group { font-size: 12px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 20px; }
+        .history-row { display: flex; gap: 16px; align-items: center; padding: 16px 0; border-bottom: 1px solid #F1F5F9; }
+        .history-icon { width: 44px; height: 44px; border-radius: 14px; background: var(--surface); display: flex; align-items: center; justify-content: center; }
+        .history-copy h4 { font-size: 17px; font-weight: 800; }
+        .history-copy p { font-size: 13px; color: var(--muted); font-weight: 500; }
+        .history-time { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
+
+    </style>
+</head>
+<body>
+
+    <div class="phone">
+        <div class="status-bar"><span>9:41</span></div>
+        
+        <div class="scroll-content">
+            <h1 class="page-title">整理中心</h1>
+            <p class="page-subtitle">AI 正在实验室中精心冲印</p>
+
+            <div class="lab-card">
+                <div class="lab-badge">Analyzing</div>
+                <h2 class="lab-title">云南旅行回忆</h2>
+                <p class="lab-body">正在为您提炼 42 段精彩瞬间的故事，并尝试匹配最合适的音乐。</p>
+                
+                <div class="progress-container">
+                    <div class="progress-bar"><div class="progress-fill"></div></div>
+                    <div class="progress-meta">
+                        <span class="progress-label">正在生成故事情节</span>
+                        <span class="progress-value">65%</span>
+                    </div>
+                </div>
+                
+                <div style="font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px;">
+                    启动于 14:20 · 预计还需 2 分钟
+                </div>
+            </div>
+
+            <div class="label-group">历史记录</div>
+            
+            <div class="history-row">
+                <div class="history-icon">
+                    <svg width="20" height="20" fill="#10B981" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.42-6.446z"/></svg>
+                </div>
+                <div class="history-copy">
+                    <h4>最近 200 张导入</h4>
+                    <p>成功生成 3 段回忆</p>
+                </div>
+                <div class="history-time">昨天</div>
+            </div>
+
+            <div class="history-row">
+                <div class="history-icon">
+                    <svg width="20" height="20" fill="#10B981" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.42-6.446z"/></svg>
+                </div>
+                <div class="history-copy">
+                    <h4>手动选择导入</h4>
+                    <p>成功生成 1 段回忆</p>
+                </div>
+                <div class="history-time">03-10</div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

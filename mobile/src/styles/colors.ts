@@ -1,61 +1,63 @@
 export const AppColors = {
-  primary: '#3C67F3',
-  primaryContainer: '#E4ECFF',
-  primaryPressed: '#234EE0',
-  secondary: '#FF8C68',
-  secondaryContainer: '#FFE8DF',
-  background: '#F3F7FC',
-  surface: '#FBFDFF',
+  primary: '#2563EB', // Sleek Cool Blue
+  primaryContainer: '#DBEAFE', // Very pale blue
+  primaryPressed: '#1D4ED8',
+  secondary: '#0F172A', // Deep Slate
+  secondaryContainer: '#F1F5F9', // Light Slate
+  background: '#FFFFFF', // Pure White
+  surface: '#FFFFFF',
   surfaceStrong: '#FFFFFF',
-  surfaceVariant: '#EDF3FB',
-  surfaceMuted: '#F7FAFE',
-  outline: '#D9E3F0',
-  outlineStrong: '#C6D4E7',
+  surfaceVariant: '#F8FAFC', // Crisp Off-white
+  surfaceMuted: '#F1F5F9',
+  outline: '#E2E8F0', // Cool light gray
+  outlineStrong: '#CBD5E1',
   onPrimary: '#FFFFFF',
   onSecondary: '#FFFFFF',
-  onBackground: '#0F172A',
-  onSurface: '#0F172A',
-  onSurfaceVariant: '#5B6678',
-  error: '#C15D4D',
-  onError: '#FFF8F7',
+  onBackground: '#020617', // Near Black
+  onSurface: '#020617',
+  onSurfaceVariant: '#475569', // Cool Slate text
+  error: '#EF4444',
+  onError: '#FEF2F2',
 };
 
-export const BrandGradient = ['#F9FBFF', '#EEF4FD'] as const;
-export const HeroGradient = ['#2E4DC7', '#6E90FF'] as const;
+export const BrandGradient = ['#FFFFFF', '#F8FAFC'] as const;
+export const HeroGradient = ['#1D4ED8', '#2563EB'] as const;
 
 export const JourneyPalette = {
-  ink: '#0F172A',
-  inkSoft: '#5B6678',
-  muted: '#7A8699',
-  mutedStrong: '#3F4D63',
-  line: '#D9E3F0',
-  lineStrong: '#C6D4E7',
+  ink: '#020617', // Ultra dark
+  inkSoft: '#475569', // Cool slate text
+  muted: '#94A3B8', // Lighter slate
+  mutedStrong: '#334155',
+  line: 'rgba(0,0,0,0.06)', // Almost invisible line
+  lineStrong: 'rgba(0,0,0,0.12)',
+  background: '#FFFFFF',
+  surfaceVariant: '#F8FAFC',
   card: '#FFFFFF',
-  cardAlt: '#F3F7FC',
-  cardSoft: '#EDF3FB',
-  cardMuted: '#F7FAFE',
-  overlay: 'rgba(251, 253, 255, 0.94)',
-  overlaySoft: 'rgba(251, 253, 255, 0.86)',
-  overlayStrong: 'rgba(15, 23, 42, 0.56)',
-  overlayDark: 'rgba(11, 18, 32, 0.74)',
-  scrim: 'rgba(15, 23, 42, 0.34)',
-  heroTop: '#2144C7',
-  heroBottom: '#5B84FF',
-  accent: '#3C67F3',
-  accentPressed: '#234EE0',
-  accentSoft: '#E4ECFF',
-  accentWarm: '#FF8C68',
-  accentWarmSoft: '#FFE8DF',
-  success: '#2E8B6F',
-  successSoft: '#E4F5EE',
-  successBorder: '#BEE7D7',
-  warning: '#B77931',
-  warningSoft: '#FFF1DE',
-  warningBorder: '#F2D6A9',
-  danger: '#C15D4D',
-  dangerSoft: '#FCE9E4',
-  dangerBorder: '#F0C6BC',
-  map: '#4B82FF',
-  shadow: '#0F172A',
+  cardAlt: '#F8FAFC',
+  cardSoft: '#F1F5F9',
+  cardMuted: '#E2E8F0',
+  overlay: 'rgba(255, 255, 255, 0.96)',
+  overlaySoft: 'rgba(255, 255, 255, 0.88)',
+  overlayStrong: 'rgba(2, 6, 23, 0.5)',
+  overlayDark: 'rgba(2, 6, 23, 0.8)',
+  scrim: 'rgba(2, 6, 23, 0.4)',
+  heroTop: '#1D4ED8',
+  heroBottom: '#3B82F6',
+  accent: '#2563EB', // Vibrant cool blue
+  accentPressed: '#1D4ED8',
+  accentSoft: '#DBEAFE', // Pale blue
+  accentWarm: '#0EA5E9', // Sky blue replacement for 'warm'
+  accentWarmSoft: '#E0F2FE',
+  success: '#10B981', // Emerald
+  successSoft: '#D1FAE5',
+  successBorder: '#A7F3D0',
+  warning: '#F59E0B',
+  warningSoft: '#FEF3C7',
+  warningBorder: '#FDE047',
+  danger: '#EF4444',
+  dangerSoft: '#FEE2E2',
+  dangerBorder: '#FECACA',
+  map: '#3B82F6',
+  shadow: '#020617',
   white: '#FFFFFF',
 } as const;

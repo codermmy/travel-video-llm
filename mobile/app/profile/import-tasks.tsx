@@ -51,59 +51,51 @@ function sortTasksWithFocus(tasks: ImportTaskRecord[], focusedTaskId: string | n
 
 function TaskListRow(props: { task: ImportTaskRecord; onPress: () => void; isLast: boolean }) {
   const summary = buildImportTaskSummary(props.task, getImportTaskSourceLabel(props.task.source));
+  const tone = getImportTaskStatusTone(props.task);
 
   return (
-    <Pressable
-      onPress={props.onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-    >
-      <View style={styles.rowLead}>
-        <View
-          style={[
+    <View>
+      <Pressable
+        onPress={props.onPress}
+        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      >
+        <View style={styles.rowLead}>
+          <View style={[
             styles.rowIconWrap,
-            props.task.status === 'failed'
-              ? styles.rowIconWrapFailed
-              : props.task.status === 'completed'
-                ? styles.rowIconWrapReady
-                : styles.rowIconWrapRunning,
-          ]}
-        >
-          <MaterialCommunityIcons
-            name={getImportTaskStatusIcon(props.task)}
-            size={17}
-            color={
-              props.task.status === 'failed'
-                ? JourneyPalette.danger
-                : props.task.status === 'completed'
-                  ? JourneyPalette.success
-                  : JourneyPalette.accent
-            }
-          />
-        </View>
+            tone === 'failed' && styles.rowIconWrapFailed,
+            tone === 'analyzing' && styles.rowIconWrapRunning,
+            tone === 'ready' && styles.rowIconWrapReady,
+          ]}>
+            <MaterialCommunityIcons
+              name={getImportTaskStatusIcon(props.task)}
+              size={20}
+              color={
+                tone === 'failed'
+                  ? JourneyPalette.danger
+                  : tone === 'ready'
+                    ? JourneyPalette.success
+                    : JourneyPalette.accent
+              }
+            />
+          </View>
 
-        <View style={styles.rowCopy}>
-          <View style={styles.rowTitleLine}>
+          <View style={styles.rowCopy}>
             <Text numberOfLines={1} style={styles.rowTitle}>
               {getImportTaskSourceLabel(props.task.source)}
             </Text>
-            <StatusPill
-              label={getImportTaskStatusLabel(props.task)}
-              tone={getImportTaskStatusTone(props.task)}
-            />
+            <Text numberOfLines={1} style={styles.rowSummary}>
+              {summary}
+            </Text>
           </View>
-          <Text numberOfLines={2} style={styles.rowSummary}>
-            {summary}
-          </Text>
         </View>
-      </View>
 
-      <View style={styles.rowMeta}>
-        <Text style={styles.rowTime}>{formatImportTaskTime(props.task.createdAt)}</Text>
-        <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
-      </View>
-
+        <View style={styles.rowMeta}>
+          <Text style={styles.rowTime}>{formatImportTaskTime(props.task.createdAt)}</Text>
+          <MaterialCommunityIcons name="chevron-right" size={16} color={JourneyPalette.muted} />
+        </View>
+      </Pressable>
       {!props.isLast ? <View style={styles.rowDivider} /> : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -195,7 +187,7 @@ function TaskGroup(props: {
   return (
     <View style={styles.sectionBlock}>
       <SectionLabel title={props.title} action={props.action} />
-      <SurfaceCard style={styles.groupCard}>
+      <View style={styles.groupCard}>
         {props.tasks.map((task, index) => (
           <TaskListRow
             key={task.id}
@@ -204,7 +196,7 @@ function TaskGroup(props: {
             isLast={index === props.tasks.length - 1}
           />
         ))}
-      </SurfaceCard>
+      </View>
     </View>
   );
 }
@@ -319,12 +311,12 @@ export default function ImportTasksScreen() {
   return (
     <PageContent style={styles.pageContent}>
       <PageHeader
-        eyebrow="IMPORT"
-        title="导入中心"
+        eyebrow="PROCESSING"
+        title="整理中心"
         subtitle={
           hasParallelRunningTasks
-            ? '多批次会并行处理，这里按批次分别回看。'
-            : '只看状态，不在这里发起导入。'
+            ? '多批次并行处理，请稍候。'
+            : '静候佳音，系统正在为你精选瞬间。'
         }
       />
 
@@ -341,7 +333,7 @@ export default function ImportTasksScreen() {
             !hasParallelRunningTasks && pressed && styles.pressed,
           ]}
         >
-          <LinearGradient colors={['#FBFDFF', '#F2F7FF']} style={styles.currentCard}>
+          <View style={styles.currentCard}>
             <View style={styles.currentHeader}>
               <StatusPill
                 label={
@@ -350,9 +342,6 @@ export default function ImportTasksScreen() {
                     : getImportTaskStatusLabel(currentTask)
                 }
                 tone={hasParallelRunningTasks ? 'analyzing' : getImportTaskStatusTone(currentTask)}
-                icon={
-                  hasParallelRunningTasks ? 'progress-clock' : getImportTaskStatusIcon(currentTask)
-                }
               />
               <Text style={styles.currentTime}>
                 {hasParallelRunningTasks
@@ -371,7 +360,7 @@ export default function ImportTasksScreen() {
             <View style={styles.currentProgressMeta}>
               <Text style={styles.currentProgressLabel}>
                 {hasParallelRunningTasks
-                  ? '并行批次平均进度'
+                  ? '平均进度'
                   : currentTask.phases[currentTask.activePhase].label}
               </Text>
               <Text style={styles.currentProgressValue}>{Math.round(overviewProgress * 100)}%</Text>
@@ -395,13 +384,13 @@ export default function ImportTasksScreen() {
                     completedTasks,
                   })}`}
             </Text>
-          </LinearGradient>
+          </View>
         </Pressable>
       ) : (
         <EmptyStateCard
           icon="timeline-outline"
-          title="第一轮导入还没开始"
-          description="导入从别的入口发起，这里只保留当前状态、失败提醒和最近记录。"
+          title="实验室静候中"
+          description="导入照片后，这里将展示 AI 分析、地点聚合和故事生成的每一个精准瞬间。"
         />
       )}
 
@@ -428,92 +417,97 @@ export default function ImportTasksScreen() {
 
 const styles = StyleSheet.create({
   pageContent: {
-    gap: 20,
+    gap: 32,
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 60,
   },
   currentCardWrap: {
-    borderRadius: 28,
+    borderRadius: 32,
+    overflow: 'hidden',
   },
   currentCard: {
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: '#DCE6F7',
-    padding: 18,
-    gap: 14,
-    boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
+    padding: 24,
+    gap: 20,
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   currentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
   },
   currentTime: {
     color: JourneyPalette.muted,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   currentTitle: {
     color: JourneyPalette.ink,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '900',
-    lineHeight: 30,
+    lineHeight: 34,
+    letterSpacing: -0.8,
   },
   currentBody: {
     color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '500',
   },
   currentProgressMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    marginBottom: -8,
   },
   currentProgressLabel: {
     color: JourneyPalette.ink,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
   },
   currentProgressValue: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-    fontWeight: '800',
+    color: JourneyPalette.accent,
+    fontSize: 16,
+    fontWeight: '900',
   },
   currentProgressBar: {
-    height: 8,
+    height: 6,
     borderRadius: 999,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   currentMetaText: {
-    color: JourneyPalette.mutedStrong,
-    fontSize: 12,
+    color: JourneyPalette.muted,
+    fontSize: 13,
     fontWeight: '700',
   },
   sectionBlock: {
-    gap: 10,
+    gap: 16,
   },
   groupCard: {
     padding: 0,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
+    backgroundColor: 'transparent',
   },
   row: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   rowLead: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
-    paddingRight: 68,
+    gap: 16,
   },
   rowIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: JourneyPalette.surfaceVariant,
   },
   rowIconWrapRunning: {
     backgroundColor: JourneyPalette.accentSoft,
@@ -526,58 +520,49 @@ const styles = StyleSheet.create({
   },
   rowCopy: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   rowTitleLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    flexWrap: 'wrap',
   },
   rowTitle: {
     color: JourneyPalette.ink,
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   rowSummary: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 19,
+    color: JourneyPalette.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   rowMeta: {
-    position: 'absolute',
-    top: 14,
-    right: 16,
     alignItems: 'flex-end',
     gap: 6,
   },
   rowTime: {
     color: JourneyPalette.muted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   rowDivider: {
-    position: 'absolute',
-    left: 62,
-    right: 16,
-    bottom: 0,
     height: 1,
     backgroundColor: JourneyPalette.line,
+    marginTop: 20,
   },
   historyToggle: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: JourneyPalette.card,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
   },
   historyToggleText: {
     color: JourneyPalette.accent,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
   },
   pressed: {
-    opacity: 0.92,
+    opacity: 0.7,
   },
 });
