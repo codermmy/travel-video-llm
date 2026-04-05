@@ -3,7 +3,7 @@ const envFlag =
   typeof process.env === 'object' &&
   process.env?.EXPO_PUBLIC_AUTH_DEBUG === '1';
 
-const AUTH_DEBUG_ENABLED = __DEV__ || envFlag;
+const AUTH_DEBUG_ENABLED = envFlag;
 
 function withPrefix(args: unknown[]): unknown[] {
   return ['[AuthDebug]', ...args];

@@ -38,6 +38,10 @@ type ProcessedPickerItem = ResolvedPickerItem & {
 const IMPORT_CACHE_DIR = 'import-cache';
 const IMPORT_CACHE_FILE = 'photo-import-cache.json';
 export const AUTO_IMPORT_LIMIT = 200;
+const MEDIA_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_MEDIA_DEBUG === '1';
 
 type ImportSource = 'recent' | 'manual';
 
@@ -69,7 +73,7 @@ export type ImportCacheSummary = {
 type ProgressCb = (progress: ImportProgress) => void;
 
 function logMediaDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (MEDIA_DEBUG_ENABLED) {
     console.log(`[MediaDebug] ${label}`, payload);
   }
 }

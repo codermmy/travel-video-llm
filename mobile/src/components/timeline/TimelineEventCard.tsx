@@ -36,19 +36,18 @@ function formatDateRange(event: EventRecord): string {
   return '时间待补充';
 }
 
-function buildSummary(event: EventRecord, statusLabel: string): string {
+function buildSummary(event: EventRecord): string {
   const parts = [`${event.photoCount} 张照片`];
   if (event.locationName?.trim()) {
     parts.push(event.locationName.trim());
   }
-  parts.push(statusLabel);
   return parts.join(' · ');
 }
 
 function getActionMeta(event: EventRecord): string {
   const statusMeta = getEventStatusMeta(event);
   if (statusMeta.tone === 'ready') {
-    return '可播放';
+    return '已完成';
   }
   if (statusMeta.tone === 'stale') {
     return '待更新';
@@ -67,7 +66,6 @@ export function TimelineEventCard({
 }: TimelineEventCardProps) {
   const title = event.title?.trim() ? event.title : '未命名事件';
   const coverUri = getPreferredEventCoverUri(event);
-  const statusMeta = getEventStatusMeta(event);
 
   return (
     <Pressable
@@ -100,7 +98,7 @@ export function TimelineEventCard({
         </Text>
 
         <Text numberOfLines={2} style={styles.summary}>
-          {buildSummary(event, statusMeta.label)}
+          {buildSummary(event)}
         </Text>
 
         <View style={styles.bottomRow}>

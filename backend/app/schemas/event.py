@@ -124,6 +124,8 @@ class EventCreateRequest(BaseModel):
 class EventUpdateRequest(BaseModel):
     title: Optional[str] = None
     locationName: Optional[str] = None
+    gpsLat: Optional[float] = None
+    gpsLon: Optional[float] = None
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
     fullStory: Optional[str] = None
@@ -143,3 +145,19 @@ class EnhanceStoryResponse(BaseModel):
     taskId: Optional[str] = None
     status: str
     enhancement: EventEnhancementSummary
+
+
+class LocationCityCandidate(BaseModel):
+    name: str
+    displayName: str
+    adcode: str
+
+
+class LocationPlaceCandidate(BaseModel):
+    name: str
+    address: str = ""
+    locationName: str
+    detailedLocation: str
+    locationTags: str = ""
+    gpsLat: float
+    gpsLon: float

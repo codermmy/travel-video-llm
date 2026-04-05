@@ -10,6 +10,10 @@ from fastapi.staticfiles import StaticFiles
 import app.models  # noqa: F401
 from app.api.v1.router import api_v1_router
 from app.core.config import settings
+from app.core.logging import configure_logging
+
+
+configure_logging()
 
 
 def create_app() -> FastAPI:

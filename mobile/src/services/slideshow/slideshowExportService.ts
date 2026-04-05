@@ -126,9 +126,13 @@ type NativeTravelSlideshowExportModule = {
 const nativeTravelSlideshowExportModule =
   requireOptionalNativeModule<NativeTravelSlideshowExportModule>('TravelSlideshowExport');
 const previewGenerationTasks = new Map<string, Promise<SlideshowPreviewVideoResult>>();
+const SLIDESHOW_EXPORT_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_SLIDESHOW_DEBUG === '1';
 
 function logExportDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (SLIDESHOW_EXPORT_DEBUG_ENABLED) {
     console.log(`[SlideshowExport] ${label}`, payload);
   }
 }

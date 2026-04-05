@@ -16,11 +16,17 @@ import type {
   EventRecord,
   RegenerateStoryResult,
 } from '@/types/event';
+import type { LocationCityCandidate, LocationPlaceCandidate } from '@/types/location';
 import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 import { resolveApiUrl } from '@/utils/urlUtils';
 
+const MEDIA_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_MEDIA_DEBUG === '1';
+
 function logMediaDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (MEDIA_DEBUG_ENABLED) {
     console.log(`[MediaDebug] ${label}`, payload);
   }
 }
@@ -315,6 +321,8 @@ async function updateEvent(
   payload: {
     title?: string | null;
     locationName?: string | null;
+    gpsLat?: number | null;
+    gpsLon?: number | null;
     detailedLocation?: string | null;
     locationTags?: string | null;
   },
@@ -328,6 +336,29 @@ async function updateEvent(
   }
   const [hydrated] = await hydrateEventLocalCover([normalizeEvent(response.data.data)]);
   return hydrated;
+}
+
+async function searchLocationCities(query: string): Promise<LocationCityCandidate[]> {
+  const response = await apiClient.get<ApiResponse<LocationCityCandidate[]>>(
+    '/api/v1/events/location-search/cities',
+    {
+      params: { query },
+    },
+  );
+  return response.data.data ?? [];
+}
+
+async function searchLocationPlaces(
+  query: string,
+  city: string,
+): Promise<LocationPlaceCandidate[]> {
+  const response = await apiClient.get<ApiResponse<LocationPlaceCandidate[]>>(
+    '/api/v1/events/location-search/places',
+    {
+      params: { query, city },
+    },
+  );
+  return response.data.data ?? [];
 }
 
 async function deleteEvent(eventId: string): Promise<void> {
@@ -420,6 +451,8 @@ export const eventApi = {
   getEventDetail,
   createEvent,
   updateEvent,
+  searchLocationCities,
+  searchLocationPlaces,
   deleteEvent,
   regenerateStory,
   enhanceStory,

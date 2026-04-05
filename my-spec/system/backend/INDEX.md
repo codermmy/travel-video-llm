@@ -1,18 +1,21 @@
-# 后端知识索引
+# 后端模块索引
 
 ## 目录
 
-- `modules/auth.md`：认证鉴权、用户隔离
-- `modules/map.md`：地理编码、位置补全、地图数据供给
-- `modules/photo.md`：照片上传、去重、状态管理
-- `modules/event.md`：聚类事件、故事生成、地理编码
-- `modules/sync.md`：跨设备同步策略
-- `api/INDEX.md`：API 总览与契约入口
-- `database/schema-dictionary.md`：核心表结构与索引
+- `modules/auth.md`：设备注册与 JWT 鉴权
+- `modules/user.md`：用户资料、头像上传、用户查询
+- `modules/photo.md`：照片 metadata、端侧视觉回写、批量归类与删除
+- `modules/event.md`：事件列表、详情、编辑、故事刷新、增强接口
+- `modules/map.md`：高德逆地理编码、地点搜索、位置上下文
+- `modules/task.md`：异步任务状态与 Celery 编排
+- `modules/admin.md`：管理员重聚类
+- `modules/sync.md`：已停用同步链路说明
+- `api/INDEX.md`：当前 API 总表
+- `database/schema-dictionary.md`：当前模型层表结构说明
 
 ## 维护规则
 
-1. API 变更必须同步更新 `api/INDEX.md`。
-2. 表结构/字段变更必须同步更新 `database/schema-dictionary.md`。
-3. 服务逻辑变化必须更新对应模块文档。
-4. 地图与地理编码逻辑变化必须同步更新 `modules/map.md`。
+1. 路由增删改后更新 `api/INDEX.md`
+2. ORM 字段或索引变更后更新 `schema-dictionary.md`
+3. 业务流程变更后更新对应模块文档
+4. 已退出主链路的能力不要继续写成“当前功能”

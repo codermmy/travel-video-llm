@@ -74,8 +74,11 @@ export function getEventStatusMeta(
   if (event.status === 'ai_pending' || event.status === 'ai_processing') {
     return createStatusMeta('processing', '整理中');
   }
-  if (event.visionSummary.processing > 0 || event.visionSummary.completed > 0) {
+  if (event.visionSummary.processing > 0) {
     return createStatusMeta('processing', '分析中');
+  }
+  if (event.visionSummary.pending > 0) {
+    return createStatusMeta('importing', '导入中');
   }
   if (event.visionSummary.unsupported > 0) {
     return createStatusMeta('failed', '分析失败');

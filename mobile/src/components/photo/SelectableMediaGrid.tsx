@@ -15,6 +15,7 @@ const LONG_PRESS_DURATION_MS = 180;
 const AUTO_SCROLL_START_THRESHOLD = 0.12;
 const AUTO_SCROLL_END_THRESHOLD = 0.88;
 const AUTO_SCROLL_MAX_VELOCITY = 16;
+const DOUBLE_TAP_WINDOW_MS = 280;
 
 export type SelectableMediaGridItem = {
   id: string;
@@ -22,7 +23,7 @@ export type SelectableMediaGridItem = {
   uri: string | null;
 };
 
-type BrowseTapBehavior = 'open' | 'select';
+type BrowseTapBehavior = 'open' | 'select' | 'select-or-open-on-double';
 
 type SelectableMediaGridProps = {
   items: SelectableMediaGridItem[];
@@ -93,6 +94,7 @@ export function SelectableMediaGrid({
     delete: (id: string) => void;
     has: (id: string) => boolean;
   } | null>(null);
+  const lastTapRef = useRef<{ itemId: string; at: number } | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [footerHeight, setFooterHeight] = useState(0);
 
@@ -147,6 +149,23 @@ export function SelectableMediaGrid({
     [onSelectionChange],
   );
 
+  const toggleSelection = useCallback(
+    (itemId: string) => {
+      updateSelection((previous) => {
+        if (previous.includes(itemId)) {
+          return previous.filter((selectedId) => selectedId !== itemId);
+        }
+
+        if (maxSelection && previous.length >= maxSelection) {
+          return previous;
+        }
+
+        return [...previous, itemId];
+      });
+    },
+    [maxSelection, updateSelection],
+  );
+
   const dragSelect = useDragSelect({
     data: dragItems,
     key: 'dragId',
@@ -187,17 +206,24 @@ export function SelectableMediaGrid({
       }
 
       if (browseTapBehavior === 'select') {
-        updateSelection((previous) => {
-          if (previous.includes(item.id)) {
-            return previous.filter((selectedId) => selectedId !== item.id);
-          }
+        toggleSelection(item.id);
+        return;
+      }
 
-          if (maxSelection && previous.length >= maxSelection) {
-            return previous;
-          }
+      if (browseTapBehavior === 'select-or-open-on-double') {
+        const now = Date.now();
+        if (
+          lastTapRef.current &&
+          lastTapRef.current.itemId === item.id &&
+          now - lastTapRef.current.at <= DOUBLE_TAP_WINDOW_MS
+        ) {
+          lastTapRef.current = null;
+          onItemPress?.(item, index);
+          return;
+        }
 
-          return [...previous, item.id];
-        });
+        lastTapRef.current = { itemId: item.id, at: now };
+        toggleSelection(item.id);
         return;
       }
 
@@ -321,6 +347,7 @@ export function SelectableMediaGrid({
       <GestureDetector gesture={dragSelect.gestures.panHandler}>
         <Animated.FlatList
           ref={animatedListRef}
+          style={styles.list}
           data={dragItems}
           numColumns={COLUMNS}
           renderItem={renderItem}
@@ -336,16 +363,6 @@ export function SelectableMediaGrid({
           ListFooterComponent={renderFooter}
         />
       </GestureDetector>
-      {selectedIds.length > 0 ? (
-        <View pointerEvents="none" style={styles.dragHint}>
-          <MaterialCommunityIcons
-            name="gesture-tap-hold"
-            size={14}
-            color={JourneyPalette.inkSoft}
-          />
-          <Text style={styles.dragHintText}>长按后连续滑过即可按区间多选</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -353,7 +370,10 @@ export function SelectableMediaGrid({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    minHeight: 280,
+    minHeight: 0,
+  },
+  list: {
+    flex: 1,
   },
   contentContainer: {
     paddingHorizontal: GRID_HORIZONTAL_PADDING,
@@ -411,25 +431,6 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     lineHeight: 20,
-    color: JourneyPalette.inkSoft,
-  },
-  dragHint: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 252, 247, 0.9)',
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  dragHintText: {
-    fontSize: 12,
-    fontWeight: '700',
     color: JourneyPalette.inkSoft,
   },
 });

@@ -2,12 +2,7 @@ import * as React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
 
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  InlineBanner,
-  StatusPill,
-} from '@/components/ui/revamp';
+import { ActionButton, BottomSheetScaffold, StatusPill } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import type { StatusTone } from '@/components/ui/revamp';
 
@@ -86,7 +81,7 @@ export function ImportProgressModal(props: {
       >
         <BottomSheetScaffold
           title={label}
-          hint={detail || '默认链路只同步 metadata 与端侧结构化结果。'}
+          hint={detail || '正在整理照片'}
           onClose={props.allowClose ? props.onClose : undefined}
           style={styles.sheet}
         >
@@ -104,13 +99,6 @@ export function ImportProgressModal(props: {
                 : '整理进行中'}
             </Text>
           </View>
-
-          <InlineBanner
-            icon={tone === 'analyzing' ? 'progress-clock' : 'shield-lock-outline'}
-            title={tone === 'analyzing' ? '后台正在继续整理' : '导入状态已经统一收口'}
-            body="整理过程中不会把原图作为默认上传内容，当前展示的是本机整理进度。"
-            tone="accent"
-          />
 
           {showProgress ? (
             <View style={styles.progressBlock}>

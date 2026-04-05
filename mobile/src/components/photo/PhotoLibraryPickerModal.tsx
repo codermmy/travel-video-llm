@@ -6,12 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
 import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  InlineBanner,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, BottomSheetScaffold, SurfaceCard } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 
 const PAGE_SIZE = 90;
@@ -41,7 +36,7 @@ export function PhotoLibraryPickerModal({
   title,
   hint,
   confirmLabel,
-  maxSelection = 200,
+  maxSelection,
   confirmLoading = false,
   permissionContext = 'manual-import',
   onClose,
@@ -49,11 +44,14 @@ export function PhotoLibraryPickerModal({
 }: PhotoLibraryPickerModalProps) {
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [totalAssetCount, setTotalAssetCount] = useState(0);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const assetsRef = useRef<MediaLibrary.Asset[]>([]);
   const endCursorRef = useRef<string | undefined>(undefined);
-  const hasNextPageRef = useRef(true);
+  const hasNextPageRef = useRef<boolean>(true);
   const loadingInitialRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const canClose = !confirmLoading;
@@ -78,6 +76,10 @@ export function PhotoLibraryPickerModal({
     [],
   );
 
+  useEffect(() => {
+    assetsRef.current = assets;
+  }, [assets]);
+
   const loadAssets = useCallback(
     async (mode: 'reset' | 'append') => {
       if (mode === 'reset') {
@@ -95,11 +97,13 @@ export function PhotoLibraryPickerModal({
           sortBy: [['creationTime', false]],
           after: mode === 'append' ? endCursorRef.current : undefined,
         });
-        setAssets((previous) =>
+        const nextAssets =
           mode === 'append'
-            ? mergeUniqueAssets(previous, page.assets ?? [])
-            : mergeUniqueAssets([], page.assets ?? []),
-        );
+            ? mergeUniqueAssets(assetsRef.current, page.assets ?? [])
+            : mergeUniqueAssets([], page.assets ?? []);
+        assetsRef.current = nextAssets;
+        setAssets(nextAssets);
+        setTotalAssetCount(page.totalCount ?? nextAssets.length);
         endCursorRef.current = page.endCursor ?? undefined;
         hasNextPageRef.current = Boolean(page.hasNextPage);
         setPermissionDenied(false);
@@ -113,6 +117,45 @@ export function PhotoLibraryPickerModal({
     [mergeUniqueAssets],
   );
 
+  const loadAllAssets = useCallback(async (): Promise<MediaLibrary.Asset[]> => {
+    if (!hasNextPageRef.current) {
+      return assetsRef.current;
+    }
+
+    setSelectingAll(true);
+    setLoadingMore(true);
+    loadingMoreRef.current = true;
+
+    try {
+      let nextAssets = assetsRef.current;
+      let cursor = endCursorRef.current;
+      let hasNextPage: boolean = hasNextPageRef.current;
+
+      while (hasNextPage) {
+        const page = await MediaLibrary.getAssetsAsync({
+          first: PAGE_SIZE,
+          mediaType: [MediaLibrary.MediaType.photo],
+          sortBy: [['creationTime', false]],
+          after: cursor,
+        });
+        nextAssets = mergeUniqueAssets(nextAssets, page.assets ?? []);
+        assetsRef.current = nextAssets;
+        setAssets(nextAssets);
+        setTotalAssetCount(page.totalCount ?? nextAssets.length);
+        cursor = page.endCursor ?? undefined;
+        hasNextPage = Boolean(page.hasNextPage);
+      }
+
+      endCursorRef.current = cursor;
+      hasNextPageRef.current = false;
+      return nextAssets;
+    } finally {
+      setSelectingAll(false);
+      setLoadingMore(false);
+      loadingMoreRef.current = false;
+    }
+  }, [mergeUniqueAssets]);
+
   useEffect(() => {
     if (!visible) {
       return;
@@ -124,6 +167,7 @@ export function PhotoLibraryPickerModal({
       if (!permission.granted) {
         setPermissionDenied(true);
         setAssets([]);
+        setTotalAssetCount(0);
         hasNextPageRef.current = false;
         endCursorRef.current = undefined;
         return;
@@ -156,9 +200,13 @@ export function PhotoLibraryPickerModal({
     return confirmLabel;
   }, [confirmLabel, selectedAssets.length]);
 
-  const handleSelectAllLoaded = useCallback(() => {
-    setSelectedIds(assets.slice(0, maxSelection).map((asset) => asset.id));
-  }, [assets, maxSelection]);
+  const handleSelectAll = useCallback(async () => {
+    const allAssets = await loadAllAssets();
+    const nextIds = maxSelection
+      ? allAssets.slice(0, maxSelection).map((asset) => asset.id)
+      : allAssets.map((asset) => asset.id);
+    setSelectedIds(nextIds);
+  }, [loadAllAssets, maxSelection]);
 
   const handleLoadMore = useCallback(() => {
     if (loadingMoreRef.current || loadingInitialRef.current || !hasNextPageRef.current) {
@@ -180,25 +228,27 @@ export function PhotoLibraryPickerModal({
         <Text style={styles.selectionStatsText}>
           {selectionMode
             ? `已选择 ${selectedIds.length}${maxSelection ? ` / ${maxSelection}` : ''}`
-            : '长按任意照片后开始滑动多选'}
-        </Text>
-        <Text style={styles.selectionStatsHint}>
-          {selectionMode
-            ? '选择后可继续点击补选，或像系统相册一样滑过照片连续选择。'
-            : '默认先浏览，长按一张照片即可进入选择状态；支持全选已加载。'}
+            : `共 ${totalAssetCount || assets.length} 张，轻触选择`}
         </Text>
 
         <View style={styles.toolbarRow}>
           <Pressable
-            onPress={handleSelectAllLoaded}
-            style={({ pressed }) => [styles.toolbarButton, pressed && styles.pressed]}
+            onPress={() => {
+              void handleSelectAll();
+            }}
+            disabled={selectingAll || loadingInitial || confirmLoading}
+            style={({ pressed }) => [
+              styles.toolbarButton,
+              pressed && styles.pressed,
+              (selectingAll || loadingInitial || confirmLoading) && styles.disabledAction,
+            ]}
           >
             <MaterialCommunityIcons
               name="checkbox-multiple-marked-outline"
               size={16}
               color={JourneyPalette.ink}
             />
-            <Text style={styles.toolbarButtonText}>全选已加载</Text>
+            <Text style={styles.toolbarButtonText}>{selectingAll ? '全选中...' : '全选全部'}</Text>
           </Pressable>
 
           {selectionMode ? (
@@ -229,6 +279,7 @@ export function PhotoLibraryPickerModal({
             hint={hint}
             onClose={canClose ? handleClose : undefined}
             style={styles.modalSheet}
+            bodyStyle={styles.modalSheetBody}
             footer={
               <View style={styles.modalActions}>
                 <ActionButton
@@ -247,28 +298,6 @@ export function PhotoLibraryPickerModal({
               </View>
             }
           >
-            {!selectionMode ? (
-              <InlineBanner
-                icon="image-multiple-outline"
-                title="手动补导入"
-                body="默认先浏览，长按任意一张进入选择态；手动补导入保留为次级入口，但体验应足够顺手。"
-                tone="neutral"
-                style={styles.topBanner}
-              />
-            ) : null}
-
-            {selectionMode ? (
-              <SurfaceCard style={styles.selectionBannerCard}>
-                <Text style={styles.selectionBannerTitle}>
-                  已选择 {selectedIds.length}
-                  {maxSelection ? ` / ${maxSelection}` : ''} 张
-                </Text>
-                <Text style={styles.selectionBannerBody}>
-                  补导入是次级入口，但选择体验本身仍然应该像一个完整相册流程。
-                </Text>
-              </SurfaceCard>
-            ) : null}
-
             {permissionDenied ? (
               <View style={styles.modalContent}>
                 <PermissionRecoveryCard
@@ -293,6 +322,7 @@ export function PhotoLibraryPickerModal({
                   emptyText="相册里还没有可导入的照片"
                   maxSelection={maxSelection}
                   onEndReached={handleLoadMore}
+                  browseTapBehavior="select"
                   header={header}
                   footer={
                     loadingMore ? (
@@ -325,35 +355,23 @@ const styles = StyleSheet.create({
     height: '88%',
     paddingBottom: 18,
   },
+  modalSheetBody: {
+    flex: 1,
+    minHeight: 0,
+  },
   modalContent: {
+    flex: 1,
+    minHeight: 0,
+    justifyContent: 'center',
     paddingBottom: 12,
-    gap: 14,
   },
   gridContainer: {
     flex: 1,
-    minHeight: 320,
-    paddingTop: 12,
-  },
-  topBanner: {
-    marginBottom: 12,
-  },
-  selectionBannerCard: {
-    marginBottom: 12,
-    gap: 6,
-  },
-  selectionBannerTitle: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: JourneyPalette.ink,
-  },
-  selectionBannerBody: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-    lineHeight: 18,
+    minHeight: 0,
+    paddingTop: 8,
   },
   gridHeader: {
-    paddingTop: 4,
-    paddingBottom: 12,
+    paddingBottom: 10,
   },
   toolbarCard: {
     borderRadius: 22,
@@ -367,10 +385,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     color: JourneyPalette.ink,
-  },
-  selectionStatsHint: {
-    lineHeight: 19,
-    color: JourneyPalette.inkSoft,
   },
   toolbarRow: {
     flexDirection: 'row',

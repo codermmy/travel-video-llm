@@ -390,7 +390,7 @@ class EventService:
                 center = calculate_center_point(gps_points)
                 event.gps_lat = Decimal(str(center[0]))
                 event.gps_lon = Decimal(str(center[1]))
-            else:
+            elif event.gps_lat is None or event.gps_lon is None:
                 event.gps_lat = None
                 event.gps_lon = None
 

@@ -16,6 +16,7 @@ import {
   popStack,
   returnToInitialState,
 } from '@/utils/mapClusterUtils';
+import { getCompactLocationText } from '@/utils/locationDisplay';
 import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import type { JourneyStateKind } from '@/utils/statusLanguage';
@@ -31,6 +32,10 @@ interface MapViewContainerProps {
   onEventPress: (eventId: string) => void;
   resetToken?: number;
   onCanResetChange?: (canReset: boolean) => void;
+  onSelectionScopeChange?: (
+    scope: { locationLabel: string | null; eventCount: number } | null,
+  ) => void;
+  topInset?: number;
 }
 
 type AMapLoadStatus = 'idle' | 'ready' | 'missing_keys' | 'module_error';
@@ -54,6 +59,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   onEventPress,
   resetToken = 0,
   onCanResetChange,
+  onSelectionScopeChange,
+  topInset = 0,
 }) => {
   const mapRef = useRef<MapViewRef | null>(null);
   const [amap, setAmap] = useState<AMapModule | null>(null);
@@ -62,7 +69,6 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   const [isMapReady, setIsMapReady] = useState(false);
 
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
-  const [sheetDismissed, setSheetDismissed] = useState(false);
   const [stack, setStack] = useState<MapViewStack | null>(null);
 
   const isWeb = Platform.OS === 'web';
@@ -139,13 +145,11 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
     if (!isMapReady || validEvents.length === 0) {
       if (validEvents.length === 0) {
         setSelectedClusterId(null);
-        setSheetDismissed(false);
       }
       return;
     }
     setStack(initializeStack(validEvents));
     setSelectedClusterId(null);
-    setSheetDismissed(false);
   }, [isMapReady, validEvents]);
 
   useEffect(() => {
@@ -173,38 +177,12 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
     return clusters.find((cluster) => cluster.id === selectedClusterId) || null;
   }, [clusters, selectedClusterId]);
 
-  const defaultClusterId = useMemo(() => {
-    if (clusters.length === 0) {
-      return null;
-    }
-    const sorted = [...clusters].sort((left, right) => {
-      const leftTime = Math.max(
-        ...left.events.map((event) =>
-          new Date(event.updatedAt || event.endTime || event.startTime || 0).getTime(),
-        ),
-      );
-      const rightTime = Math.max(
-        ...right.events.map((event) =>
-          new Date(event.updatedAt || event.endTime || event.startTime || 0).getTime(),
-        ),
-      );
-      return rightTime - leftTime;
-    });
-    return sorted[0]?.id ?? null;
-  }, [clusters]);
-
   const canResetView = useMemo(() => {
     if (!stack || validEvents.length === 0) {
       return false;
     }
-    if (stack.currentIndex > 0 || sheetDismissed) {
-      return true;
-    }
-    if (!selectedClusterId || !defaultClusterId) {
-      return false;
-    }
-    return selectedClusterId !== defaultClusterId;
-  }, [defaultClusterId, selectedClusterId, sheetDismissed, stack, validEvents.length]);
+    return stack.currentIndex > 0;
+  }, [stack, validEvents.length]);
 
   useEffect(() => {
     onCanResetChange?.(canResetView);
@@ -215,9 +193,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
       return;
     }
     setStack(returnToInitialState(stack));
-    setSelectedClusterId(defaultClusterId);
-    setSheetDismissed(false);
-  }, [canResetView, defaultClusterId, resetToken, stack]);
+    setSelectedClusterId(null);
+  }, [canResetView, resetToken, stack]);
 
   useEffect(() => {
     if (clusters.length === 0) {
@@ -225,24 +202,37 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
       return;
     }
 
-    if (selectedClusterId && clusters.some((cluster) => cluster.id === selectedClusterId)) {
-      return;
+    if (selectedClusterId && !clusters.some((cluster) => cluster.id === selectedClusterId)) {
+      setSelectedClusterId(null);
+    }
+  }, [clusters, selectedClusterId]);
+
+  const selectionScope = useMemo(() => {
+    if (!selectedCluster) {
+      return null;
     }
 
-    if (!sheetDismissed && defaultClusterId) {
-      setSelectedClusterId(defaultClusterId);
-    }
-  }, [clusters, defaultClusterId, selectedClusterId, sheetDismissed]);
+    const locationLabel = selectedCluster.events
+      .map((event) => getCompactLocationText(event))
+      .find(Boolean);
+
+    return {
+      locationLabel: locationLabel ?? null,
+      eventCount: selectedCluster.events.length,
+    };
+  }, [selectedCluster]);
+
+  useEffect(() => {
+    onSelectionScopeChange?.(selectionScope);
+  }, [onSelectionScopeChange, selectionScope]);
 
   const handleClusterPress = (clusterId: string) => {
     setSelectedClusterId(clusterId);
-    setSheetDismissed(false);
   };
 
   const handleMapPress = () => {
     if (selectedClusterId) {
       setSelectedClusterId(null);
-      setSheetDismissed(true);
       return;
     }
 
@@ -357,9 +347,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
       </MapViewComponent>
 
       {validEvents.length === 0 ? (
-        <View pointerEvents="none" style={styles.emptyState}>
+        <View pointerEvents="none" style={[styles.emptyState, { top: topInset + 20 }]}>
           <Text style={styles.emptyTitle}>还没有带定位的事件</Text>
-          <Text style={styles.emptyText}>导入包含 GPS 信息的照片后，这里会显示地点标记。</Text>
         </View>
       ) : null}
 
@@ -367,10 +356,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
         <EventCardList
           events={selectedCluster.events}
           onPressDetails={onEventPress}
-          onClose={() => {
-            setSelectedClusterId(null);
-            setSheetDismissed(true);
-          }}
+          onClose={() => setSelectedClusterId(null)}
         />
       ) : null}
     </View>
@@ -418,7 +404,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    top: 104,
     borderRadius: 24,
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -430,11 +415,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: JourneyPalette.ink,
-    marginBottom: 4,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: JourneyPalette.inkSoft,
-    lineHeight: 18,
   },
 });

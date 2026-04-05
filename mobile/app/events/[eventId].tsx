@@ -21,10 +21,6 @@ import { EventJourneyChapterCard } from '@/components/event/EventJourneyChapterC
 import { EventPhotoManagerSheet } from '@/components/event/EventPhotoManagerSheet';
 import { PhotoGrid } from '@/components/photo/PhotoGrid';
 import { eventApi } from '@/services/api/eventApi';
-import {
-  clearEventCoverOverride,
-  saveEventCoverOverride,
-} from '@/services/media/localMediaRegistry';
 import { taskApi } from '@/services/api/taskApi';
 import { generateSlideshowPreviewVideo } from '@/services/slideshow/slideshowExportService';
 import { buildScenes } from '@/services/slideshow/slideshowSceneBuilder';
@@ -34,7 +30,7 @@ import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
 import { formatDateRange } from '@/utils/dateUtils';
 import { getEventStatusMeta } from '@/utils/eventStatus';
-import { getPreferredPhotoThumbnailUri, resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
+import { resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
 function getFallbackDateRange(event: EventDetail): string {
   if (!event.startTime && !event.endTime) {
@@ -98,7 +94,6 @@ export default function EventDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [coverFailed, setCoverFailed] = useState(false);
-  const [isCoverPickerVisible, setIsCoverPickerVisible] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [isPhotoManagerVisible, setIsPhotoManagerVisible] = useState(false);
@@ -380,63 +375,6 @@ export default function EventDetailScreen() {
   const openMoreActions = useCallback(() => {
     setIsMoreActionsVisible(true);
   }, []);
-
-  const onSelectCoverPhoto = useCallback(
-    async (photo: EventDetail['photos'][number]) => {
-      if (!event) {
-        return;
-      }
-
-      const nextCoverUri = getPreferredPhotoThumbnailUri(photo);
-      try {
-        await saveEventCoverOverride({
-          eventId: event.id,
-          photoId: photo.id,
-          localCoverUri: nextCoverUri,
-        });
-        setEvent((previous) =>
-          previous
-            ? {
-                ...previous,
-                localCoverUri: nextCoverUri,
-                selectedCoverPhotoId: photo.id,
-              }
-            : previous,
-        );
-        setCoverFailed(false);
-        setIsCoverPickerVisible(false);
-      } catch (coverError) {
-        Alert.alert(
-          '封面更新失败',
-          coverError instanceof Error ? coverError.message : '请稍后再试',
-        );
-      }
-    },
-    [event],
-  );
-
-  const onResetCover = useCallback(async () => {
-    if (!event) {
-      return;
-    }
-
-    try {
-      await clearEventCoverOverride(event.id);
-      setEvent((previous) =>
-        previous
-          ? {
-              ...previous,
-              localCoverUri: automaticCover.uri,
-              selectedCoverPhotoId: automaticCover.photoId,
-            }
-          : previous,
-      );
-      setCoverFailed(false);
-      setIsCoverPickerVisible(false);
-    } catch (coverError) {
-      Alert.alert('恢复默认失败', coverError instanceof Error ? coverError.message : '请稍后再试');
-    }
-  }, [automaticCover.photoId, automaticCover.uri, event]);
 
   const confirmDeleteEvent = useCallback(() => {
     if (!event) {
@@ -765,10 +703,13 @@ export default function EventDetailScreen() {
         visible={isEditModalVisible}
         event={event}
         onClose={() => setIsEditModalVisible(false)}
-        onSaved={() => {
+        onSaved={(message) => {
           setIsEditModalVisible(false);
           void loadDetail();
-          Alert.alert('已保存', '事件基础信息已更新。');
+          Alert.alert('已保存', message || '事件基础信息已更新。');
+        }}
+        onChanged={() => {
+          void loadDetail();
         }}
         onDeleted={() => {
           setIsEditModalVisible(false);
@@ -844,36 +785,6 @@ export default function EventDetailScreen() {
               <Text style={styles.actionSheetRowText}>移动整组照片</Text>
             </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
-              onPress={() => {
-                setIsMoreActionsVisible(false);
-                setIsCoverPickerVisible(true);
-              }}
-            >
-              <MaterialCommunityIcons
-                name="image-edit-outline"
-                size={18}
-                color={JourneyPalette.ink}
-              />
-              <Text style={styles.actionSheetRowText}>更换封面</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.actionSheetRow, pressed && styles.pressed]}
-              onPress={() => {
-                setIsMoreActionsVisible(false);
-                void onResetCover();
-              }}
-            >
-              <MaterialCommunityIcons
-                name="image-sync-outline"
-                size={18}
-                color={JourneyPalette.ink}
-              />
-              <Text style={styles.actionSheetRowText}>恢复默认封面</Text>
-            </Pressable>
-
             {canRetryManually && (
               <Pressable
                 style={({ pressed }) => [
@@ -925,63 +836,6 @@ export default function EventDetailScreen() {
             >
               <Text style={styles.actionSheetCancelText}>取消</Text>
             </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={isCoverPickerVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setIsCoverPickerVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setIsCoverPickerVisible(false)}
-          />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalHeader}>
-              <View style={styles.modalCopy}>
-                <Text style={styles.modalTitle}>选择事件封面</Text>
-                <Text style={styles.modalHint}>优先使用本地缩略图，无图时回退到远端图片。</Text>
-              </View>
-              <Pressable
-                onPress={() => setIsCoverPickerVisible(false)}
-                style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.pressed]}
-              >
-                <MaterialCommunityIcons name="close" size={18} color={JourneyPalette.inkSoft} />
-              </Pressable>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <PhotoGrid
-                photos={event.photos}
-                onPhotoPress={(photo) => {
-                  void onSelectCoverPhoto(photo);
-                }}
-                emptyText="这个事件还没有可用封面候选"
-                selectedPhotoId={event.selectedCoverPhotoId ?? automaticCover.photoId}
-              />
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={() => {
-                  void onResetCover();
-                }}
-                style={({ pressed }) => [styles.modalGhostBtn, pressed && styles.pressed]}
-              >
-                <Text style={styles.modalGhostBtnText}>恢复默认</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setIsCoverPickerVisible(false)}
-                style={({ pressed }) => [styles.modalPrimaryBtn, pressed && styles.pressed]}
-              >
-                <Text style={styles.modalPrimaryBtnText}>完成</Text>
-              </Pressable>
-            </View>
           </View>
         </View>
       </Modal>

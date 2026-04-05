@@ -27,13 +27,17 @@ const nativeTravelVisionModule =
   requireOptionalNativeModule<NativeTravelVisionModule>('TravelVision');
 
 const ANALYSIS_BATCH_SIZE = 8;
+const VISION_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_VISION_DEBUG === '1';
 
 let pendingQueue: OnDeviceVisionAnalysisInput[] = [];
 let runningPromise: Promise<void> | null = null;
 const queuedKeys = new Set<string>();
 
 function logVisionDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (VISION_DEBUG_ENABLED) {
     console.log(`[OnDeviceVision] ${label}`, payload);
   }
 }
@@ -85,7 +89,7 @@ function isNativeVisionAvailable(): boolean {
     nativeTravelVisionModule !== null &&
     nativeTravelVisionModule.isAvailable();
 
-  if (__DEV__) {
+  if (VISION_DEBUG_ENABLED) {
     logVisionDebug('availability', {
       platform: Platform.OS,
       hasNativeModule: nativeTravelVisionModule !== null,

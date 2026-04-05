@@ -3,12 +3,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Modal, Portal, ProgressBar, Text } from 'react-native-paper';
 
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  InlineBanner,
-  StatusPill,
-} from '@/components/ui/revamp';
+import { ActionButton, BottomSheetScaffold, StatusPill } from '@/components/ui/revamp';
 import { taskApi, type TaskStatus } from '@/services/api/taskApi';
 import { JourneyPalette } from '@/styles/colors';
 import type { StatusTone } from '@/components/ui/revamp';
@@ -146,21 +141,21 @@ export function UploadProgress({
 
   const hintText = useMemo(() => {
     if (phase === 'clustering') {
-      return '系统会按时间和地点自动整理最近导入的照片。';
+      return '正在聚合事件';
     }
     if (phase === 'geocoding') {
-      return '正在补充地点展示信息，不会上传原图。';
+      return '正在补充地点信息';
     }
     if (phase === 'ai') {
-      return '照片结构化结果已就绪，系统正在按事件分批生成故事。';
+      return '正在生成故事';
     }
     if (phase === 'failed') {
-      return status?.error || '可稍后重新生成该事件故事。';
+      return status?.error || '请稍后重试';
     }
     if (pollError) {
       return pollError;
     }
-    return status?.result || '默认链路只同步 metadata 与端侧结构化结果。';
+    return status?.result || '正在整理任务';
   }, [phase, pollError, status?.error, status?.result]);
 
   if (!visible || !taskId) {
@@ -202,18 +197,6 @@ export function UploadProgress({
             color={phase === 'failed' ? JourneyPalette.danger : JourneyPalette.accent}
           />
 
-          <InlineBanner
-            icon={phase === 'failed' ? 'alert-circle-outline' : 'timeline-clock-outline'}
-            title={phase === 'failed' ? '需要关注这次任务' : '任务会继续在后台推进'}
-            body={
-              phase === 'failed'
-                ? status?.error || '失败项会留在任务中心，你可以稍后再回看或重试。'
-                : '即时反馈会短暂出现，完整阶段记录会统一沉淀到任务中心。'
-            }
-            tone={phase === 'failed' ? 'danger' : 'accent'}
-            style={styles.banner}
-          />
-
           {phase === 'failed' ? (
             <View style={styles.failureActions}>
               <ActionButton
@@ -223,11 +206,7 @@ export function UploadProgress({
                   onDismissFailed?.();
                   router.push({
                     pathname: '/profile/import-tasks',
-                    params: {
-                      filter: 'failed',
-                      focusTaskId: taskId,
-                      intentKey: String(Date.now()),
-                    },
+                    params: { taskId },
                   });
                 }}
                 style={styles.failureActionButton}

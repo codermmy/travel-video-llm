@@ -17,6 +17,7 @@ from app.services.chapter_ai_service import generate_chapter_story
 from app.services.event_enrichment import (
     ensure_event_title,
     format_coordinate_location,
+    is_coordinate_location_text,
     split_into_chapters,
 )
 from app.services.event_service import event_service
@@ -51,9 +52,13 @@ def _build_local_photo_caption(seed_desc: str) -> str | None:
 
 
 def _ensure_location_context(event: Event) -> tuple[str, str, str]:
-    detailed_location = event.detailed_location or event.location_name or ""
+    existing_location_name = str(event.location_name or "").strip()
+    normalized_location_name = (
+        "" if is_coordinate_location_text(existing_location_name) else existing_location_name
+    )
+    detailed_location = event.detailed_location or normalized_location_name or ""
     location_tags = event.location_tags or ""
-    display_location = event.location_name or detailed_location or ""
+    display_location = normalized_location_name or detailed_location or ""
 
     if event.gps_lat is not None and event.gps_lon is not None:
         context = amap_client.get_location_context(
@@ -72,7 +77,13 @@ def _ensure_location_context(event: Event) -> tuple[str, str, str]:
 
     event.detailed_location = detailed_location
     event.location_tags = location_tags or "旅途见闻、当下感受"
-    if not event.location_name and display_location:
+    if (
+        display_location
+        and (
+            not event.location_name
+            or is_coordinate_location_text(str(event.location_name).strip())
+        )
+    ):
         event.location_name = display_location
 
     location_value = str(event.location_name or detailed_location or "未知地点")
@@ -223,6 +234,11 @@ def generate_event_story_for_event(
     db.commit()
 
     location, detailed_location, location_tags = _ensure_location_context(event)
+    location_context_snapshot = {
+        "location_name": event.location_name,
+        "detailed_location": event.detailed_location,
+        "location_tags": event.location_tags,
+    }
     signals = aggregate_story_signals(photos)
     descriptions = sample_story_items(
         [str(d) for d in signals.get("photo_descriptions", []) if d],
@@ -272,6 +288,17 @@ def generate_event_story_for_event(
     db.refresh(event)
     if event.event_version != generation_version:
         return True, "event_version_outdated"
+
+    if location_context_snapshot["location_name"] and (
+        not event.location_name or is_coordinate_location_text(event.location_name)
+    ):
+        event.location_name = location_context_snapshot["location_name"]
+    if location_context_snapshot["detailed_location"] and (
+        not event.detailed_location or is_coordinate_location_text(event.detailed_location)
+    ):
+        event.detailed_location = location_context_snapshot["detailed_location"]
+    if location_context_snapshot["location_tags"] and not event.location_tags:
+        event.location_tags = location_context_snapshot["location_tags"]
 
     if not event.title_manually_set:
         event.title = str(story.get("title") or ensure_event_title(event))

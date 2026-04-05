@@ -3,9 +3,13 @@ import * as MediaLibrary from 'expo-media-library';
 
 const LOCAL_MEDIA_REGISTRY_KEY = 'local-media-registry/v1';
 const EVENT_COVER_OVERRIDE_KEY = 'event-cover-override/v1';
+const MEDIA_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_MEDIA_DEBUG === '1';
 
 function logMediaDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (MEDIA_DEBUG_ENABLED) {
     console.log(`[MediaDebug] ${label}`, payload);
   }
 }

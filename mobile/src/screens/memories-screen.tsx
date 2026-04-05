@@ -21,24 +21,15 @@ import { EventEditSheet } from '@/components/event/EventEditSheet';
 import { EventPhotoManagerSheet } from '@/components/event/EventPhotoManagerSheet';
 import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
 import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
-import {
-  ActionButton,
-  BottomSheetScaffold,
-  FilterChip,
-  InlineBanner,
-  StatusPill,
-  SurfaceCard,
-} from '@/components/ui/revamp';
+import { ActionButton, BottomSheetScaffold, InlineBanner } from '@/components/ui/revamp';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import { MonthHeader } from '@/components/timeline/MonthHeader';
 import { TimelineEventCard } from '@/components/timeline/TimelineEventCard';
 import { eventApi } from '@/services/api/eventApi';
 import {
   AUTO_IMPORT_LIMIT,
-  getImportCacheSummary,
   importSelectedLibraryAssets,
   importRecentPhotos,
-  type ImportCacheSummary,
   type ImportResult,
 } from '@/services/album/photoImportService';
 import {
@@ -55,8 +46,6 @@ import { groupEventsByMonth, type MonthSection } from '@/utils/eventGrouping';
 import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 import { openAppSettings } from '@/utils/permissionUtils';
-
-type MemoryFilter = 'all' | 'processing' | 'stale' | 'failed';
 
 function buildImportSummaryText(
   result: ImportResult,
@@ -122,7 +111,6 @@ export default function MemoriesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [importVisible, setImportVisible] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
-  const [importSummary, setImportSummary] = useState<ImportCacheSummary | null>(null);
   const [snackbar, setSnackbar] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [taskProgressVisible, setTaskProgressVisible] = useState(false);
@@ -132,19 +120,12 @@ export default function MemoriesScreen() {
   const [photoManagerEventId, setPhotoManagerEventId] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerSubmitting, setPickerSubmitting] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<MemoryFilter>('all');
   const [taskState, setTaskState] = useState<ImportTaskState>(getImportTaskState());
 
   const canShowModal = useMemo(
     () => importVisible && importProgress.stage !== 'idle',
     [importProgress.stage, importVisible],
   );
-
-  const loadImportSummary = useCallback(async () => {
-    const summary = await getImportCacheSummary();
-    setImportSummary(summary);
-    return summary;
-  }, []);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -160,11 +141,11 @@ export default function MemoriesScreen() {
   const loadInitial = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadEvents(), loadImportSummary()]);
+      await loadEvents();
     } finally {
       setLoading(false);
     }
-  }, [loadEvents, loadImportSummary]);
+  }, [loadEvents]);
 
   useFocusEffect(
     useCallback(() => {
@@ -183,20 +164,12 @@ export default function MemoriesScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadEvents(), loadImportSummary()]);
+      await loadEvents();
     } finally {
       setRefreshing(false);
     }
-  }, [loadEvents, loadImportSummary]);
+  }, [loadEvents]);
 
-  const readyEventCount = useMemo(
-    () => events.filter((event) => getEventStatusMeta(event).tone === 'ready').length,
-    [events],
-  );
-  const staleEventCount = useMemo(
-    () => events.filter((event) => getEventStatusMeta(event).tone === 'stale').length,
-    [events],
-  );
   const failedEventCount = useMemo(
     () => events.filter((event) => getEventStatusMeta(event).tone === 'failed').length,
     [events],
@@ -225,90 +198,25 @@ export default function MemoriesScreen() {
     }
     return '';
   }, [activeEventCount, runningTaskCopy, taskState.runningCount]);
-  const filteredEvents = useMemo(() => {
-    if (activeFilter === 'processing') {
-      return events.filter((event) => {
-        const tone = getEventStatusMeta(event).tone;
-        return tone === 'importing' || tone === 'processing';
-      });
-    }
-    if (activeFilter === 'stale') {
-      return events.filter((event) => getEventStatusMeta(event).tone === 'stale');
-    }
-    if (activeFilter === 'failed') {
-      return events.filter((event) => getEventStatusMeta(event).tone === 'failed');
-    }
-    return events;
-  }, [activeFilter, events]);
-  const activeFilterMeta = useMemo(() => {
-    if (activeFilter === 'processing') {
-      return {
-        heroKicker: '整理中的回忆',
-        sectionLabel: '整理中的回忆',
-        emptyTitle: '当前没有正在整理的回忆',
-        emptyDescription: '切回“全部”继续浏览，或稍后再回来查看最新整理结果。',
-      };
-    }
-    if (activeFilter === 'stale') {
-      return {
-        heroKicker: '待更新的回忆',
-        sectionLabel: '待更新的回忆',
-        emptyTitle: '当前没有待更新的回忆',
-        emptyDescription: '切回“全部”继续浏览，或等系统完成后台刷新后再回来查看。',
-      };
-    }
-    if (activeFilter === 'failed') {
-      return {
-        heroKicker: '需重试的回忆',
-        sectionLabel: '需重试的回忆',
-        emptyTitle: '当前没有需重试的回忆',
-        emptyDescription: '切回“全部”继续浏览，或等待新的整理结果后再回来查看。',
-      };
-    }
-    return {
-      heroKicker: '最近旅程',
-      sectionLabel: '回忆流',
-      emptyTitle: '当前筛选下没有内容',
-      emptyDescription: '可以切回“全部”，或者等系统继续整理后再回来查看。',
-    };
-  }, [activeFilter]);
-  const statusSegments = useMemo(
-    () =>
-      [
-        {
-          key: 'ready',
-          label: '已就绪',
-          count: readyEventCount,
-          color: JourneyPalette.success,
-        },
-        {
-          key: 'processing',
-          label: '整理中',
-          count: activeEventCount,
-          color: JourneyPalette.accent,
-        },
-        {
-          key: 'stale',
-          label: '待更新',
-          count: staleEventCount,
-          color: JourneyPalette.warning,
-        },
-        {
-          key: 'failed',
-          label: '需重试',
-          count: failedEventCount,
-          color: JourneyPalette.danger,
-        },
-      ].filter((segment) => segment.count > 0),
-    [activeEventCount, failedEventCount, readyEventCount, staleEventCount],
-  );
-  const heroEvent = (activeFilter === 'all' ? events : filteredEvents)[0] ?? null;
+  const heroEvent = events[0] ?? null;
   const heroCoverUri = getPreferredEventCoverUri(heroEvent);
   const heroEventTone = useMemo(
     () => (heroEvent ? getEventStatusMeta(heroEvent).tone : null),
     [heroEvent],
   );
-  const monthSections = useMemo(() => groupEventsByMonth(filteredEvents), [filteredEvents]);
+  const heroKicker = useMemo(() => {
+    if (heroEventTone === 'failed') {
+      return '需重试';
+    }
+    if (heroEventTone === 'processing' || heroEventTone === 'importing') {
+      return '整理中';
+    }
+    if (heroEventTone === 'stale') {
+      return '待更新';
+    }
+    return '最近回忆';
+  }, [heroEventTone]);
+  const monthSections = useMemo(() => groupEventsByMonth(events), [events]);
 
   const executeLibraryImport = useCallback(
     async (assets: import('expo-media-library').Asset[]) => {
@@ -369,14 +277,9 @@ export default function MemoriesScreen() {
         setImportProgress({ stage: 'idle' });
         setPickerSubmitting(false);
         setPickerVisible(false);
-        try {
-          await loadImportSummary();
-        } catch (summaryError) {
-          console.warn('Failed to refresh import summary:', summaryError);
-        }
       }
     },
-    [loadImportSummary, refresh],
+    [refresh],
   );
 
   const runImport = useCallback(
@@ -433,14 +336,9 @@ export default function MemoriesScreen() {
       } finally {
         setImportVisible(false);
         setImportProgress({ stage: 'idle' });
-        try {
-          await loadImportSummary();
-        } catch (summaryError) {
-          console.warn('Failed to refresh import summary:', summaryError);
-        }
       }
     },
-    [loadImportSummary, refresh],
+    [refresh],
   );
 
   const handleRecentImport = useCallback(() => {
@@ -455,7 +353,6 @@ export default function MemoriesScreen() {
     const requestedIntentKey = Array.isArray(params.intentKey)
       ? params.intentKey[0]
       : params.intentKey;
-    const requestedFilter = Array.isArray(params.filter) ? params.filter[0] : params.filter;
     const requestedImportMode = Array.isArray(params.importMode)
       ? params.importMode[0]
       : params.importMode;
@@ -469,21 +366,12 @@ export default function MemoriesScreen() {
       return;
     }
 
-    if (
-      requestedFilter === 'all' ||
-      requestedFilter === 'processing' ||
-      requestedFilter === 'stale' ||
-      requestedFilter === 'failed'
-    ) {
-      setActiveFilter(requestedFilter);
-    }
-
     if (requestedImportMode === 'manual') {
       setPickerVisible(true);
     }
 
     handledIntentKeyRef.current = requestedIntentKey;
-  }, [error, loading, params.filter, params.importMode, params.intentKey]);
+  }, [error, loading, params.importMode, params.intentKey]);
 
   const goToEventDetail = useCallback(
     (id: string) => {
@@ -563,83 +451,27 @@ export default function MemoriesScreen() {
     [goToEventDetail],
   );
 
-  const topStatus = useMemo(() => {
-    if (failedEventCount > 0) {
-      return {
-        label: `需处理 ${failedEventCount}`,
-        tone: 'failed' as const,
-        icon: 'alert-circle-outline' as const,
-      };
-    }
-    if (activeEventCount > 0) {
-      return {
-        label: `整理中 ${activeEventCount}`,
-        tone: 'analyzing' as const,
-        icon: 'progress-clock' as const,
-      };
-    }
-    if (staleEventCount > 0) {
-      return {
-        label: `待更新 ${staleEventCount}`,
-        tone: 'stale' as const,
-        icon: 'update' as const,
-      };
-    }
-    return {
-      label: '已就绪',
-      tone: 'ready' as const,
-      icon: 'check-circle-outline' as const,
-    };
-  }, [activeEventCount, failedEventCount, staleEventCount]);
-
   const heroSection = (
     <View style={styles.headerBlock}>
-      <View style={styles.topRow}>
-        <View style={styles.titleStack}>
-          <Text selectable style={styles.pageTitle}>
-            回忆
-          </Text>
-        </View>
-        <StatusPill label={topStatus.label} tone={topStatus.tone} icon={topStatus.icon} />
-      </View>
+      <Text selectable style={styles.pageTitle}>
+        回忆
+      </Text>
 
-      {(failedEventCount > 0 || activeEventCount > 0 || staleEventCount > 0) &&
-      events.length > 0 ? (
+      {(failedEventCount > 0 || activeEventCount > 0) && events.length > 0 ? (
         <InlineBanner
-          icon={
-            failedEventCount > 0
-              ? 'alert-circle-outline'
-              : activeEventCount > 0
-                ? 'timeline-clock-outline'
-                : 'update'
-          }
-          title={
-            failedEventCount > 0
-              ? '有回忆需要处理'
-              : activeEventCount > 0
-                ? '后台仍在继续整理'
-                : '有回忆待自动更新'
-          }
+          icon={failedEventCount > 0 ? 'alert-circle-outline' : 'timeline-clock-outline'}
+          title={failedEventCount > 0 ? '有回忆需要处理' : '回忆仍在整理中'}
           body={
             failedEventCount > 0
-              ? `${failedEventCount} 个回忆整理失败或分析异常，建议先筛到“需重试”查看。`
-              : activeEventCount > 0
-                ? runningTaskCopy ||
-                  `${activeEventCount} 个回忆仍在后台继续整理，可在任务中心回看最近任务和历史结果。`
-                : `${staleEventCount} 个回忆会在后台自动补齐最新故事和结构。`
+              ? `${failedEventCount} 个回忆需重试。`
+              : runningTaskSummary || `${activeEventCount} 个回忆仍在整理中。`
           }
           action={
             <ActionButton
-              label={failedEventCount > 0 ? '查看失败' : '查看'}
+              label="查看任务"
               tone="secondary"
               fullWidth={false}
-              onPress={() => {
-                if (failedEventCount > 0) {
-                  setActiveFilter('failed');
-                  return;
-                }
-                router.push('/profile/import-tasks');
-              }}
+              onPress={() => router.push('/profile/import-tasks')}
             />
           }
         />
@@ -667,7 +499,7 @@ export default function MemoriesScreen() {
           />
           <View style={styles.heroCopy}>
             <Text selectable style={styles.heroKicker}>
-              {activeFilterMeta.heroKicker}
+              {heroKicker}
             </Text>
             <Text selectable style={styles.heroTitle}>
               {heroEvent.title || '未命名事件'}
@@ -693,109 +525,6 @@ export default function MemoriesScreen() {
           </View>
         </Pressable>
       ) : null}
-
-      {events.length > 0 ? (
-        <>
-          <Text selectable style={styles.sectionLabel}>
-            后台整理
-          </Text>
-          <SurfaceCard style={styles.progressCard}>
-            <View style={styles.progressHead}>
-              <View>
-                <Text selectable style={styles.progressTitle}>
-                  整理状态中心
-                </Text>
-              </View>
-              <Pressable onPress={() => router.push('/profile/import-tasks')}>
-                <Text selectable style={styles.progressAction}>
-                  查看全部
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.progressRail}>
-              {statusSegments.map((segment) => (
-                <View
-                  key={segment.key}
-                  style={[
-                    styles.progressSegment,
-                    {
-                      flex: Math.max(segment.count, 1),
-                      backgroundColor: segment.color,
-                    },
-                  ]}
-                />
-              ))}
-            </View>
-            <View style={styles.progressLegend}>
-              {statusSegments.map((segment) => (
-                <View key={segment.key} style={styles.progressLegendItem}>
-                  <View style={[styles.progressLegendDot, { backgroundColor: segment.color }]} />
-                  <Text style={styles.progressLegendText}>
-                    {segment.label} {segment.count}
-                  </Text>
-                </View>
-              ))}
-            </View>
-            <Text selectable style={styles.progressBody}>
-              {failedEventCount > 0
-                ? `${failedEventCount} 个回忆需要处理。可先筛到“需重试”，再进入详情执行重试或先查看照片。`
-                : taskState.runningCount > 0
-                  ? runningTaskSummary
-                  : activeEventCount > 0
-                    ? `当前有 ${activeEventCount} 个回忆仍在后台继续整理，可在任务中心回看最近任务和历史结果。`
-                    : staleEventCount > 0
-                      ? `${staleEventCount} 个回忆内容待更新，系统会继续后台刷新。`
-                      : '当前首页内容已经就绪，可以直接继续回看或播放。'}
-            </Text>
-          </SurfaceCard>
-          <View style={styles.importActionRow}>
-            <ActionButton
-              label="整理最近 200 张"
-              tone="secondary"
-              fullWidth={false}
-              onPress={handleRecentImport}
-              style={styles.importActionButton}
-            />
-            <ActionButton
-              label="手动补导入"
-              tone="secondary"
-              fullWidth={false}
-              onPress={handleManualImport}
-              style={styles.importActionButton}
-            />
-          </View>
-        </>
-      ) : null}
-
-      {events.length > 0 ? (
-        <>
-          <View style={styles.filterRow}>
-            {(
-              [
-                { key: 'all', label: '全部', count: events.length },
-                { key: 'processing', label: '整理中', count: activeEventCount },
-                { key: 'stale', label: '待更新', count: staleEventCount },
-                { key: 'failed', label: '需重试', count: failedEventCount },
-              ] as const
-            ).map((item) => {
-              const active = activeFilter === item.key;
-              return (
-                <FilterChip
-                  key={item.key}
-                  label={item.label}
-                  count={item.count}
-                  active={active}
-                  onPress={() => setActiveFilter(item.key)}
-                />
-              );
-            })}
-          </View>
-          <Text selectable style={styles.sectionLabel}>
-            {activeFilterMeta.sectionLabel}
-          </Text>
-        </>
-      ) : null}
     </View>
   );
 
@@ -807,10 +536,7 @@ export default function MemoriesScreen() {
         </View>
         <ActivityIndicator size="large" color={JourneyPalette.accent} />
         <Text selectable style={styles.loadingTitle}>
-          正在加载回忆首页
-        </Text>
-        <Text selectable style={styles.loadingText}>
-          最近回忆、整理状态和回忆流会按当前版本自动刷新。
+          正在加载回忆
         </Text>
       </View>
     );
@@ -845,70 +571,13 @@ export default function MemoriesScreen() {
         >
           <View style={styles.welcomeHero}>
             <LinearGradient colors={['#EEF4FF', '#F9FBFF']} style={styles.welcomeHeroTop}>
-              <StatusPill label="欢迎态" tone="ready" icon="check-circle-outline" />
               <Text selectable style={styles.welcomeTitle}>
-                自动整理旅行回忆
+                开始整理回忆
               </Text>
               <Text selectable style={styles.welcomeBody}>
-                第一次进入只保留一个主入口。导入最近照片后，系统会按时间和地点自动聚合成可回看的回忆。
+                导入照片后，系统会自动生成回忆。
               </Text>
             </LinearGradient>
-
-            <SurfaceCard>
-              <View style={styles.promiseRow}>
-                <View style={styles.promiseIcon}>
-                  <MaterialCommunityIcons
-                    name="shield-lock-outline"
-                    size={18}
-                    color={JourneyPalette.accent}
-                  />
-                </View>
-                <View style={styles.promiseCopy}>
-                  <Text selectable style={styles.promiseTitle}>
-                    默认不上图
-                  </Text>
-                  <Text selectable style={styles.promiseBody}>
-                    只同步 metadata 与端侧结构化结果，原图不作为默认上传内容。
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.promiseDivider} />
-              <View style={styles.promiseRow}>
-                <View style={styles.promiseIcon}>
-                  <MaterialCommunityIcons
-                    name="image-filter-hdr"
-                    size={18}
-                    color={JourneyPalette.accent}
-                  />
-                </View>
-                <View style={styles.promiseCopy}>
-                  <Text selectable style={styles.promiseTitle}>
-                    自动聚合事件
-                  </Text>
-                  <Text selectable style={styles.promiseBody}>
-                    相册不需要先手动分类，系统会按时间、地点和内容自动整理成回忆。
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.promiseDivider} />
-              <View style={styles.promiseRow}>
-                <View style={styles.promiseIcon}>
-                  <MaterialCommunityIcons
-                    name="play-circle-outline"
-                    size={18}
-                    color={JourneyPalette.accent}
-                  />
-                </View>
-                <View style={styles.promiseCopy}>
-                  <Text selectable style={styles.promiseTitle}>
-                    本机回看与播放
-                  </Text>
-                  <Text selectable style={styles.promiseBody}>
-                    事件详情、照片浏览和幻灯片都围绕本地媒体展开，不再先把你带去地图或设置页。
-                  </Text>
-                </View>
-              </View>
-            </SurfaceCard>
 
             <View style={styles.welcomeActions}>
               <ActionButton label="整理最近 200 张" onPress={handleRecentImport} />
@@ -919,7 +588,7 @@ export default function MemoriesScreen() {
               <InlineBanner
                 icon="cog-outline"
                 title="需要相册权限"
-                body="首次整理前需要系统相册授权，开启后即可回到这里继续主入口。"
+                body="请先开启系统相册权限。"
                 tone="warm"
                 action={
                   <ActionButton
@@ -931,31 +600,7 @@ export default function MemoriesScreen() {
                 }
               />
             ) : null}
-
-            {importSummary?.lastRunAt ? (
-              <Text selectable style={styles.welcomeHint}>
-                如果你之前已经导入过照片，整理记录会继续保留在本机任务中心。
-              </Text>
-            ) : null}
           </View>
-        </ScrollView>
-      ) : filteredEvents.length === 0 ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.filteredContent}
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator={false}
-        >
-          {heroSection}
-          <SurfaceCard style={styles.filteredEmptyCard}>
-            <MaterialCommunityIcons name="tune-variant" size={24} color={JourneyPalette.muted} />
-            <Text selectable style={styles.filteredEmptyTitle}>
-              {activeFilterMeta.emptyTitle}
-            </Text>
-            <Text selectable style={styles.filteredEmptyText}>
-              {activeFilterMeta.emptyDescription}
-            </Text>
-          </SurfaceCard>
         </ScrollView>
       ) : (
         <SectionList
@@ -981,7 +626,7 @@ export default function MemoriesScreen() {
       <PhotoLibraryPickerModal
         visible={pickerVisible}
         title="手动补导入"
-        hint="从系统相册挑选照片，长按开始滑动多选；这只是补充导入能力。"
+        hint="从系统相册选择照片"
         confirmLabel="开始导入"
         confirmLoading={pickerSubmitting}
         onClose={() => {
@@ -999,10 +644,16 @@ export default function MemoriesScreen() {
         visible={Boolean(editingEvent)}
         event={editingEvent}
         onClose={() => setEditingEvent(null)}
-        onSaved={() => {
+        onSaved={(message) => {
           setEditingEvent(null);
           setActionEvent(null);
-          setSnackbar('事件信息已更新');
+          setSnackbar(message || '事件信息已更新');
+          void refresh();
+        }}
+        onChanged={(message) => {
+          if (message) {
+            setSnackbar(message);
+          }
           void refresh();
         }}
         onDeleted={() => {

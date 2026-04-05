@@ -4,35 +4,45 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
 import {
   ActionButton,
+  BottomSheetScaffold,
   EmptyStateCard,
-  ListItemRow,
   PageContent,
   PageHeader,
-  SectionLabel,
   SurfaceCard,
 } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 
 const NICKNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,64}$/;
+const MAX_AVATAR_SIZE = 1024 * 1024;
+
+type PermissionType = 'media' | 'camera' | null;
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [nickname, setNickname] = useState('');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
+  const [permissionDenied, setPermissionDenied] = useState<PermissionType>(null);
 
   const loadUser = useCallback(async () => {
     try {
@@ -41,8 +51,8 @@ export default function EditProfileScreen() {
       const user = await userApi.getCurrentUser();
       setCurrentUser(user);
       setNickname(user.nickname || '');
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : '请稍后重试');
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -52,7 +62,65 @@ export default function EditProfileScreen() {
     void loadUser();
   }, [loadUser]);
 
-  const nicknameCount = useMemo(() => nickname.trim().length, [nickname]);
+  const avatarLetter = useMemo(() => {
+    const source = nickname.trim() || currentUser?.nickname?.trim() || 'D';
+    return source.slice(0, 1).toUpperCase();
+  }, [currentUser?.nickname, nickname]);
+
+  const uploadAvatarAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    if (asset.fileSize && asset.fileSize > MAX_AVATAR_SIZE) {
+      Alert.alert('图片过大', '头像图片需小于 1MB');
+      return;
+    }
+
+    try {
+      setAvatarUploading(true);
+      const updatedUser = await userApi.uploadAvatarAndUpdate(asset.uri);
+      setCurrentUser(updatedUser);
+      setPermissionDenied(null);
+    } catch (error) {
+      Alert.alert('上传失败', error instanceof Error ? error.message : '请稍后重试');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }, []);
+
+  const pickFromLibrary = useCallback(async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== 'granted') {
+      setPermissionDenied('media');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      await uploadAvatarAsset(result.assets[0]);
+    }
+  }, [uploadAvatarAsset]);
+
+  const captureFromCamera = useCallback(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (permission.status !== 'granted') {
+      setPermissionDenied('camera');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      await uploadAvatarAsset(result.assets[0]);
+    }
+  }, [uploadAvatarAsset]);
 
   const onSave = useCallback(async () => {
     const cleanNickname = nickname.trim();
@@ -68,12 +136,11 @@ export default function EditProfileScreen() {
 
     try {
       setSaving(true);
-      await userApi.updateCurrentUser({ nickname: cleanNickname });
-      Alert.alert('保存成功', '本机展示名称已更新', [
-        { text: '确定', onPress: () => router.back() },
-      ]);
-    } catch (e) {
-      Alert.alert('保存失败', e instanceof Error ? e.message : '请稍后重试');
+      const updatedUser = await userApi.updateCurrentUser({ nickname: cleanNickname });
+      setCurrentUser(updatedUser);
+      router.back();
+    } catch (error) {
+      Alert.alert('保存失败', error instanceof Error ? error.message : '请稍后重试');
     } finally {
       setSaving(false);
     }
@@ -92,7 +159,7 @@ export default function EditProfileScreen() {
       <View style={styles.errorWrap}>
         <EmptyStateCard
           icon="account-edit-outline"
-          title="本机资料加载失败"
+          title="加载失败"
           description={loadError}
           action={<ActionButton label="重试" onPress={() => void loadUser()} fullWidth={false} />}
         />
@@ -101,92 +168,129 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}
-    >
-      <PageContent>
-        <PageHeader
-          title="本机资料"
-          subtitle="低频页也保持同一套分组、边框、留白和动作层级。"
-          rightSlot={
-            <ActionButton
-              label="返回"
-              tone="secondary"
-              icon="arrow-left"
-              fullWidth={false}
-              onPress={() => router.back()}
-            />
-          }
-        />
-
-        <SurfaceCard>
-          <SectionLabel title="资料概览" />
-          <View style={styles.profileSummary}>
-            {currentUser?.avatar_url ? (
-              <Image source={{ uri: currentUser.avatar_url }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarFallbackText}>
-                  {(nickname.trim() || 'D').slice(0, 1).toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <View style={styles.profileSummaryCopy}>
-              <Text style={styles.profileSummaryTitle}>本机资料</Text>
-              <Text style={styles.profileSummaryBody}>
-                昵称、头像和轻展示信息保持同一风格，不拆成独立心智。
-              </Text>
-            </View>
-          </View>
-        </SurfaceCard>
-
-        <SurfaceCard>
-          <SectionLabel title="基本资料" />
-          <Text style={styles.cardTitle}>编辑昵称</Text>
-          <Text style={styles.cardHint}>这里只保留轻量展示信息，不涉及账号升级或社交资料。</Text>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>昵称</Text>
-            <TextInput
-              style={styles.input}
-              value={nickname}
-              onChangeText={setNickname}
-              placeholder="请输入昵称"
-              maxLength={64}
-              placeholderTextColor={JourneyPalette.muted}
-            />
-            <Text style={styles.hint}>长度 {nicknameCount}/64</Text>
-          </View>
-        </SurfaceCard>
-
-        <SurfaceCard>
-          <SectionLabel title="头像来源" />
-          <View style={styles.sourceGrid}>
-            <View style={styles.sourceMetric}>
-              <Text style={styles.sourceMetricTitle}>相册选择</Text>
-              <Text style={styles.sourceMetricBody}>允许裁切和预览，优先保持低步骤和确定感。</Text>
-            </View>
-            <View style={styles.sourceMetric}>
-              <Text style={styles.sourceMetricTitle}>拍照更新</Text>
-              <Text style={styles.sourceMetricBody}>
-                和相册入口并列，但确认动作统一回到头像页完成。
-              </Text>
-            </View>
-          </View>
-          <ListItemRow
-            icon="account-circle-outline"
-            title="上传头像"
-            subtitle="确认动作回到底部主按钮，系统会更新当前设备头像。"
-            meta="确认"
-            onPress={() => router.push('/profile/avatar')}
-            style={styles.avatarRow}
+    <>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.container}
+      >
+        <PageContent>
+          <PageHeader
+            title="个人资料"
+            rightSlot={
+              <ActionButton
+                label="返回"
+                tone="secondary"
+                icon="arrow-left"
+                fullWidth={false}
+                onPress={() => router.back()}
+              />
+            }
           />
-        </SurfaceCard>
 
-        <ActionButton label="保存修改" onPress={onSave} disabled={saving} />
-      </PageContent>
-    </KeyboardAvoidingView>
+          {permissionDenied ? (
+            <View style={styles.permissionBlock}>
+              <PermissionRecoveryCard
+                mode={permissionDenied}
+                context="avatar-source"
+                onDismiss={() => setPermissionDenied(null)}
+              />
+            </View>
+          ) : null}
+
+          <SurfaceCard style={styles.profileCard}>
+            <Pressable
+              onPress={() => setSourceSheetVisible(true)}
+              style={({ pressed }) => [styles.avatarRow, pressed && styles.rowPressed]}
+            >
+              <Text style={styles.rowLabel}>头像</Text>
+              <View style={styles.avatarRowTrailing}>
+                <View style={styles.avatarWrap}>
+                  {currentUser?.avatar_url ? (
+                    <Image source={{ uri: currentUser.avatar_url }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
+                    </View>
+                  )}
+                  {avatarUploading ? (
+                    <View style={styles.avatarLoadingMask}>
+                      <ActivityIndicator color="#FFFFFF" />
+                    </View>
+                  ) : null}
+                </View>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={18}
+                  color={JourneyPalette.muted}
+                />
+              </View>
+            </Pressable>
+
+            <View style={styles.divider} />
+
+            <View style={styles.fieldBlock}>
+              <Text style={styles.rowLabel}>昵称</Text>
+              <TextInput
+                style={styles.input}
+                value={nickname}
+                onChangeText={setNickname}
+                placeholder="请输入昵称"
+                maxLength={64}
+                placeholderTextColor={JourneyPalette.muted}
+              />
+            </View>
+          </SurfaceCard>
+
+          <ActionButton
+            label={saving ? '保存中...' : '保存'}
+            onPress={onSave}
+            disabled={saving || avatarUploading}
+          />
+        </PageContent>
+      </KeyboardAvoidingView>
+
+      <Modal
+        visible={sourceSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSourceSheetVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSourceSheetVisible(false)} />
+          <BottomSheetScaffold
+            title="更换头像"
+            onClose={() => setSourceSheetVisible(false)}
+            style={styles.sheet}
+          >
+            <View style={styles.sheetActions}>
+              <ActionButton
+                label="从相册选择"
+                tone="secondary"
+                icon="image-outline"
+                onPress={() => {
+                  setSourceSheetVisible(false);
+                  void pickFromLibrary();
+                }}
+              />
+              <ActionButton
+                label="拍照"
+                tone="secondary"
+                icon="camera-outline"
+                onPress={() => {
+                  setSourceSheetVisible(false);
+                  void captureFromCamera();
+                }}
+              />
+              <ActionButton
+                label="取消"
+                tone="secondary"
+                onPress={() => setSourceSheetVisible(false)}
+              />
+            </View>
+          </BottomSheetScaffold>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -207,20 +311,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     backgroundColor: JourneyPalette.cardAlt,
   },
-  profileSummary: {
+  permissionBlock: {
+    width: '100%',
+  },
+  profileCard: {
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    overflow: 'hidden',
+  },
+  avatarRow: {
+    minHeight: 76,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  avatarRowTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatarWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    overflow: 'hidden',
   },
   avatarImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
   },
   avatarFallback: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: JourneyPalette.cardAlt,
@@ -229,82 +356,52 @@ const styles = StyleSheet.create({
   },
   avatarFallbackText: {
     color: JourneyPalette.ink,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
   },
-  profileSummaryCopy: {
-    flex: 1,
-    gap: 4,
+  avatarLoadingMask: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  profileSummaryTitle: {
+  divider: {
+    height: 1,
+    backgroundColor: JourneyPalette.line,
+    marginLeft: 18,
+  },
+  fieldBlock: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  rowLabel: {
     color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  profileSummaryBody: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  cardTitle: {
-    marginTop: 12,
-    color: JourneyPalette.ink,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  cardHint: {
-    marginTop: 6,
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  fieldGroup: {
-    marginTop: 16,
-    gap: 8,
-  },
-  fieldLabel: {
-    color: JourneyPalette.ink,
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
   },
   input: {
     minHeight: 50,
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: JourneyPalette.line,
     backgroundColor: JourneyPalette.cardAlt,
     paddingHorizontal: 14,
     color: JourneyPalette.ink,
-    fontSize: 14,
+    fontSize: 15,
   },
-  hint: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
+  rowPressed: {
+    opacity: 0.92,
   },
-  avatarRow: {
-    marginTop: 8,
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.34)',
   },
-  sourceGrid: {
-    gap: 10,
-    marginTop: 6,
+  sheet: {
+    paddingBottom: 18,
   },
-  sourceMetric: {
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.cardAlt,
-    borderWidth: 1,
-    borderColor: JourneyPalette.line,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 4,
-  },
-  sourceMetricTitle: {
-    color: JourneyPalette.ink,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  sourceMetricBody: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 12,
-    lineHeight: 18,
+  sheetActions: {
+    gap: 12,
   },
 });

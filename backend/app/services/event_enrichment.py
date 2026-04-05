@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Optional, Sequence, TypeVar
 
 from app.models.event import Event
 
 T = TypeVar("T")
+COORDINATE_LOCATION_PATTERN = re.compile(
+    r"^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$"
+)
 
 
 def format_coordinate_location(gps_lat: Optional[float], gps_lon: Optional[float]) -> Optional[str]:
     if gps_lat is None or gps_lon is None:
         return None
     return f"{gps_lat:.4f}, {gps_lon:.4f}"
+
+
+def is_coordinate_location_text(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    return bool(COORDINATE_LOCATION_PATTERN.match(value))
 
 
 def _format_date(value: Optional[datetime]) -> Optional[str]:
@@ -29,15 +39,17 @@ def build_event_date_range(start_time: Optional[datetime], end_time: Optional[da
 
 
 def get_event_location_text(event: Event) -> Optional[str]:
-    if event.detailed_location and event.detailed_location.strip():
-        return event.detailed_location.strip()
-
     if event.location_name and event.location_name.strip():
-        return event.location_name.strip()
+        location_name = event.location_name.strip()
+        if not is_coordinate_location_text(location_name):
+            return location_name
 
-    gps_lat = float(event.gps_lat) if event.gps_lat is not None else None
-    gps_lon = float(event.gps_lon) if event.gps_lon is not None else None
-    return format_coordinate_location(gps_lat, gps_lon)
+    if event.detailed_location and event.detailed_location.strip():
+        detailed = event.detailed_location.strip()
+        if not is_coordinate_location_text(detailed):
+            return detailed
+
+    return None
 
 
 def ensure_event_title(event: Event) -> str:

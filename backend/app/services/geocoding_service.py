@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.integrations.amap import amap_client
 from app.models.event import Event
+from app.services.event_enrichment import is_coordinate_location_text
 from app.utils.cache import geocoding_cache
 from app.utils.geo import format_coordinates
 
@@ -33,13 +34,15 @@ class GeocodingService:
         return location
 
     def update_event_locations(self, user_id: str, db: Session) -> int:
-        events = db.scalars(
-            select(Event).where(and_(Event.user_id == user_id, Event.location_name.is_(None)))
-        ).all()
+        events = db.scalars(select(Event).where(Event.user_id == user_id)).all()
 
         updated = 0
         for e in events:
             if e.gps_lat is None or e.gps_lon is None:
+                continue
+            if e.location_name and e.location_name.strip() and not is_coordinate_location_text(
+                e.location_name
+            ):
                 continue
 
             try:

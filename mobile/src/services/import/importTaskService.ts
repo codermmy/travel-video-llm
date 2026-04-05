@@ -36,6 +36,10 @@ const PHASE_LABELS: Record<ImportTaskPhaseKey, string> = {
   sync: '同步结构化结果',
   story: '事件聚合',
 };
+const IMPORT_TASK_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_IMPORT_TASK_DEBUG === '1';
 
 let isLoaded = false;
 let tasksById = new Map<string, ImportTaskRecord>();
@@ -45,7 +49,7 @@ let backendPollInFlight = false;
 const listeners = new Set<ImportTaskListener>();
 
 function logImportTaskDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (IMPORT_TASK_DEBUG_ENABLED) {
     console.log(`[ImportTask] ${label}`, payload);
   }
 }

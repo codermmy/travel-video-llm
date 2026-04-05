@@ -19,7 +19,7 @@ from app.services.event_enhancement_service import (
     cleanup_expired_event_enhancements,
     generate_event_enhanced_story_for_event,
 )
-from app.services.event_enrichment import ensure_event_title, format_coordinate_location
+from app.services.event_enrichment import ensure_event_title
 from app.services.event_service import event_service
 from app.services.geocoding_service import geocoding_service
 from app.tasks.celery_app import celery_app
@@ -87,10 +87,6 @@ def _is_in_memory_bind(db: Session) -> bool:
 def _prepare_new_events_for_story(db: Session, user_id: str, events: list[Event]) -> int:
     scheduled = 0
     for event in events:
-        if not event.location_name and event.gps_lat is not None and event.gps_lon is not None:
-            event.location_name = format_coordinate_location(
-                float(event.gps_lat), float(event.gps_lon)
-            )
         event.title = ensure_event_title(event)
         db.commit()
         refreshed = event_service.refresh_event_summary(event_id=event.id, user_id=user_id, db=db)

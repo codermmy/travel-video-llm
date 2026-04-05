@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中期答辩 - 旅行相册自动聚合与回忆生成系统</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap');
+
+        :root {
+            /* 采用专业且不失旅行感的 Cyan + Slate 方案 */
+            --primary: #0891B2;
+            --primary-dark: #164E63;
+            --accent: #22C55E;
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --text-main: #0F172A;
+            --text-muted: #475569;
+            --border: #E2E8F0;
+            --slide-w: 1024px;
+            --slide-h: 768px;
+            --transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: #0F172A;
+            color: var(--text-main);
+            font-family: 'Atkinson Hyperlegible', "PingFang SC", sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #stage {
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg);
+            position: relative;
+            box-shadow: none;
+            overflow: hidden;
+        }
+
+        .slide {
+            position: absolute;
+            inset: 0;
+            padding: 5vh 8vw;
+            display: none;
+            flex-direction: column;
+            background: var(--bg);
+            opacity: 0;
+            transform: scale(0.98) translateY(10px);
+            transition: opacity var(--transition), transform var(--transition);
+        }
+
+        .slide.active {
+            display: flex;
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+
+        /* 装饰背景 */
+        .slide::after {
+            content: "";
+            position: absolute;
+            bottom: -100px;
+            right: -100px;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
+            opacity: 0.03;
+            pointer-events: none;
+        }
+
+        /* 侧边装饰 */
+        .slide-accent {
+            position: absolute;
+            left: 0;
+            top: 20%;
+            bottom: 20%;
+            width: 4px;
+            background: var(--primary);
+            border-radius: 0 4px 4px 0;
+        }
+
+        /* 标题设计 */
+        h1, h2 {
+            font-family: 'Crimson Pro', serif;
+            font-weight: 700;
+        }
+
+        .slide-header {
+            margin-bottom: 50px;
+            position: relative;
+        }
+
+        .slide-title {
+            font-size: 44px;
+            color: var(--primary-dark);
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: baseline;
+            gap: 20px;
+        }
+
+        .slide-num {
+            font-family: 'Atkinson Hyperlegible';
+            font-size: 18px;
+            color: var(--primary);
+            font-weight: 700;
+            opacity: 0.5;
+        }
+
+        /* 封面特有样式 */
+        .cover {
+            justify-content: center;
+            align-items: flex-start;
+            text-align: left;
+            background: linear-gradient(135deg, #ECFEFF 0%, #F8FAFC 100%);
+        }
+
+        .cover-tag {
+            background: var(--primary);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            display: inline-block;
+        }
+
+        .cover-title {
+            font-size: 64px;
+            line-height: 1.1;
+            margin-bottom: 32px;
+            color: var(--primary-dark);
+            max-width: 900px;
+        }
+
+        .cover-meta {
+            display: flex;
+            gap: 60px;
+            margin-top: 40px;
+            border-top: 1px solid var(--border);
+            padding-top: 40px;
+        }
+
+        .meta-item label {
+            display: block;
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .meta-item span {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary-dark);
+        }
+
+        /* 通用卡片布局 */
+        .grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 32px;
+            flex-grow: 1;
+        }
+
+        .card {
+            background: var(--surface);
+            padding: 32px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+        }
+
+        .card-h {
+            font-size: 22px;
+            margin-bottom: 20px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .card-h svg {
+            width: 24px;
+            height: 24px;
+            stroke-width: 2;
+        }
+
+        /* 列表样式 */
+        ul { list-style: none; }
+        li {
+            position: relative;
+            padding-left: 28px;
+            margin-bottom: 16px;
+            font-size: 18px;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+        li b { color: var(--text-main); }
+        li::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 12px;
+            width: 6px;
+            height: 6px;
+            background: var(--primary);
+            border-radius: 50%;
+        }
+
+        /* 流程/指标组件 */
+        .stat-group {
+            display: flex;
+            justify-content: space-between;
+            margin-top: auto;
+            padding-top: 30px;
+            border-top: 1px solid var(--border);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-val {
+            display: block;
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--primary);
+            font-family: 'Crimson Pro', serif;
+        }
+
+        .stat-lbl {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        /* 视觉 Mockup */
+        .mockup-container {
+            display: flex;
+            gap: 24px;
+            height: 400px;
+            align-items: flex-end;
+        }
+
+        .phone-mock {
+            flex: 1;
+            height: 100%;
+            background: #FFF;
+            border-radius: 32px;
+            border: 8px solid #1E293B;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        }
+
+        .phone-notch {
+            height: 24px;
+            width: 120px;
+            background: #1E293B;
+            align-self: center;
+            border-radius: 0 0 16px 16px;
+        }
+
+        .phone-screen {
+            flex: 1;
+            padding: 16px;
+            background: #F1F5F9;
+        }
+
+        .skeleton {
+            background: #E2E8F0;
+            border-radius: 4px;
+            margin-bottom: 12px;
+        }
+
+        /* 底部导航提示 */
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            left: 100px;
+            right: 100px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+        }
+
+        /* 动画 */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stagger-in > * {
+            animation: fadeIn 0.6s ease forwards;
+            opacity: 0;
+        }
+        .stagger-in > *:nth-child(1) { animation-delay: 0.1s; }
+        .stagger-in > *:nth-child(2) { animation-delay: 0.2s; }
+        .stagger-in > *:nth-child(3) { animation-delay: 0.3s; }
+    </style>
+</head>
+<body>
+    <div id="stage">
+        <!-- Slide 1: Cover -->
+        <div class="slide cover active">
+            <span class="cover-tag">2026 届毕业设计中期汇报</span>
+            <h1 class="cover-title">旅行相册自动聚合与回忆生成系统的<br>设计与实现</h1>
+            <div class="cover-meta">
+                <div class="meta-item">
+                    <label>Presenter</label>
+                    <span>马茂元</span>
+                </div>
+                <div class="meta-item">
+                    <label>Supervisor</label>
+                    <span>武蕾 教授</span>
+                </div>
+                <div class="meta-item">
+                    <label>Institution</label>
+                    <span>软件工程专业</span>
+                </div>
+                <div class="meta-item">
+                    <label>Date</label>
+                    <span>2026.04</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 2: Context -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">01</span> 研究背景与核心价值</h2>
+            </header>
+            <div class="grid-layout stagger-in">
+                <div class="card">
+                    <div class="card-h">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        问题定义
+                    </div>
+                    <ul>
+                        <li><b>数据冗余</b>：个人移动终端积累了海量非结构化影像数据。</li>
+                        <li><b>整理成本</b>：传统手动筛选与编辑流程繁琐，导致旅行情感价值“封存”。</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-h">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        核心价值
+                    </div>
+                    <ul>
+                        <li><b>时空聚合</b>：将离散的照片自动化转化为有意义的“事件流”。</li>
+                        <li><b>叙事重构</b>：利用多模态 AI 技术提取视觉语义并生成叙事文本。</li>
+                        <li><b>动态呈现</b>：结合地理轨迹与情感匹配音乐，实现沉浸式回忆。</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="stat-group">
+                <div class="stat-item"><span class="stat-val">3s</span><span class="stat-lbl">自动化整理耗时</span></div>
+                <div class="stat-item"><span class="stat-val">100%</span><span class="stat-lbl">隐私数据本地化</span></div>
+                <div class="stat-item"><span class="stat-val">Native</span><span class="stat-lbl">原生多媒体引擎</span></div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Overall Architecture -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">02</span> 系统总体方案设计</h2>
+            </header>
+            <div style="display: flex; gap: 40px; flex: 1;">
+                <div style="flex: 1;">
+                    <div class="card" style="height: 100%;">
+                        <div class="card-h">系统架构设计理念</div>
+                        <ul>
+                            <li><b>单设备优先 (Local-First)</b>：基于移动端原生 AssetID 管理，减少流量开销并保护用户隐私。</li>
+                            <li><b>混合处理流水线</b>：端侧进行视觉特征分析，云端负责复杂的 LLM 叙事生成。</li>
+                            <li><b>异步一致性</b>：采用 Celery + Redis 构建任务中台，确保海量媒体处理的稳定性。</li>
+                        </ul>
+                        <div style="margin-top: 20px; padding: 20px; background: #F1F5F9; border-radius: 8px;">
+                            <code style="color: var(--primary-dark); font-size: 14px;">Tech Stack: Expo 54 | React Native 0.81 | FastAPI | DeepSeek</code>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex: 1.2; display: flex; align-items: center; justify-content: center; background: white; border-radius: 12px; border: 1px dashed var(--border);">
+                    <!-- 简洁的架构图设计 -->
+                    <svg width="400" height="300" viewBox="0 0 400 300">
+                        <rect x="20" y="200" width="100" height="60" rx="8" fill="var(--primary)" opacity="0.1" stroke="var(--primary)" stroke-width="2"/>
+                        <text x="70" y="235" text-anchor="middle" font-size="12" fill="var(--primary-dark)">Mobile App</text>
+                        
+                        <rect x="150" y="100" width="100" height="60" rx="8" fill="var(--accent)" opacity="0.1" stroke="var(--accent)" stroke-width="2"/>
+                        <text x="200" y="135" text-anchor="middle" font-size="12" fill="var(--primary-dark)">API Backend</text>
+                        
+                        <rect x="280" y="200" width="100" height="60" rx="8" fill="#64748b" opacity="0.1" stroke="#64748b" stroke-width="2"/>
+                        <text x="330" y="235" text-anchor="middle" font-size="12" fill="var(--primary-dark)">AI Workers</text>
+                        
+                        <path d="M120 215 Q150 215 150 145" fill="none" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)"/>
+                        <path d="M250 130 Q330 130 330 200" fill="none" stroke="#cbd5e1" stroke-width="2" marker-end="url(#arr)"/>
+                        
+                        <defs>
+                            <marker id="arr" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                                <path d="M0,0 L0,6 L9,3 z" fill="#cbd5e1" />
+                            </marker>
+                        </defs>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Data Pipeline -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">03</span> 自动化整理流水线</h2>
+            </header>
+            <div class="card" style="margin-bottom: 32px;">
+                <div style="display: flex; justify-content: space-around; align-items: center; padding: 20px 0;">
+                    <div style="text-align: center;">
+                        <div style="width: 48px; height: 48px; border-radius: 50%; background: #E0F2FE; color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-weight: bold;">1</div>
+                        <span style="font-size: 14px; font-weight: 600;">资源映射</span>
+                    </div>
+                    <div style="height: 2px; width: 60px; background: var(--border);"></div>
+                    <div style="text-align: center;">
+                        <div style="width: 48px; height: 48px; border-radius: 50%; background: #E0F2FE; color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-weight: bold;">2</div>
+                        <span style="font-size: 14px; font-weight: 600;">端侧分析</span>
+                    </div>
+                    <div style="height: 2px; width: 60px; background: var(--border);"></div>
+                    <div style="text-align: center;">
+                        <div style="width: 48px; height: 48px; border-radius: 50%; background: #E0F2FE; color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-weight: bold;">3</div>
+                        <span style="font-size: 14px; font-weight: 600;">时空聚类</span>
+                    </div>
+                    <div style="height: 2px; width: 60px; background: var(--border);"></div>
+                    <div style="text-align: center;">
+                        <div style="width: 48px; height: 48px; border-radius: 50%; background: #E0F2FE; color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-weight: bold;">4</div>
+                        <span style="font-size: 14px; font-weight: 600;">回忆生成</span>
+                    </div>
+                </div>
+            </div>
+            <div class="grid-layout">
+                <div class="card">
+                    <div class="card-h">算法实现细节</div>
+                    <ul>
+                        <li><b>时空密度聚类</b>：基于地理围栏 (Geofence) 与时间跨度窗口，自动识别旅行中“有意义的停留”。</li>
+                        <li><b>元数据 Hydration</b>：通过本地数据库维护 AssetID 与服务端 PhotoID 的一致性映射。</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-h">AI 叙事工程</div>
+                    <ul>
+                        <li><b>多模态感知</b>：提取照片的视觉标签、人物关系、地理实体。</li>
+                        <li><b>Prompt Chain</b>：将零散信息输入 LLM，生成具有起承转合的故事脚本。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 5: Current Progress (Mobile) -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">04</span> 已完成工作：移动端功能落地</h2>
+            </header>
+            <div style="display: flex; gap: 40px; align-items: center;">
+                <div style="flex: 1;">
+                    <div class="card">
+                        <div class="card-h">核心模块进度</div>
+                        <div style="margin-bottom: 24px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span style="font-size: 14px; font-weight: 600;">身份与导入模块</span>
+                                <span style="font-size: 14px; color: var(--accent);">100%</span>
+                            </div>
+                            <div style="height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden;">
+                                <div style="width: 100%; height: 100%; background: var(--accent);"></div>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 24px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span style="font-size: 14px; font-weight: 600;">回忆列表与地图视图</span>
+                                <span style="font-size: 14px; color: var(--accent);">90%</span>
+                            </div>
+                            <div style="height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden;">
+                                <div style="width: 90%; height: 100%; background: var(--accent);"></div>
+                            </div>
+                        </div>
+                        <div style="margin-bottom: 24px;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                <span style="font-size: 14px; font-weight: 600;">幻灯片引擎与导出</span>
+                                <span style="font-size: 14px; color: var(--primary);">80%</span>
+                            </div>
+                            <div style="height: 6px; background: #E2E8F0; border-radius: 3px; overflow: hidden;">
+                                <div style="width: 80%; height: 100%; background: var(--primary);"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex: 1.2;">
+                    <div class="mockup-container">
+                        <div class="phone-mock">
+                            <div class="phone-notch"></div>
+                            <div class="phone-screen">
+                                <div class="skeleton" style="height: 120px; background: var(--primary); opacity: 0.1;"></div>
+                                <div class="skeleton" style="width: 60%; height: 20px;"></div>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                    <div class="skeleton" style="height: 80px;"></div>
+                                    <div class="skeleton" style="height: 80px;"></div>
+                                </div>
+                                <div class="skeleton" style="width: 40%; height: 16px;"></div>
+                            </div>
+                            <div style="height: 48px; border-top: 1px solid #EEE; display: flex; justify-content: space-around; align-items: center;">
+                                <div style="width: 20px; height: 20px; background: var(--primary); opacity: 0.2; border-radius: 4px;"></div>
+                                <div style="width: 20px; height: 20px; background: #EEE; border-radius: 4px;"></div>
+                                <div style="width: 20px; height: 20px; background: #EEE; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+                        <div class="phone-mock" style="margin-bottom: 20px;">
+                            <div class="phone-notch"></div>
+                            <div class="phone-screen" style="display: flex; align-items: center; justify-content: center; background: #1e293b;">
+                                <svg width="40" height="40" fill="white" viewBox="0 0 20 20"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 6: Backend Progress -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">05</span> 已完成工作：后端与 AI 能力</h2>
+            </header>
+            <div class="grid-layout">
+                <div class="card">
+                    <div class="card-h">API 与 业务逻辑</div>
+                    <ul>
+                        <li><b>全量 REST 接口</b>：支持设备会话恢复、去重导入、异步任务查询。</li>
+                        <li><b>多层级存储</b>：兼容 SQLite 本地存储与云端 OSS 映射。</li>
+                        <li><b>数据隔离</b>：实现基于 DeviceID 的轻量级身份体系。</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <div class="card-h">异步中台</div>
+                    <ul>
+                        <li><b>高并发设计</b>：Celery 处理多级流水线（聚类 -> 编码 -> LLM）。</li>
+                        <li><b>AI 工厂</b>：抽象 OpenAI/DeepSeek 接口，支持快速热切换模型。</li>
+                        <li><b>地理增强</b>：集成高德/百度逆地理编码，实现精细化语义标记。</li>
+                    </ul>
+                </div>
+            </div>
+            <div style="margin-top: 32px; text-align: center;">
+                <span style="font-size: 14px; color: var(--text-muted); background: white; padding: 12px 24px; border-radius: 30px; border: 1px solid var(--border);">
+                    后端主链路 API 覆盖率已达到 <b style="color: var(--primary);">95%</b>
+                </span>
+            </div>
+        </div>
+
+        <!-- Slide 7: UI/UX Presentation (Placeholders) -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">06</span> 系统演示与成果展示</h2>
+            </header>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; flex: 1;">
+                <div class="card" style="padding: 16px; display: flex; flex-direction: column; align-items: center;">
+                    <div style="width: 100%; height: 320px; background: #F1F5F9; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--primary); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">[事件详情与照片流截图]</div>
+                    <span style="font-weight: 600;">回忆流交互</span>
+                </div>
+                <div class="card" style="padding: 16px; display: flex; flex-direction: column; align-items: center;">
+                    <div style="width: 100%; height: 320px; background: #F1F5F9; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--primary); display: flex; align-items: center; justify-content: center; color: var(--text-muted);">[地图足迹聚类展示]</div>
+                    <span style="font-weight: 600;">地理足迹可视化</span>
+                </div>
+                <div class="card" style="padding: 16px; display: flex; flex-direction: column; align-items: center;">
+                    <div style="width: 100%; height: 320px; background: #0F172A; border-radius: 8px; margin-bottom: 16px; border: 1px dashed var(--primary); display: flex; align-items: center; justify-content: center; color: #64748b;">[回忆影片播放演示]</div>
+                    <span style="font-weight: 600;">动态视频导出</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 8: Challenges -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">07</span> 存在的问题与技术瓶颈</h2>
+            </header>
+            <div class="grid-layout">
+                <div class="card" style="border-left: 4px solid #EF4444;">
+                    <div class="card-h" style="color: #B91C1C;">聚类算法长尾效应</div>
+                    <p style="font-size: 16px; color: var(--text-muted);">在复杂的长途跨省旅行场景中，现有的聚类参数可能导致事件“划分过细”或“合并错误”。</p>
+                </div>
+                <div class="card" style="border-left: 4px solid #F59E0B;">
+                    <div class="card-h" style="color: #B45309;">导出性能开销</div>
+                    <p style="font-size: 16px; color: var(--text-muted);">在低性能移动设备上，原生导出渲染存在内存抖动，需要进一步优化多媒体合成流水线。</p>
+                </div>
+            </div>
+            <div class="card" style="margin-top: 32px;">
+                <div class="card-h">同步鲁棒性</div>
+                <p style="font-size: 16px; color: var(--text-muted);">当本地照片库发生外部物理删除时，系统内的 Metadata 缓存与本地 AssetID 的映射同步机制尚不够智能，需引入 Watcher 监听。</p>
+            </div>
+        </div>
+
+        <!-- Slide 9: Next Phase -->
+        <div class="slide">
+            <div class="slide-accent"></div>
+            <header class="slide-header">
+                <h2 class="slide-title"><span class="slide-num">08</span> 下一阶段工作计划</h2>
+            </header>
+            <div style="position: relative; padding-left: 60px;">
+                <div style="position: absolute; left: 20px; top: 10px; bottom: 10px; width: 2px; background: var(--border);"></div>
+                
+                <div style="position: relative; margin-bottom: 40px;">
+                    <div style="position: absolute; left: -46px; top: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 4px solid var(--bg);"></div>
+                    <h3 style="font-size: 20px; margin-bottom: 8px; color: var(--primary-dark);">算法精度迭代 (04月-05月)</h3>
+                    <p style="color: var(--text-muted);">引入更高级的密度聚类算法（如 HDBSCAN），并集成视觉语义特征进行聚类二次校准。</p>
+                </div>
+                
+                <div style="position: relative; margin-bottom: 40px;">
+                    <div style="position: absolute; left: -46px; top: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 4px solid var(--bg);"></div>
+                    <h3 style="font-size: 20px; margin-bottom: 8px; color: var(--primary-dark);">身份与人物识别 (05月中)</h3>
+                    <p style="color: var(--text-muted);">在端侧引入人脸识别模块，构建以“核心人物”为维度的聚合逻辑，提升回忆的情感连接。</p>
+                </div>
+                
+                <div style="position: relative;">
+                    <div style="position: absolute; left: -46px; top: 0; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); border: 4px solid var(--bg);"></div>
+                    <h3 style="font-size: 20px; margin-bottom: 8px; color: var(--primary-dark);">量化实验与论文定稿 (05月-06月)</h3>
+                    <p style="color: var(--text-muted);">完成系统鲁棒性测试，并进行算法准确率对比实验，撰写毕业设计论文初稿。</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 10: Ending -->
+        <div class="slide" style="justify-content: center; align-items: center; text-align: center;">
+            <h1 style="font-size: 64px; color: var(--primary-dark); margin-bottom: 24px;">感谢各位专家的评审与指导</h1>
+            <p style="font-size: 20px; color: var(--text-muted); letter-spacing: 0.1em;">旅行相册自动聚合与回忆生成系统的设计与实现</p>
+            <div style="margin-top: 60px; display: flex; gap: 20px;">
+                <div class="cover-tag" style="background: var(--bg); color: var(--primary); border: 1px solid var(--primary);">Q & A</div>
+            </div>
+        </div>
+
+        <!-- Footer Info -->
+        <div class="footer">
+            <span>2026 Undergraduate Mid-term Defense</span>
+            <span id="page-indicator">01 / 10</span>
+        </div>
+    </div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const indicator = document.getElementById('page-indicator');
+        let current = 0;
+
+        function update(n) {
+            slides[current].classList.remove('active');
+            current = (n + slides.length) % slides.length;
+            slides[current].classList.add('active');
+            indicator.innerText = `${String(current + 1).padStart(2, '0')} / ${slides.length}`;
+            window.focus();
+        }
+
+        document.addEventListener('keydown', e => {
+            if(['ArrowRight', ' ', 'ArrowDown'].includes(e.key)) update(current + 1);
+            if(['ArrowLeft', 'ArrowUp'].includes(e.key)) update(current - 1);
+        });
+
+        // 初始自动聚焦
+        window.focus();
+    </script>
+</body>
+</html>

@@ -174,16 +174,23 @@ export default function RootLayout() {
               options={{ headerShown: false, presentation: 'fullScreenModal' }}
             />
             <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
+            <Stack.Screen name="event-location/[eventId]" options={{ headerShown: false }} />
+            <Stack.Screen name="map/missing-locations" options={{ headerShown: false }} />
             <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
-            <Stack.Screen name="profile/avatar" options={{ headerShown: false }} />
             <Stack.Screen name="profile/import-tasks" options={{ headerShown: false }} />
+            <Stack.Screen name="profile/import-task/[taskId]" options={{ headerShown: false }} />
           </Stack>
 
           {latestImportTask ? (
             <View style={styles.taskBanner}>
               <Pressable
                 style={styles.taskBannerBody}
-                onPress={() => router.push('/profile/import-tasks')}
+                onPress={() =>
+                  router.push({
+                    pathname: '/profile/import-tasks',
+                    params: { taskId: latestImportTask.id },
+                  })
+                }
               >
                 <View style={styles.queueBannerIcon}>
                   <MaterialCommunityIcons name="timeline-outline" size={16} color="#FFFFFF" />

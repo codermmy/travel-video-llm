@@ -13,24 +13,40 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Snackbar } from 'react-native-paper';
 
+import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
+import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
+import { UploadProgress } from '@/components/upload/UploadProgress';
 import {
   clearImportCache,
   getImportCacheSummary,
+  importSelectedLibraryAssets,
+  type ImportResult,
   type ImportCacheSummary,
 } from '@/services/album/photoImportService';
 import { loadImportTasks, subscribeImportTasks } from '@/services/import/importTaskService';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 import { JourneyPalette } from '@/styles/colors';
-
-function buildImportSummary(localData: ImportCacheSummary): string {
-  if (localData.assetCount <= 0) {
-    return '还没有导入历史';
-  }
-  return `已记录 ${localData.assetCount} 条导入历史`;
-}
+import { openAppSettings } from '@/utils/permissionUtils';
 
 type LocalDataSummary = ImportCacheSummary;
+
+function buildImportSummaryText(result: ImportResult, queued: boolean): string {
+  const parts = [`已读取 ${result.selected} 张`, `新增 ${result.dedupedNew} 张`];
+
+  if (result.dedupedExisting > 0) {
+    parts.push(`去重 ${result.dedupedExisting} 张`);
+  }
+  if (result.failed > 0) {
+    parts.push(`失败 ${result.failed} 张`);
+  }
+  if (result.queuedVision > 0) {
+    parts.push(`后台分析 ${result.queuedVision} 张`);
+  }
+
+  return queued ? `${parts.join('，')}，正在生成回忆...` : parts.join('，');
+}
 
 type GroupHeaderProps = {
   title: string;
@@ -112,6 +128,13 @@ export default function ProfileScreen() {
   const [localData, setLocalData] = useState<LocalDataSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runningTaskCount, setRunningTaskCount] = useState(0);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerSubmitting, setPickerSubmitting] = useState(false);
+  const [importVisible, setImportVisible] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
+  const [taskProgressVisible, setTaskProgressVisible] = useState(false);
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState('');
 
   const loadSettings = useCallback(async () => {
     try {
@@ -196,6 +219,77 @@ export default function ProfileScreen() {
     ]);
   }, [loadSettings]);
 
+  const openProfileEditor = useCallback(() => {
+    router.push('/profile/edit');
+  }, [router]);
+
+  const executeLibraryImport = useCallback(
+    async (assets: import('expo-media-library').Asset[]) => {
+      setImportVisible(true);
+      setImportProgress({
+        stage: 'scanning',
+        detail: '正在准备导入照片...',
+      });
+
+      try {
+        const result = await importSelectedLibraryAssets({
+          assets,
+          onProgress: (progress) => setImportProgress(progress),
+        });
+
+        if (result.selected === 0) {
+          setSnackbar('你取消了本次导入');
+          return;
+        }
+
+        if (result.dedupedNew === 0) {
+          if (result.failed > 0) {
+            setSnackbar('导入失败：所选照片无法处理');
+            return;
+          }
+
+          setSnackbar(
+            result.dedupedExisting > 0
+              ? `没有发现可新增的照片，已去重 ${result.dedupedExisting} 张`
+              : '没有发现可新增的照片',
+          );
+          return;
+        }
+
+        if (result.taskId) {
+          setTaskId(result.taskId);
+          setTaskProgressVisible(true);
+          setSnackbar(buildImportSummaryText(result, true));
+        } else {
+          setSnackbar(buildImportSummaryText(result, false));
+          await loadSettings();
+        }
+      } catch (importError) {
+        const message = String(importError);
+        if (message.includes('permission_denied')) {
+          Alert.alert('需要相册权限', '请先在系统设置中开启相册权限。', [
+            { text: '取消', style: 'cancel' },
+            { text: '打开设置', onPress: openAppSettings },
+          ]);
+        } else {
+          setSnackbar('导入失败，请稍后重试');
+        }
+      } finally {
+        setImportVisible(false);
+        setImportProgress({ stage: 'idle' });
+        setPickerSubmitting(false);
+        setPickerVisible(false);
+        await loadSettings();
+      }
+    },
+    [loadSettings],
+  );
+
+  const canShowImportProgress = useMemo(
+    () => importVisible && importProgress.stage !== 'idle',
+    [importProgress.stage, importVisible],
+  );
+
   if (loading) {
     return (
       <View style={styles.centerState}>
@@ -231,34 +325,36 @@ export default function ProfileScreen() {
     >
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>我的</Text>
-        <Text style={styles.pageSubtitle}>本机回忆、后台任务与隐私设置都从这里进入</Text>
       </View>
 
       <View style={styles.identityCard}>
-        <View style={styles.identityRow}>
-          {user.avatar_url ? (
-            <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
-          ) : (
-            <LinearGradient
-              colors={[JourneyPalette.heroTop, JourneyPalette.heroBottom]}
-              style={styles.avatarFallback}
-            >
-              <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
-            </LinearGradient>
-          )}
+        <Pressable
+          onPress={openProfileEditor}
+          style={({ pressed }) => [pressed && styles.rowPressed]}
+        >
+          <View style={styles.identityRow}>
+            {user.avatar_url ? (
+              <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
+            ) : (
+              <LinearGradient
+                colors={[JourneyPalette.heroTop, JourneyPalette.heroBottom]}
+                style={styles.avatarFallback}
+              >
+                <Text style={styles.avatarFallbackText}>{avatarLetter}</Text>
+              </LinearGradient>
+            )}
 
-          <View style={styles.identityCopy}>
-            <Text style={styles.identityTitle}>这台设备的回忆</Text>
-            <Text style={styles.identitySubtitle}>
-              {user.nickname?.trim()
-                ? `${user.nickname} · 昵称、隐私承诺和后台任务入口都集中在这里。`
-                : '昵称、隐私承诺和后台任务入口都集中在这里。'}
-            </Text>
+            <View style={styles.identityCopy}>
+              <Text style={styles.identityTitle}>{user.nickname?.trim() || '这台设备'}</Text>
+            </View>
+            <View style={styles.identityTrailing}>
+              <View style={styles.deviceBadge}>
+                <Text style={styles.deviceBadgeText}>本机</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={JourneyPalette.muted} />
+            </View>
           </View>
-          <View style={styles.deviceBadge}>
-            <Text style={styles.deviceBadgeText}>本机</Text>
-          </View>
-        </View>
+        </Pressable>
 
         <View style={styles.metricRow}>
           {metricItems.map((item) => (
@@ -278,11 +374,6 @@ export default function ProfileScreen() {
           <ListRow
             icon="timeline-clock-outline"
             title="导入任务"
-            subtitle={
-              runningTaskCount > 0
-                ? `${runningTaskCount} 个后台任务仍在运行，可在这里回看阶段与结果。`
-                : buildImportSummary(localData)
-            }
             value={runningTaskCount > 0 ? `${runningTaskCount} 任务` : '查看'}
             emphasizeValue
             onPress={() => router.push('/profile/import-tasks')}
@@ -290,19 +381,9 @@ export default function ProfileScreen() {
           <View style={styles.groupDivider} />
           <ListRow
             icon="image-plus"
-            title="继续导入"
-            subtitle="手动补导入保留为次级入口，不再抢主路径"
-            value="入口"
-            onPress={() =>
-              router.push({
-                pathname: '/',
-                params: {
-                  filter: 'all',
-                  importMode: 'manual',
-                  intentKey: String(Date.now()),
-                },
-              })
-            }
+            title="导入照片"
+            value={localData.assetCount > 0 ? `${localData.assetCount} 条` : '开始'}
+            onPress={() => setPickerVisible(true)}
           />
         </View>
       </View>
@@ -310,27 +391,7 @@ export default function ProfileScreen() {
       <View style={styles.sectionBlock}>
         <GroupHeader title="设备与隐私" />
         <View style={styles.groupCard}>
-          <ListRow
-            icon="shield-lock-outline"
-            title="隐私承诺"
-            subtitle="默认不上图，只同步 metadata 与端侧结构化结果"
-            value="默认"
-          />
-          <View style={styles.groupDivider} />
-          <ListRow
-            icon="account-edit-outline"
-            title="本机资料"
-            subtitle="昵称等轻量展示信息都在这里维护"
-            onPress={() => router.push('/profile/edit')}
-          />
-          <View style={styles.groupDivider} />
-          <ListRow
-            icon="account-circle-outline"
-            title="头像来源"
-            subtitle="相册、拍照和权限恢复都从同一条轻量流程进入"
-            value="更新"
-            onPress={() => router.push('/profile/avatar')}
-          />
+          <ListRow icon="shield-lock-outline" title="隐私承诺" value="默认" />
         </View>
       </View>
 
@@ -340,13 +401,55 @@ export default function ProfileScreen() {
           <ListRow
             icon="trash-can-outline"
             title="清理导入记录"
-            subtitle="危险操作单独分组，仅清理本机导入记录，不删除事件与故事"
             destructive
             loading={cleaning}
             onPress={handleClearLocalCache}
           />
         </View>
       </View>
+
+      <ImportProgressModal
+        visible={canShowImportProgress}
+        progress={importProgress}
+        allowClose={false}
+      />
+      <PhotoLibraryPickerModal
+        visible={pickerVisible}
+        title="导入照片"
+        hint="从系统相册选择照片"
+        confirmLabel="开始导入"
+        confirmLoading={pickerSubmitting}
+        onClose={() => {
+          if (pickerSubmitting) {
+            return;
+          }
+          setPickerVisible(false);
+        }}
+        onConfirm={async (assets) => {
+          setPickerSubmitting(true);
+          await executeLibraryImport(assets);
+        }}
+      />
+      <UploadProgress
+        visible={taskProgressVisible}
+        taskId={taskId}
+        onContinueInBackground={() => {
+          setTaskProgressVisible(false);
+        }}
+        onDismissFailed={() => {
+          setTaskProgressVisible(false);
+          setTaskId(null);
+        }}
+        onComplete={() => {
+          setTaskProgressVisible(false);
+          setTaskId(null);
+          setSnackbar('事件生成完成，已更新列表');
+          void loadSettings();
+        }}
+      />
+      <Snackbar visible={Boolean(snackbar)} onDismiss={() => setSnackbar('')} duration={2500}>
+        {snackbar}
+      </Snackbar>
     </ScrollView>
   );
 }
@@ -370,11 +473,6 @@ const styles = StyleSheet.create({
     fontSize: 31,
     fontWeight: '800',
     color: JourneyPalette.ink,
-  },
-  pageSubtitle: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 13,
-    lineHeight: 18,
   },
   centerState: {
     flex: 1,
@@ -417,7 +515,7 @@ const styles = StyleSheet.create({
   },
   identityRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 14,
   },
   avatarImage: {
@@ -446,10 +544,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: JourneyPalette.ink,
   },
-  identitySubtitle: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 20,
+  identityTrailing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   deviceBadge: {
     minHeight: 30,

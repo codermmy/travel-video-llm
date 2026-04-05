@@ -63,6 +63,7 @@ type BottomSheetScaffoldProps = {
   children: ReactNode;
   footer?: ReactNode;
   style?: StyleProp<ViewStyle>;
+  bodyStyle?: StyleProp<ViewStyle>;
 };
 
 type EmptyStateCardProps = {
@@ -476,6 +477,7 @@ export function BottomSheetScaffold({
   children,
   footer,
   style,
+  bodyStyle,
 }: BottomSheetScaffoldProps) {
   return (
     <View style={[styles.sheet, style]}>
@@ -494,7 +496,7 @@ export function BottomSheetScaffold({
           </Pressable>
         ) : null}
       </View>
-      <View style={styles.sheetBody}>{children}</View>
+      <View style={[styles.sheetBody, bodyStyle]}>{children}</View>
       {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
     </View>
   );

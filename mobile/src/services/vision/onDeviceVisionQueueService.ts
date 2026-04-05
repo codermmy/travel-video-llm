@@ -16,6 +16,10 @@ const QUEUE_STORAGE_DIR = 'vision-cache';
 const QUEUE_STORAGE_FILE = 'on-device-vision-queue.json';
 const ANALYSIS_BATCH_SIZE = 6;
 const RETRY_DELAY_MS = 5000;
+const VISION_DEBUG_ENABLED =
+  typeof process !== 'undefined' &&
+  typeof process.env === 'object' &&
+  process.env?.EXPO_PUBLIC_VISION_DEBUG === '1';
 
 type QueuePhase = 'pending_analysis' | 'analyzing' | 'pending_sync' | 'syncing';
 
@@ -65,7 +69,7 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<QueueListener>();
 
 function logQueueDebug(label: string, payload: Record<string, unknown>): void {
-  if (__DEV__) {
+  if (VISION_DEBUG_ENABLED) {
     console.log(`[OnDeviceVisionQueue] ${label}`, payload);
   }
 }

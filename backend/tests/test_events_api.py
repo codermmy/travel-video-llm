@@ -168,7 +168,7 @@ def test_event_detail_fallback_title_and_location() -> None:
     assert detail.status_code == 200
     payload = detail.json()["data"]
     assert payload["title"]
-    assert payload["locationName"] == "30.2590, 120.2150"
+    assert payload["locationName"] is None
 
 
 def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured(monkeypatch) -> None:
@@ -535,6 +535,74 @@ def test_update_event_title_keeps_version_but_marks_manual_override() -> None:
     assert payload["titleManuallySet"] is True
 
 
+def test_update_event_manual_location_persists_coordinates(monkeypatch) -> None:
+    token = _register_and_get_token("events-test-device-manual-location-001")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(
+        "app.api.v1.events.amap_client.get_location_context",
+        lambda lat, lon: {
+            "display_location": "四川阿坝州",
+            "detailed_location": "九寨沟景区",
+            "location_tags": "自然景区、山水风光",
+        },
+    )
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-manual-location-001"))
+        assert user is not None
+
+        event = Event(
+            user_id=user.id,
+            title="待补地点",
+            location_name=None,
+            gps_lat=None,
+            gps_lon=None,
+            photo_count=0,
+            status="generated",
+            event_version=2,
+            story_generated_from_version=2,
+            story_requested_for_version=2,
+            story_freshness="fresh",
+            slideshow_generated_from_version=2,
+            slideshow_freshness="fresh",
+            has_pending_structure_changes=False,
+        )
+        db.add(event)
+        db.flush()
+        db.add(
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                asset_id="asset-manual-location",
+                shoot_time=datetime(2024, 6, 4, 8, 0, 0, tzinfo=timezone.utc),
+                status="clustered",
+            )
+        )
+        db.commit()
+        event_id = event.id
+    finally:
+        db.close()
+
+    response = client.patch(
+        f"/api/v1/events/{event_id}",
+        headers=headers,
+        json={
+            "gpsLat": 33.252,
+            "gpsLon": 103.918,
+            "detailedLocation": "九寨沟景区",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["gpsLat"] == 33.252
+    assert payload["gpsLon"] == 103.918
+    assert payload["locationName"] == "四川阿坝州"
+    assert payload["detailedLocation"] == "九寨沟景区"
+    assert payload["locationTags"] == "自然景区、山水风光"
+
+
 def test_batch_reassign_event_updates_versions_once(monkeypatch) -> None:
     token = _register_and_get_token("events-test-device-012")
     headers = {"Authorization": f"Bearer {token}"}
@@ -855,6 +923,84 @@ def test_generate_event_story_uses_structured_signals_without_public_urls() -> N
         photos = db.query(Photo).filter(Photo.event_id == event.id).all()
         assert all(photo.caption for photo in photos)
         assert all(photo.micro_story for photo in photos)
+    finally:
+        ai_service.client = original_client
+        db.close()
+
+
+def test_generate_event_story_persists_location_context(monkeypatch) -> None:
+    original_client = ai_service.client
+    ai_service.client = _StructuredStoryProviderStub()
+
+    monkeypatch.setattr(
+        "app.services.event_ai_service.amap_client.get_location_context",
+        lambda lat, lon: {
+            "display_location": "杭州西湖",
+            "detailed_location": "西湖风景名胜区",
+            "location_tags": "湖光山色、城市漫游",
+        },
+    )
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = User(device_id="events-test-device-location-context-001", auth_type="device")
+        db.add(user)
+        db.flush()
+
+        event = Event(
+            user_id=user.id,
+            title="",
+            location_name="30.2590, 120.2150",
+            gps_lat=30.259,
+            gps_lon=120.215,
+            start_time=datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 5, 1, 15, 0, 0, tzinfo=timezone.utc),
+            photo_count=2,
+            status="ai_pending",
+        )
+        db.add(event)
+        db.flush()
+
+        vision_payload = {
+            "schema_version": "single-device-vision/v1",
+            "source_platform": "android-mlkit",
+            "generated_at": datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc).isoformat(),
+            "scene_category": "lake",
+            "object_tags": ["water", "tree", "walkway"],
+            "activity_hint": "walking",
+            "people_present": True,
+            "people_count_bucket": "1",
+            "emotion_hint": "peaceful",
+            "ocr_text": "West Lake",
+            "landmark_hint": "lake",
+            "image_quality_flags": [],
+            "cover_score": 0.82,
+            "confidence_map": {"scene_category": 0.9},
+        }
+        for index in range(2):
+            db.add(
+                Photo(
+                    user_id=user.id,
+                    event_id=event.id,
+                    file_hash=f"{index + 200:064x}",
+                    thumbnail_url=None,
+                    shoot_time=datetime(2024, 5, 1, 14, index * 10, 0, tzinfo=timezone.utc),
+                    status="clustered",
+                    visual_desc="lake | walking | water / tree / walkway | West Lake",
+                    vision_result=vision_payload,
+                )
+            )
+        db.commit()
+
+        ok, reason = generate_event_story_for_event(db=db, user_id=user.id, event_id=event.id)
+        assert ok is True
+        assert reason is None
+
+        db.refresh(event)
+        assert event.status == "generated"
+        assert event.location_name == "杭州西湖"
+        assert event.detailed_location == "西湖风景名胜区"
+        assert event.location_tags == "湖光山色、城市漫游"
     finally:
         ai_service.client = original_client
         db.close()

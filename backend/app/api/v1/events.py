@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from decimal import Decimal
 from typing import Optional, cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUserIdDep
 from app.db.session import get_db
+from app.integrations.amap import amap_client
 from app.models.chapter import EventChapter
 from app.models.event import Event
 from app.models.photo import Photo
@@ -23,6 +25,8 @@ from app.schemas.event import (
     EventDetailResponse,
     EventEnhancementSummary,
     EventListResponse,
+    LocationCityCandidate,
+    LocationPlaceCandidate,
     EventPhotoItem,
     EventVisionSummary,
     EventStatus,
@@ -42,7 +46,11 @@ from app.services.event_enhancement_service import (
     get_event_enhancement_storage_summary,
     replace_event_enhancement_assets,
 )
-from app.services.event_enrichment import ensure_event_title, get_event_location_text
+from app.services.event_enrichment import (
+    ensure_event_title,
+    get_event_location_text,
+    is_coordinate_location_text,
+)
 from app.services.event_service import event_service
 from app.services.storage_service import storage_service
 from app.tasks.clustering_tasks import trigger_event_enhancement_task, trigger_event_story_task
@@ -51,6 +59,8 @@ router = APIRouter()
 
 STRUCTURE_EDIT_FIELDS = {
     "location_name",
+    "gps_lat",
+    "gps_lon",
     "detailed_location",
     "location_tags",
 }
@@ -354,6 +364,46 @@ def get_event_stats(
 
 
 @router.get(
+    "/location-search/cities",
+    response_model=ApiResponse[list[LocationCityCandidate]],
+)
+def search_location_cities(query: str = Query(..., min_length=1)) -> ApiResponse[list[LocationCityCandidate]]:
+    return ApiResponse.ok(
+        [
+            LocationCityCandidate(
+                name=item["name"],
+                displayName=item["display_name"],
+                adcode=item["adcode"],
+            )
+            for item in amap_client.search_cities(query)
+        ]
+    )
+
+
+@router.get(
+    "/location-search/places",
+    response_model=ApiResponse[list[LocationPlaceCandidate]],
+)
+def search_location_places(
+    query: str = Query(..., min_length=1),
+    city: str = Query(..., min_length=1),
+) -> ApiResponse[list[LocationPlaceCandidate]]:
+    results = [
+        LocationPlaceCandidate(
+            name=item["name"],
+            address=item.get("address") or "",
+            locationName=item["display_location"],
+            detailedLocation=item["detailed_location"],
+            locationTags=item.get("location_tags") or "",
+            gpsLat=item["gps_lat"],
+            gpsLon=item["gps_lon"],
+        )
+        for item in amap_client.search_places(keyword=query, city=city)
+    ]
+    return ApiResponse.ok(results)
+
+
+@router.get(
     "/enhancement-storage/summary",
     response_model=ApiResponse[EnhancementStorageSummary],
 )
@@ -573,6 +623,14 @@ def update_event(
         payload_fields["title_manually_set"] = True
     if "locationName" in payload.model_fields_set:
         payload_fields["location_name"] = payload.locationName
+    if "gpsLat" in payload.model_fields_set:
+        payload_fields["gps_lat"] = (
+            Decimal(str(payload.gpsLat)) if payload.gpsLat is not None else None
+        )
+    if "gpsLon" in payload.model_fields_set:
+        payload_fields["gps_lon"] = (
+            Decimal(str(payload.gpsLon)) if payload.gpsLon is not None else None
+        )
     if "coverPhowtoUrl" in payload.model_fields_set:
         payload_fields["cover_photo_url"] = payload.coverPhotoUrl
     if "storyText" in payload.model_fields_set:
@@ -589,6 +647,26 @@ def update_event(
         payload_fields["music_url"] = payload.musicUrl
     if "status" in payload.model_fields_set:
         payload_fields["status"] = payload.status
+
+    if (
+        payload_fields.get("gps_lat") is not None
+        and payload_fields.get("gps_lon") is not None
+        and (
+            "location_name" not in payload_fields
+            or not payload_fields.get("location_name")
+            or is_coordinate_location_text(cast(Optional[str], payload_fields.get("location_name")))
+        )
+    ):
+        context = amap_client.get_location_context(
+            float(cast(Decimal, payload_fields["gps_lat"])),
+            float(cast(Decimal, payload_fields["gps_lon"])),
+        )
+        if "location_name" not in payload_fields or not payload_fields.get("location_name"):
+            payload_fields["location_name"] = context.get("display_location") or None
+        if "detailed_location" not in payload_fields or not payload_fields.get("detailed_location"):
+            payload_fields["detailed_location"] = context.get("detailed_location") or None
+        if "location_tags" not in payload_fields or not payload_fields.get("location_tags"):
+            payload_fields["location_tags"] = context.get("location_tags") or None
 
     event = event_service.update_event(
         event_id=event_id,

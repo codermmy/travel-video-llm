@@ -1,542 +1,175 @@
 # 架构地图
 
-> **文档目的**：展示系统的分层架构、数据流向和模块依赖关系，帮助开发者快速理解代码组织方式。
+## 1. 总体结构
 
----
-
-## 1. 整体架构图
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              移动端 (Expo)                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │   Pages     │  │ Components  │  │   Stores    │  │  Services   │    │
-│  │  (路由页面)  │  │  (UI组件)   │  │ (状态管理)  │  │ (API/业务)  │    │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
-│         │                │                │                │           │
-│         └────────────────┴────────────────┴────────────────┘           │
-│                                    │                                    │
-└────────────────────────────────────┼────────────────────────────────────┘
-                                     │ HTTPS (REST API)
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            FastAPI 后端                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                        API 路由层 (api/v1/)                      │   │
-│  │  auth │ users │ photos │ events │ tasks │ ai │ sync │ admin    │   │
-│  └───────────────────────────────┬─────────────────────────────────┘   │
-│                                  │                                      │
-│  ┌───────────────────────────────▼─────────────────────────────────┐   │
-│  │                         服务层 (services/)                       │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │   │
-│  │  │ 核心业务服务 │  │  AI 服务链  │  │     基础设施服务         │  │   │
-│  │  │ event_svc   │  │ ai_service  │  │ storage_service        │  │   │
-│  │  │ photo_svc   │  │ event_ai    │  │ email_service          │  │   │
-│  │  │ clustering  │  │ chapter_ai  │  │ geocoding_service      │  │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │   │
-│  └───────────────────────────────┬─────────────────────────────────┘   │
-│                                  │                                      │
-│  ┌───────────────────────────────▼─────────────────────────────────┐   │
-│  │                        集成层 (integrations/)                    │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │   │
-│  │  │ AI Providers│  │  高德地图   │  │  阿里云 OSS  │              │   │
-│  │  │ (tongyi)    │  │  (amap)     │  │  (oss)      │              │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘              │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                  │                                      │
-│  ┌───────────────────────────────▼─────────────────────────────────┐   │
-│  │                      数据模型层 (models/)                        │   │
-│  │  User │ Photo │ Event │ Chapter │ PhotoGroup │ Task │ Music    │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                  │                                      │
-└──────────────────────────────────┼──────────────────────────────────────┘
-                                   │
-         ┌─────────────────────────┼─────────────────────────┐
-         │                         │                         │
-         ▼                         ▼                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   PostgreSQL    │     │  Redis + Celery │     │   阿里云 OSS    │
-│    (主数据库)    │     │   (任务队列)    │     │   (文件存储)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                         Mobile App                           │
+│  Expo Router / Zustand / Media Library / Local Registry      │
+│  TravelVision / TravelSlideshowExport / AMap Native Module   │
+└───────────────┬──────────────────────────────────────────────┘
+                │ REST + JWT + X-Device-Id
+┌───────────────▼──────────────────────────────────────────────┐
+│                       FastAPI Backend                        │
+│  auth / users / photos / events / tasks / ai / admin        │
+│  event_service / clustering / geocoding / ai_service        │
+└───────┬───────────────────────┬───────────────────────┬──────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+   SQLite/Postgres          Redis + Celery          Local/OSS
 ```
 
----
+当前系统有两条并行数据面：
 
-## 2. 前端分层架构
+- 端侧媒体数据面：本地 `assetId -> localUri`、封面覆盖、端侧视觉缓存、导出缓存
+- 云端结构化数据面：照片 metadata、vision 结果、事件、章节、任务、头像、增强素材
 
-### 2.1 目录结构
+## 2. 移动端分层
 
-```
+### 2.1 目录骨架
+
+```text
 mobile/
-├── app/                          # 页面路由（Expo Router）
-│   ├── _layout.tsx              # 根布局：认证守卫、同步提示
-│   ├── (auth)/                  # 认证流程组
-│   │   ├── _layout.tsx
-│   │   └── index.tsx            # 欢迎页
-│   ├── (tabs)/                  # 主应用标签页
-│   │   ├── _layout.tsx          # Tab 导航配置
-│   │   ├── index.tsx            # 地图页（足迹）
-│   │   ├── events.tsx           # 事件列表页
-│   │   └── profile.tsx          # 个人中心页
-│   ├── login.tsx                # 登录页
-│   ├── register.tsx             # 注册页
-│   ├── forgot-password.tsx      # 忘记密码页
-│   ├── events/[eventId].tsx     # 事件详情页
-│   ├── photo-viewer.tsx         # 照片查看器
-│   ├── slideshow.tsx            # 幻灯片播放器
-│   └── profile/                 # 个人中心子页面
-│       ├── edit.tsx
-│       └── avatar.tsx
-│
-├── src/
-│   ├── components/              # UI 组件
-│   │   ├── auth/               # 认证相关组件
-│   │   ├── map/                # 地图相关组件
-│   │   ├── photo/              # 照片相关组件
-│   │   ├── import/             # 导入相关组件
-│   │   └── slideshow/          # 幻灯片相关组件
-│   │
-│   ├── services/               # 服务层
-│   │   ├── api/                # API 调用
-│   │   │   ├── client.ts       # Axios 客户端
-│   │   │   ├── authApi.ts
-│   │   │   ├── eventApi.ts
-│   │   │   ├── photoApi.ts
-│   │   │   ├── taskApi.ts
-│   │   │   └── userApi.ts
-│   │   ├── album/              # 相册服务
-│   │   │   ├── photoImportService.ts
-│   │   │   ├── exifExtractor.ts
-│   │   │   ├── photoHasher.ts
-│   │   │   └── thumbnailGenerator.ts
-│   │   ├── storage/            # 本地存储
-│   │   │   └── tokenStorage.ts
-│   │   └── sync/               # 同步服务
-│   │       ├── syncService.ts
-│   │       └── syncStorage.ts
-│   │
-│   ├── stores/                 # 状态管理（Zustand）
-│   │   ├── authStore.ts        # 认证状态
-│   │   ├── eventStore.ts       # 事件状态
-│   │   ├── photoStore.ts       # 照片状态
-│   │   ├── photoViewerStore.ts # 照片查看器会话
-│   │   └── slideshowStore.ts   # 幻灯片会话
-│   │
-│   └── types/                  # 类型定义
-│       ├── api.ts
-│       ├── user.ts
-│       ├── event.ts
-│       ├── photo.ts
-│       ├── chapter.ts
-│       ├── photoGroup.ts
-│       └── slideshow.ts
+├── app/                        # Expo Router 路由
+│   ├── _layout.tsx
+│   ├── (tabs)/                 # 回忆 / 地图 / 我的
+│   ├── events/[eventId].tsx
+│   ├── slideshow.tsx
+│   ├── photo-viewer.tsx
+│   ├── profile/
+│   ├── event-location/
+│   └── map/
+├── src/components/             # 组件
+├── src/screens/                # 复合页面逻辑
+├── src/services/               # API、本地服务、导入、视觉、幻灯片
+├── src/stores/                 # Zustand
+├── src/types/                  # 共享类型
+└── modules/                    # 自定义 Expo 原生模块
 ```
 
-### 2.2 数据流向
+### 2.2 关键前端链路
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         页面组件                             │
-│  (login.tsx, events.tsx, [eventId].tsx, slideshow.tsx)     │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ 调用
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Zustand Stores                         │
-│  authStore ← eventStore ← photoStore ← slideshowStore      │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ 调用
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       API Services                          │
-│  authApi ← eventApi ← photoApi ← taskApi ← userApi         │
-└─────────────────────────────┬───────────────────────────────┘
-                              │ HTTP
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Axios Client                           │
-│  - 自动附加 Authorization Token                              │
-│  - 自动附加 X-Device-Id                                      │
-│  - 401 响应自动清除 Token 并跳转登录                          │
-└─────────────────────────────────────────────────────────────┘
+#### 设备会话
+
+```text
+RootLayout
+  -> authStore.bootstrapDeviceSession()
+  -> authApi.register() / tokenStorage
+  -> apiClient 自动附带 Authorization + X-Device-Id
 ```
 
----
+#### 导入流水线
 
-## 3. 后端分层架构
-
-### 3.1 目录结构
-
+```text
+PhotoLibraryPicker / Recent Import
+  -> photoImportService
+  -> photoApi.checkDuplicatesByMetadata()
+  -> photoApi.uploadPhotos()
+  -> localMediaRegistry.register()
+  -> onDeviceVisionQueue.enqueue()
+  -> photoApi.updatePhoto(vision)
+  -> taskApi.getTaskStatus()
 ```
+
+#### 浏览与播放
+
+```text
+eventApi.list/getDetail
+  -> 本地 URI hydration
+  -> Memories / Map / Event Detail
+  -> SlideshowPlayer
+  -> generateSlideshowPreviewVideo / exportSlideshowVideo
+```
+
+## 3. 后端分层
+
+### 3.1 目录骨架
+
+```text
 backend/
-├── main.py                      # 应用入口
-├── app/
-│   ├── core/
-│   │   ├── config.py           # 配置管理
-│   │   ├── database.py         # 数据库连接
-│   │   └── security.py         # 安全工具
-│   │
-│   ├── api/
-│   │   └── v1/
-│   │       ├── router.py       # 路由注册
-│   │       ├── auth.py         # 认证路由
-│   │       ├── users.py        # 用户路由
-│   │       ├── photos.py       # 照片路由
-│   │       ├── events.py       # 事件路由
-│   │       ├── tasks.py        # 任务路由
-│   │       ├── ai.py           # AI 路由
-│   │       ├── sync.py         # 同步路由
-│   │       ├── admin.py        # 管理路由
-│   │       └── health.py       # 健康检查
-│   │
-│   ├── services/               # 业务服务
-│   │   ├── ai_service.py       # AI 服务封装
-│   │   ├── event_ai_service.py # 事件 AI 生成
-│   │   ├── chapter_ai_service.py
-│   │   ├── photo_ai_service.py
-│   │   ├── event_service.py    # 事件管理
-│   │   ├── photo_service.py    # 照片管理
-│   │   ├── clustering_service.py # 时空聚类
-│   │   ├── storage_service.py  # 存储服务
-│   │   ├── email_service.py    # 邮件服务
-│   │   ├── geocoding_service.py
-│   │   └── event_enrichment.py
-│   │
-│   ├── integrations/           # 外部集成
-│   │   ├── providers/
-│   │   │   ├── base.py         # AI 提供商基类
-│   │   │   ├── tongyi_provider.py
-│   │   │   └── factory.py
-│   │   ├── tongyi.py           # 通义千问客户端
-│   │   ├── amap.py             # 高德地图客户端
-│   │   └── oss.py              # OSS 客户端
-│   │
-│   ├── models/                 # 数据模型
-│   │   ├── user.py
-│   │   ├── photo.py
-│   │   ├── event.py
-│   │   ├── chapter.py
-│   │   ├── photo_group.py
-│   │   ├── task.py
-│   │   └── music.py
-│   │
-│   ├── schemas/                # Pydantic Schema
-│   │   ├── common.py           # 通用响应格式
-│   │   ├── user.py
-│   │   ├── photo.py
-│   │   ├── event.py
-│   │   ├── chapter.py
-│   │   ├── photo_group.py
-│   │   ├── task.py
-│   │   ├── ai.py
-│   │   └── admin.py
-│   │
-│   └── tasks/                  # Celery 任务
-│       └── celery_app.py
-│
-├── alembic/                    # 数据库迁移
-│   └── versions/
-│
-└── tests/                      # 测试
-    ├── test_auth.py
-    ├── test_ai_api.py
-    ├── test_ai_service.py
-    └── ...
+├── main.py
+├── app/api/v1/
+├── app/core/
+├── app/db/
+├── app/models/
+├── app/schemas/
+├── app/services/
+├── app/integrations/
+└── app/tasks/
 ```
 
-### 3.2 请求处理流程
+### 3.2 请求和任务流
 
-```
-HTTP 请求
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      FastAPI 中间件                          │
-│  - CORS 处理                                                 │
-│  - 请求日志                                                  │
-│  - 异常处理                                                  │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       API 路由层                             │
-│  - 参数验证（Pydantic Schema）                               │
-│  - 依赖注入（get_current_user, get_db）                      │
-│  - 权限检查                                                  │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        服务层                                │
-│  - 业务逻辑处理                                              │
-│  - 事务管理                                                  │
-│  - 异步任务触发                                              │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-              ▼               ▼               ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│   数据模型层    │ │    集成层       │ │   任务队列      │
-│  (SQLAlchemy)   │ │ (AI/地图/OSS)   │ │   (Celery)      │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
+#### 同步请求
+
+```text
+API Route
+  -> Depends(CurrentUserIdDep)
+  -> service / model query
+  -> ApiResponse[T]
 ```
 
----
+#### 异步任务
 
-## 4. 核心数据流
-
-### 4.1 照片上传 → 事件生成流程
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           移动端                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│  1. 用户选择照片                                                         │
-│     ↓                                                                   │
-│  2. photoImportService.ts                                               │
-│     ├─ exifExtractor.ts → 提取 GPS、拍摄时间                             │
-│     ├─ photoHasher.ts → 计算 SHA-256 哈希                               │
-│     └─ thumbnailGenerator.ts → 生成 1080px 缩略图                        │
-│     ↓                                                                   │
-│  3. photoApi.checkDuplicates() → 去重检查                                │
-│     ↓                                                                   │
-│  4. photoApi.uploadMetadata() → 上传元数据（批量 200 张）                 │
-│     ↓                                                                   │
-│  5. taskApi.pollStatus() → 轮询任务状态                                  │
-└─────────────────────────────────────────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            后端                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│  6. photos.py → 接收元数据，存入 photos 表                               │
-│     ↓                                                                   │
-│  7. trigger_clustering_task() → 触发 Celery 任务                        │
-│     ↓                                                                   │
-│  8. clustering_service.py                                               │
-│     ├─ SpacetimeHDBSCAN → 时空聚类                                      │
-│     ├─ SemanticClustering → 语义合并                                    │
-│     └─ TemporalRules → 时间规则优化                                     │
-│     ↓                                                                   │
-│  9. 创建 Event 记录（status: clustered）                                 │
-│     ↓                                                                   │
-│  10. trigger_event_story_task() → 触发 AI 生成任务                       │
-│      ↓                                                                  │
-│  11. event_ai_service.py                                                │
-│      ├─ ai_service.analyze_event_photos() → 照片分析                    │
-│      ├─ ai_service.generate_event_story() → 故事生成                    │
-│      ├─ chapter_ai_service → 章节生成                                   │
-│      └─ photo_group_service → 照片组生成                                │
-│      ↓                                                                  │
-│  12. 更新 Event（status: generated）                                     │
-└─────────────────────────────────────────────────────────────────────────┘
+```text
+photos/upload/metadata
+  -> trigger_clustering_task()
+  -> process_new_photos_task
+  -> cluster_user_photos
+  -> geocoding_service.update_event_locations
+  -> trigger_event_story_task()
+  -> generate_event_story_task
 ```
 
-### 4.2 事件详情加载流程
+#### 事件编辑后的刷新
 
-```
-移动端                                    后端
-───────                                  ──────
-eventApi.getEventDetail(eventId)
-         │
-         │  GET /events/{eventId}
-         ▼
-                                    events.py
-                                         │
-                                         ▼
-                                    event_service.py
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    │                    │                    │
-                    ▼                    ▼                    ▼
-              get_event_detail()  get_event_chapters()  get_event_photo_groups()
-                    │                    │                    │
-                    └────────────────────┼────────────────────┘
-                                         │
-                                         ▼
-                                    EventDetailResponse
-                                    {
-                                      event: {...},
-                                      photos: [...],
-                                      chapters: [...],
-                                      photoGroups: [...]
-                                    }
-         │
-         │  JSON Response
-         ▼
-[eventId].tsx 渲染页面
+```text
+PATCH /events/{id} or PATCH /photos/{id}
+  -> mark_events_structure_changed()
+  -> refresh_event_summary()
+  -> mark_event_pending_story_refresh()
+  -> trigger_event_story_task()
 ```
 
----
+## 4. 关键状态模型
 
-## 5. 模块依赖关系
+### 4.1 事件运行态
 
-### 5.1 后端服务依赖图
+- `waiting_for_vision`：还有照片未完成端侧识别
+- `ai_pending`：已经具备生成条件，等待故事任务
+- `ai_processing`：故事生成中
+- `generated`：故事与幻灯片版本新鲜
+- `ai_failed`：当前版本生成失败
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           API 路由层                                     │
-│  auth.py  users.py  photos.py  events.py  tasks.py  ai.py  sync.py     │
-└────┬─────────┬──────────┬─────────┬──────────┬────────┬────────┬───────┘
-     │         │          │         │          │        │        │
-     │         │          │         │          │        │        │
-     ▼         ▼          ▼         ▼          ▼        ▼        ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            服务层                                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                      AI 服务链                                   │   │
-│  │                                                                  │   │
-│  │  ai_service.py ──────────────────────────────────────────────┐  │   │
-│  │       │                                                      │  │   │
-│  │       ├──→ event_ai_service.py ──→ chapter_ai_service.py    │  │   │
-│  │       │           │                        │                 │  │   │
-│  │       │           └──→ photo_group_service.py               │  │   │
-│  │       │                                                      │  │   │
-│  │       └──→ photo_ai_service.py                              │  │   │
-│  │                                                              │  │   │
-│  └──────────────────────────────────────────────────────────────┘  │   │
-│                              │                                      │   │
-│                              ▼                                      │   │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     核心业务服务                                 │   │
-│  │                                                                  │   │
-│  │  event_service.py ←──── photo_service.py ←──── clustering_service│  │
-│  │       │                      │                       │          │   │
-│  │       └──────────────────────┴───────────────────────┘          │   │
-│  │                              │                                   │   │
-│  └──────────────────────────────┼───────────────────────────────────┘   │
-│                                 │                                       │
-│                                 ▼                                       │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    基础设施服务                                  │   │
-│  │                                                                  │   │
-│  │  storage_service.py    email_service.py    geocoding_service.py │   │
-│  │                                                                  │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           集成层                                         │
-│                                                                         │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐         │
-│  │  AI Providers   │  │   高德地图 API   │  │   阿里云 OSS    │         │
-│  │  (tongyi)       │  │   (amap.py)      │  │   (oss.py)      │         │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘         │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+事件是否“真正完成”，不只看 `status`，还要结合：
 
-### 5.2 前端模块依赖图
+- `visionSummary`
+- `eventVersion`
+- `storyGeneratedFromVersion`
+- `storyFreshness`
+- `slideshowFreshness`
+- `hasPendingStructureChanges`
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            页面层                                        │
-│                                                                         │
-│  _layout.tsx ──→ (tabs)/index.tsx ──→ events/[eventId].tsx             │
-│       │              │                        │                         │
-│       │              │                        ├──→ photo-viewer.tsx     │
-│       │              │                        └──→ slideshow.tsx        │
-│       │              │                                                  │
-│       └──→ login.tsx / register.tsx                                    │
-│                                                                         │
-└────────────────────────────────┬────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           组件层                                         │
-│                                                                         │
-│  MapViewContainer ←── EventMarker ←── ClusterMarker                    │
-│  PhotoGrid ←── PhotoViewer                                              │
-│  SlideshowPlayer                                                        │
-│  ImportProgressModal                                                    │
-│                                                                         │
-└────────────────────────────────┬────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           状态层                                         │
-│                                                                         │
-│  authStore ←── eventStore ←── photoStore                               │
-│       │                                                                 │
-│       └──→ photoViewerStore ←── slideshowStore                         │
-│                                                                         │
-└────────────────────────────────┬────────────────────────────────────────┘
-                                 │
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           服务层                                         │
-│                                                                         │
-│  client.ts ←── authApi ←── eventApi ←── photoApi ←── taskApi           │
-│       │                                                                 │
-│       └──→ photoImportService ←── exifExtractor ←── photoHasher        │
-│       │                                                                 │
-│       └──→ syncService ←── syncStorage                                 │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+### 4.2 导入任务态
 
----
+前端导入任务中心使用四阶段视图：
 
-## 6. 关键约束
+- `prepare`
+- `analysis`
+- `sync`
+- `story`
 
-### 6.1 数据隔离
+后端异步任务接口使用：
 
-- **所有查询必须带 `user_id`**：防止用户访问他人数据
-- **API 层自动注入**：通过 `get_current_user` 依赖获取当前用户
+- `pending`
+- `clustering`
+- `geocoding`
+- `ai`
 
-### 6.2 幂等性
+## 5. 基础设施与环境依赖
 
-- **同步接口必须幂等**：`/sync/pull` 和 `/sync/ack` 可重复调用
-- **任务接口必须幂等**：重复触发聚类/AI 生成不会产生重复数据
-
-### 6.3 错误处理
-
-- **失败必须可重试**：AI 生成失败后可通过 `regenerate-story` 重试
-- **错误必须有原因**：`Event.ai_error` 字段记录失败原因
-
-### 6.4 性能约束
-
-- **照片上传批量限制**：单次最多 200 张
-- **聚类算法复杂度**：O(n log n)，支持万级照片
-- **AI 调用限流**：单用户并发限制，防止 API 超限
-
----
-
-## 7. 扩展点
-
-### 7.1 AI 提供商扩展
-
-```python
-# backend/app/integrations/providers/base.py
-class AIProvider(Protocol):
-    def analyze_image(self, image_url: str, prompt: str) -> str: ...
-    def generate_event_story(self, context: dict) -> dict: ...
-```
-
-新增 AI 提供商只需实现 `AIProvider` 协议，并在 `factory.py` 中注册。
-
-### 7.2 存储提供商扩展
-
-```python
-# backend/app/services/storage_service.py
-class StorageProvider(Protocol):
-    def upload(self, file: bytes, key: str) -> str: ...
-    def get_url(self, key: str) -> str: ...
-```
-
-当前支持：`LocalStorageProvider`、`OssStorageProvider`
-
-### 7.3 地图服务扩展
-
-当前仅支持高德地图，如需支持 Google Maps，需在 `integrations/` 下新增实现。
-
----
-
-> **下一步**：查阅具体模块文档，了解详细的接口定义和业务逻辑。
+- 数据库默认 `sqlite:///./travel_album.db`，也兼容 PostgreSQL
+- Celery broker/result backend 默认 `redis://localhost:6379/0`
+- AMap 既服务后端地理编码，也服务移动端原生地图
+- OSS 为可选能力；未启用时头像与增强素材保存在 `uploads/`
+- 地图页只能在 Development Build 里运行，Expo Go 不支持原生高德模块

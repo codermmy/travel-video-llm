@@ -1,12 +1,20 @@
-import { useMemo } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useRef } from 'react';
+import {
+  Animated,
+  Image,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { StateChip } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import { getEventStatusMeta } from '@/utils/eventStatus';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
+import { getCompactLocationText, getReadableLocationText } from '@/utils/locationDisplay';
 
 type EventCardListProps = {
   events: EventRecord[];
@@ -30,7 +38,7 @@ function buildDateRange(event: EventRecord): string {
 }
 
 function getClusterTitle(events: EventRecord[]): string {
-  const firstLocation = events.find((event) => event.locationName?.trim())?.locationName?.trim();
+  const firstLocation = events.map((event) => getReadableLocationText(event)).find(Boolean);
   if (firstLocation) {
     return `${firstLocation} 附近的回忆`;
   }
@@ -40,6 +48,8 @@ function getClusterTitle(events: EventRecord[]): string {
 export function EventCardList({ events, onPressDetails, onClose }: EventCardListProps) {
   const isSingle = events.length === 1;
   const title = getClusterTitle(events);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
 
   const sortedEvents = useMemo(
     () =>
@@ -53,14 +63,75 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
     [events],
   );
 
+  const resetCardPosition = useCallback(() => {
+    Animated.parallel([
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 120,
+        friction: 14,
+      }),
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [opacity, translateY]);
+
+  const dismissCard = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: 140,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+    ]).start(({ finished }) => {
+      if (!finished) {
+        return;
+      }
+      translateY.setValue(0);
+      opacity.setValue(1);
+      onClose();
+    });
+  }, [onClose, opacity, translateY]);
+
+  const handlePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          gestureState.dy > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_, gestureState) => {
+          translateY.setValue(Math.max(0, Math.min(gestureState.dy, 140)));
+          opacity.setValue(Math.max(0.6, 1 - gestureState.dy / 220));
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dy > 60 || gestureState.vy > 0.9) {
+            dismissCard();
+            return;
+          }
+          resetCardPosition();
+        },
+        onPanResponderTerminate: resetCardPosition,
+      }),
+    [dismissCard, opacity, resetCardPosition, translateY],
+  );
+
   if (isSingle) {
     const event = sortedEvents[0];
-    const statusMeta = getEventStatusMeta(event);
     const coverUri = getPreferredEventCoverUri(event);
+    const locationText = getCompactLocationText(event);
 
     return (
-      <View style={styles.container}>
-        <View style={styles.handle} />
+      <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
+        <View style={styles.handleTouchArea} {...handlePanResponder.panHandlers}>
+          <View style={styles.handle} />
+        </View>
         <View style={styles.singleCard}>
           <View style={styles.singleCoverWrap}>
             {coverUri ? (
@@ -82,7 +153,16 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
               {buildDateRange(event)} · {event.photoCount} 张照片
             </Text>
             <View style={styles.singleBottomRow}>
-              <StateChip state={statusMeta.tone} label={statusMeta.label} compact />
+              <View style={styles.singleLocationRow}>
+                <Ionicons
+                  name="location-outline"
+                  size={14}
+                  color={locationText ? JourneyPalette.accent : JourneyPalette.muted}
+                />
+                <Text numberOfLines={1} style={styles.singleLocationText}>
+                  {locationText || '地点待补充'}
+                </Text>
+              </View>
               <Pressable
                 style={styles.singleActionPrimary}
                 onPress={() => onPressDetails(event.id)}
@@ -93,13 +173,15 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
             </View>
           </View>
         </View>
-      </View>
+      </Animated.View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.handle} />
+    <Animated.View style={[styles.container, { opacity, transform: [{ translateY }] }]}>
+      <View style={styles.handleTouchArea} {...handlePanResponder.panHandlers}>
+        <View style={styles.handle} />
+      </View>
 
       <View style={styles.listHeader}>
         <View style={styles.listHeaderCopy}>
@@ -111,7 +193,6 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
       <ScrollView style={styles.listScroll} showsVerticalScrollIndicator={false}>
         {sortedEvents.map((event, index) => {
           const coverUri = getPreferredEventCoverUri(event);
-          const statusMeta = getEventStatusMeta(event);
 
           return (
             <Pressable
@@ -140,7 +221,6 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
                 <Text numberOfLines={1} style={styles.rowMeta}>
                   {buildDateRange(event)} · {event.photoCount} 张照片
                 </Text>
-                <StateChip state={statusMeta.tone} label={statusMeta.label} compact />
               </View>
 
               <View style={styles.rowEnter}>
@@ -151,7 +231,7 @@ export function EventCardList({ events, onPressDetails, onClose }: EventCardList
           );
         })}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -180,6 +260,9 @@ const styles = StyleSheet.create({
     backgroundColor: JourneyPalette.lineStrong,
     marginTop: 10,
     marginBottom: 10,
+  },
+  handleTouchArea: {
+    paddingTop: 4,
   },
   singleCard: {
     flexDirection: 'row',
@@ -220,6 +303,20 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  singleLocationRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 0,
+    paddingRight: 8,
+  },
+  singleLocationText: {
+    flex: 1,
+    color: JourneyPalette.inkSoft,
+    fontSize: 12,
+    fontWeight: '600',
   },
   singleActionPrimary: {
     minHeight: 36,
