@@ -179,6 +179,8 @@ def test_generate_ai_story_writes_back(monkeypatch) -> None:
         assert updated.title == "T"
         assert updated.story_text == "S"
         assert updated.full_story == "S"
+        assert updated.hero_title
+        assert updated.hero_summary
         assert updated.emotion_tag == "Epic"
     finally:
         db.close()

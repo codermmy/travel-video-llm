@@ -11,6 +11,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { JourneyPalette } from '@/styles/colors';
 import { getJourneyStateAppearance, type JourneyStateKind } from '@/utils/statusLanguage';
@@ -22,6 +23,15 @@ type PageHeaderProps = {
   subtitle?: string;
   eyebrow?: string;
   rightSlot?: ReactNode;
+  topInset?: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+type HeaderIconButtonProps = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+  accessibilityLabel: string;
+  style?: StyleProp<ViewStyle>;
 };
 
 type SectionLabelProps = {
@@ -260,7 +270,7 @@ export function PageContent({
   return (
     <ScrollView
       style={styles.page}
-      contentInsetAdjustmentBehavior="automatic"
+      contentInsetAdjustmentBehavior="never"
       contentContainerStyle={[styles.pageContent, style]}
     >
       {children}
@@ -268,9 +278,18 @@ export function PageContent({
   );
 }
 
-export function PageHeader({ title, subtitle, eyebrow, rightSlot }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  subtitle,
+  eyebrow,
+  rightSlot,
+  topInset = false,
+  style,
+}: PageHeaderProps) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.pageHeader}>
+    <View style={[styles.pageHeader, topInset ? { paddingTop: insets.top + 30 } : null, style]}>
       <View style={styles.pageHeaderCopy}>
         {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
         <Text style={styles.pageTitle}>{title}</Text>
@@ -278,6 +297,24 @@ export function PageHeader({ title, subtitle, eyebrow, rightSlot }: PageHeaderPr
       </View>
       {rightSlot ? <View style={styles.pageHeaderAction}>{rightSlot}</View> : null}
     </View>
+  );
+}
+
+export function HeaderIconButton({
+  icon,
+  onPress,
+  accessibilityLabel,
+  style,
+}: HeaderIconButtonProps) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      onPress={onPress}
+      style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed, style]}
+    >
+      <MaterialCommunityIcons name={icon} size={18} color={JourneyPalette.ink} />
+    </Pressable>
   );
 }
 
@@ -546,7 +583,7 @@ const styles = StyleSheet.create({
   },
   pageContent: {
     paddingHorizontal: 18,
-    paddingTop: 20,
+    paddingTop: 0,
     paddingBottom: 120,
     gap: 18,
   },
@@ -562,6 +599,14 @@ const styles = StyleSheet.create({
   },
   pageHeaderAction: {
     paddingTop: 2,
+  },
+  headerIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   eyebrow: {
     fontSize: 11,

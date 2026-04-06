@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,21 +9,14 @@ import {
   Text,
   TextInput,
   View,
-  type StyleProp,
-  type ViewStyle,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
-import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
 import { ActionButton, SectionLabel, SurfaceCard } from '@/components/ui/revamp';
-import {
-  importSelectedLibraryAssets,
-  type ImportResult,
-} from '@/services/album/photoImportService';
 import { eventApi } from '@/services/api/eventApi';
 import { photoApi } from '@/services/api/photoApi';
 import { usePhotoViewerStore } from '@/stores/photoViewerStore';
@@ -31,70 +24,23 @@ import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail, EventRecord } from '@/types/event';
 import { getPreferredPhotoThumbnailUri } from '@/utils/mediaRefs';
 
-type EventPhotoManagerSheetProps = {
-  visible: boolean;
+type EventPhotoManagerScreenProps = {
   eventId: string | null;
-  entryMode?: 'browse' | 'move-target';
   onClose: () => void;
   onChanged: (params: { deletedCurrentEvent: boolean }) => void;
 };
 
-type SheetPanelProps = {
-  title: string;
-  subtitle?: string;
-  headerAction?: ReactNode;
-  headerBottom?: ReactNode;
-  footer?: ReactNode;
-  children: ReactNode;
-  style?: StyleProp<ViewStyle>;
-  bodyStyle?: StyleProp<ViewStyle>;
-  footerStyle?: StyleProp<ViewStyle>;
+type EventPhotoManagerSheetProps = EventPhotoManagerScreenProps & {
+  visible: boolean;
+  entryMode?: 'browse' | 'move-target';
 };
 
-function isNotFoundError(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'response' in error &&
-    Number((error as { response?: { status?: number } }).response?.status) === 404
-  );
-}
-
-function SheetPanel({
-  title,
-  subtitle,
-  headerAction,
-  headerBottom,
-  footer,
-  children,
-  style,
-  bodyStyle,
-  footerStyle,
-}: SheetPanelProps) {
-  return (
-    <View style={[styles.sheet, style]}>
-      <View style={styles.sheetHandle} />
-      <View style={styles.sheetHeader}>
-        <View style={styles.sheetHeaderCopy}>
-          <Text style={styles.sheetTitle}>{title}</Text>
-          {subtitle ? <Text style={styles.sheetSubtitle}>{subtitle}</Text> : null}
-        </View>
-        {headerAction ? <View style={styles.sheetHeaderAction}>{headerAction}</View> : null}
-      </View>
-      {headerBottom ? <View style={styles.sheetHeaderBottom}>{headerBottom}</View> : null}
-      <View style={[styles.sheetBody, bodyStyle]}>{children}</View>
-      {footer ? <View style={[styles.sheetFooter, footerStyle]}>{footer}</View> : null}
-    </View>
-  );
-}
-
-export function EventPhotoManagerSheet({
-  visible,
+export function EventPhotoManagerScreen({
   eventId,
-  entryMode = 'browse',
   onClose,
   onChanged,
-}: EventPhotoManagerSheetProps) {
+}: EventPhotoManagerScreenProps) {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const setPhotoViewerSession = usePhotoViewerStore((state) => state.setSession);
   const [loading, setLoading] = useState(false);
@@ -102,16 +48,10 @@ export function EventPhotoManagerSheet({
   const [availableEvents, setAvailableEvents] = useState<EventRecord[]>([]);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([]);
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerSubmitting, setPickerSubmitting] = useState(false);
-  const [importVisible, setImportVisible] = useState(false);
-  const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
   const [movePickerVisible, setMovePickerVisible] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventLocation, setNewEventLocation] = useState('');
-  const moveEntryHandledRef = useRef(false);
   const selectionMode = selectedPhotoIds.length > 0;
-  const canClose = !isActionLoading && !pickerSubmitting;
 
   const loadData = useCallback(async () => {
     if (!eventId) {
@@ -132,39 +72,17 @@ export function EventPhotoManagerSheet({
   }, [eventId]);
 
   useEffect(() => {
-    if (!visible) {
-      setSelectedPhotoIds([]);
-      setMovePickerVisible(false);
-      setPickerVisible(false);
-      moveEntryHandledRef.current = false;
-      return;
-    }
     setSelectedPhotoIds([]);
     setMovePickerVisible(false);
-    setPickerVisible(false);
     setNewEventTitle('');
     setNewEventLocation('');
-    moveEntryHandledRef.current = false;
-    void loadData();
-  }, [loadData, visible]);
+  }, []);
 
-  useEffect(() => {
-    if (!visible || entryMode !== 'move-target' || moveEntryHandledRef.current) {
-      return;
-    }
-    if (!event) {
-      return;
-    }
-
-    moveEntryHandledRef.current = true;
-    if (event.photos.length === 0) {
-      setMovePickerVisible(false);
-      return;
-    }
-
-    setSelectedPhotoIds(event.photos.map((photo) => photo.id));
-    setMovePickerVisible(true);
-  }, [entryMode, event, visible]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadData();
+    }, [loadData]),
+  );
 
   const selectableItems = useMemo(
     () =>
@@ -176,44 +94,19 @@ export function EventPhotoManagerSheet({
     [event],
   );
 
-  const handleClose = useCallback(() => {
-    if (!canClose) {
-      return;
-    }
-    onClose();
-  }, [canClose, onClose]);
-
-  const refreshOrCloseDeletedEvent = useCallback(async () => {
-    if (!eventId) {
-      return;
-    }
-    try {
-      await loadData();
-      onChanged({ deletedCurrentEvent: false });
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        onClose();
-        onChanged({ deletedCurrentEvent: true });
-        return;
-      }
-      throw error;
-    }
-  }, [eventId, loadData, onChanged, onClose]);
-
   const handleBatchResult = useCallback(
     async (deletedEventIds: string[]) => {
       if (eventId && deletedEventIds.includes(eventId)) {
         setMovePickerVisible(false);
-        onClose();
         onChanged({ deletedCurrentEvent: true });
         return;
       }
 
       setSelectedPhotoIds([]);
       setMovePickerVisible(false);
-      await refreshOrCloseDeletedEvent();
+      onChanged({ deletedCurrentEvent: false });
     },
-    [eventId, onChanged, onClose, refreshOrCloseDeletedEvent],
+    [eventId, onChanged],
   );
 
   const runPhotoMutation = useCallback(
@@ -231,203 +124,138 @@ export function EventPhotoManagerSheet({
     [handleBatchResult],
   );
 
-  const importToCurrentEvent = useCallback(
-    async (assets: import('expo-media-library').Asset[]) => {
-      if (!event) {
-        return;
-      }
-
-      setImportVisible(true);
-      setImportProgress({
-        stage: 'scanning',
-        detail: `正在准备把所选照片导入“${event.title || '未命名事件'}”...`,
-      });
-
-      try {
-        const result: ImportResult = await importSelectedLibraryAssets({
-          assets,
-          targetEventId: event.id,
-          onProgress: (progress) => setImportProgress(progress),
-        });
-
-        if (result.selected === 0) {
-          Alert.alert('未导入照片', '你这次没有选择任何照片。');
-          return;
-        }
-
-        if (result.dedupedNew === 0) {
-          if (result.failed > 0) {
-            Alert.alert('导入失败', '所选照片暂时无法处理，请稍后再试。');
-            return;
-          }
-
-          Alert.alert(
-            '没有新增照片',
-            result.dedupedExisting > 0
-              ? `已自动去重 ${result.dedupedExisting} 张照片。`
-              : '没有可新增的照片。',
-          );
-          return;
-        }
-
-        await refreshOrCloseDeletedEvent();
-        Alert.alert(
-          '已导入',
-          result.taskId
-            ? `已向当前事件新增 ${result.dedupedNew} 张照片，剩余分析会在后台继续完成。`
-            : `已向当前事件新增 ${result.dedupedNew} 张照片。`,
-        );
-      } catch (error) {
-        Alert.alert('导入失败', error instanceof Error ? error.message : '请稍后再试');
-      } finally {
-        setImportVisible(false);
-        setImportProgress({ stage: 'idle' });
-        setPickerSubmitting(false);
-        setPickerVisible(false);
-      }
-    },
-    [event, refreshOrCloseDeletedEvent],
-  );
-
-  const gridHeader = selectionMode ? (
-    <View style={styles.modeBar}>
-      <Text style={styles.modeBarText}>{`已选择 ${selectedPhotoIds.length} 张照片`}</Text>
-    </View>
-  ) : null;
-
   return (
-    <>
-      <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-        <GestureHandlerRootView style={styles.gestureRoot}>
-          <View style={styles.modalBackdrop}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
+    <View style={styles.screen}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="关闭"
+        onPress={onClose}
+        style={({ pressed }) => [
+          styles.dismissButton,
+          { top: Math.max(insets.top + 12, 18) },
+          pressed && styles.pressed,
+        ]}
+      >
+        <MaterialCommunityIcons name="arrow-left" size={20} color={JourneyPalette.ink} />
+      </Pressable>
 
-            <SheetPanel
-              title="照片管理"
-              headerAction={
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="添加照片"
-                  onPress={() => setPickerVisible(true)}
-                  disabled={pickerSubmitting || isActionLoading}
-                  style={({ pressed }) => [
-                    styles.addPhotoButton,
-                    pressed && styles.pressed,
-                    (pickerSubmitting || isActionLoading) && styles.disabledAction,
-                  ]}
-                >
-                  <MaterialCommunityIcons
-                    name="image-plus"
-                    size={20}
-                    color={JourneyPalette.accent}
-                  />
-                </Pressable>
-              }
-              headerBottom={gridHeader}
-              style={styles.modalSheet}
-              bodyStyle={styles.modalBody}
-              footer={
-                selectionMode ? (
-                  <View style={styles.contextActions}>
-                    <Pressable
-                      onPress={() => setMovePickerVisible(true)}
-                      disabled={isActionLoading}
-                      style={({ pressed }) => [
-                        styles.contextActionButton,
-                        pressed && styles.pressed,
-                        isActionLoading && styles.disabledAction,
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name="arrow-right-bold-box-outline"
-                        size={18}
-                        color="#FFFFFF"
-                      />
-                      <Text style={styles.contextActionText}>移动</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        Alert.alert(
-                          '删除照片',
-                          '删除后将无法恢复，选中的照片会从应用数据里移除。',
-                          [
-                            { text: '取消', style: 'cancel' },
-                            {
-                              text: '删除',
-                              style: 'destructive',
-                              onPress: () => {
-                                void runPhotoMutation(
-                                  () => photoApi.deletePhotos(selectedPhotoIds),
-                                  '删除失败',
-                                );
-                              },
-                            },
-                          ],
-                        );
-                      }}
-                      disabled={isActionLoading}
-                      style={({ pressed }) => [
-                        styles.contextActionButton,
-                        styles.contextDeleteButton,
-                        pressed && styles.pressed,
-                        isActionLoading && styles.disabledAction,
-                      ]}
-                    >
-                      <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FFFFFF" />
-                      <Text style={styles.contextActionText}>删除</Text>
-                    </Pressable>
-                  </View>
-                ) : null
-              }
-              footerStyle={selectionMode ? styles.contextFooter : undefined}
-            >
-              {loading ? (
-                <SurfaceCard style={styles.loadingState}>
-                  <ActivityIndicator color={JourneyPalette.accent} />
-                  <Text style={styles.loadingText}>正在加载事件照片...</Text>
-                </SurfaceCard>
-              ) : (
-                <View style={styles.gridContainer}>
-                  <SelectableMediaGrid
-                    items={selectableItems}
-                    selectedIds={selectedPhotoIds}
-                    onSelectionChange={setSelectedPhotoIds}
-                    emptyText="这个事件还没有可管理的照片"
-                    browseTapBehavior="select-or-open-on-double"
-                    variant="photo-manager"
-                    onItemPress={(_item, index: number) => {
-                      if (!event || event.photos.length === 0) {
-                        return;
-                      }
-                      setPhotoViewerSession(event.photos, index);
-                      router.push('/photo-viewer');
-                    }}
-                  />
-                </View>
-              )}
-            </SheetPanel>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 16, 60) }]}>
+        <Text style={styles.headerTitle}>照片管理</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="添加照片"
+          onPress={() => {
+            if (!eventId || isActionLoading) {
+              return;
+            }
+            router.push({
+              pathname: '/events/[eventId]/photos/import',
+              params: { eventId },
+            });
+          }}
+          disabled={!eventId || isActionLoading}
+          style={({ pressed }) => [
+            styles.addPhotoButton,
+            pressed && styles.pressed,
+            (!eventId || isActionLoading) && styles.disabledAction,
+          ]}
+        >
+          <MaterialCommunityIcons name="plus" size={22} color={JourneyPalette.accent} />
+        </Pressable>
+      </View>
+
+      {selectionMode ? (
+        <View style={styles.modeBar}>
+          <Text style={styles.modeBarText}>{`已选择 ${selectedPhotoIds.length} 张照片`}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.gridArea}>
+        {loading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator color={JourneyPalette.accent} />
+            <Text style={styles.loadingText}>正在加载事件照片...</Text>
           </View>
-        </GestureHandlerRootView>
-      </Modal>
+        ) : (
+          <SelectableMediaGrid
+            items={selectableItems}
+            selectedIds={selectedPhotoIds}
+            onSelectionChange={setSelectedPhotoIds}
+            emptyText="这个事件还没有可管理的照片"
+            browseTapBehavior="select-or-open-on-double"
+            variant="photo-manager"
+            onItemPress={(_item, index: number) => {
+              if (!event || event.photos.length === 0) {
+                return;
+              }
+              setPhotoViewerSession(event.photos, index);
+              router.push('/photo-viewer');
+            }}
+          />
+        )}
+      </View>
 
-      <PhotoLibraryPickerModal
-        visible={pickerVisible}
-        title="添加照片到当前事件"
-        hint={`导入到“${event?.title || '未命名事件'}”`}
-        confirmLabel="导入到当前事件"
-        confirmLoading={pickerSubmitting}
-        permissionContext="event-add-photo"
-        onClose={() => {
-          if (!canClose) {
-            return;
-          }
-          setPickerVisible(false);
-        }}
-        onConfirm={async (assets) => {
-          setPickerSubmitting(true);
-          await importToCurrentEvent(assets);
-        }}
-      />
+      {selectionMode ? (
+        <View
+          style={[
+            styles.contextFooter,
+            {
+              paddingBottom: Math.max(insets.bottom + 20, 44),
+            },
+          ]}
+        >
+          <View style={styles.contextActions}>
+            <Pressable
+              onPress={() => setMovePickerVisible(true)}
+              disabled={isActionLoading}
+              style={({ pressed }) => [
+                styles.contextActionButton,
+                pressed && styles.pressed,
+                isActionLoading && styles.disabledAction,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="arrow-right-bold-box-outline"
+                size={18}
+                color={JourneyPalette.white}
+              />
+              <Text style={styles.contextActionText}>移动</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                Alert.alert('删除照片', '删除后将无法恢复，选中的照片会从应用数据里移除。', [
+                  { text: '取消', style: 'cancel' },
+                  {
+                    text: '删除',
+                    style: 'destructive',
+                    onPress: () => {
+                      void runPhotoMutation(
+                        () => photoApi.deletePhotos(selectedPhotoIds),
+                        '删除失败',
+                      );
+                    },
+                  },
+                ]);
+              }}
+              disabled={isActionLoading}
+              style={({ pressed }) => [
+                styles.contextActionButton,
+                styles.contextDeleteButton,
+                pressed && styles.pressed,
+                isActionLoading && styles.disabledAction,
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="trash-can-outline"
+                size={18}
+                color={JourneyPalette.white}
+              />
+              <Text style={styles.contextActionText}>删除</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       <Modal
         visible={movePickerVisible}
@@ -447,11 +275,13 @@ export function EventPhotoManagerSheet({
             disabled={isActionLoading}
           />
 
-          <SheetPanel
-            title="移动目标选择"
-            subtitle={`已选 ${selectedPhotoIds.length} 张`}
-            style={styles.moveSheet}
-          >
+          <View style={styles.moveSheet}>
+            <View style={styles.moveHandle} />
+            <View style={styles.moveHeader}>
+              <Text style={styles.moveTitle}>移动目标选择</Text>
+              <Text style={styles.moveSubtitle}>{`已选 ${selectedPhotoIds.length} 张`}</Text>
+            </View>
+
             <ScrollView contentContainerStyle={styles.moveContent}>
               <SurfaceCard style={styles.moveCard}>
                 <SectionLabel title="已有事件" />
@@ -529,101 +359,61 @@ export function EventPhotoManagerSheet({
                 />
               </SurfaceCard>
             </ScrollView>
-          </SheetPanel>
+          </View>
         </View>
       </Modal>
-
-      <ImportProgressModal
-        visible={importVisible && importProgress.stage !== 'idle'}
-        progress={importProgress}
-        allowClose={false}
-      />
-    </>
+    </View>
   );
 }
 
+export function EventPhotoManagerSheet({
+  visible,
+  eventId,
+  onClose,
+  onChanged,
+}: EventPhotoManagerSheetProps) {
+  if (!visible) {
+    return null;
+  }
+
+  return <EventPhotoManagerScreen eventId={eventId} onClose={onClose} onChanged={onChanged} />;
+}
+
 const styles = StyleSheet.create({
-  gestureRoot: {
+  screen: {
     flex: 1,
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(2, 6, 23, 0.4)',
-  },
-  sheet: {
-    position: 'relative',
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
     backgroundColor: JourneyPalette.background,
-    paddingTop: 0,
-    paddingBottom: 0,
   },
-  sheetHandle: {
+  dismissButton: {
     position: 'absolute',
-    top: 12,
-    left: '50%',
-    marginLeft: -22,
+    left: 16,
+    zIndex: 10,
     width: 44,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: JourneyPalette.lineStrong,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sheetHeader: {
+  header: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 16,
-    paddingTop: 60,
-    paddingHorizontal: 24,
-    paddingBottom: 20,
   },
-  sheetHeaderCopy: {
-    flex: 1,
-    gap: 6,
-  },
-  sheetHeaderAction: {
-    justifyContent: 'center',
-  },
-  sheetTitle: {
+  headerTitle: {
     color: JourneyPalette.ink,
     fontSize: 24,
     fontWeight: '900',
     letterSpacing: -0.5,
   },
-  sheetSubtitle: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  sheetHeaderBottom: {
-    flexShrink: 0,
-  },
-  sheetBody: {
-    flex: 1,
-    minHeight: 0,
-  },
-  sheetFooter: {
-    paddingHorizontal: 24,
-    paddingBottom: 48,
-  },
-  modalSheet: {
-    height: '88%',
-  },
-  modalBody: {
-    flex: 1,
-    minHeight: 0,
-  },
-  moveSheet: {
-    height: '78%',
-  },
   addPhotoButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    backgroundColor: JourneyPalette.cardAlt,
+    backgroundColor: JourneyPalette.surfaceVariant,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -638,27 +428,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  gridArea: {
+    flex: 1,
+    minHeight: 0,
+  },
   loadingState: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
     gap: 10,
   },
   loadingText: {
     color: JourneyPalette.inkSoft,
   },
-  gridContainer: {
-    flex: 1,
-    minHeight: 0,
-  },
   contextFooter: {
-    marginTop: 0,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    backgroundColor: '#020617',
+    backgroundColor: JourneyPalette.ink,
     paddingTop: 24,
     paddingHorizontal: 24,
-    paddingBottom: 44,
   },
   contextActions: {
     flexDirection: 'row',
@@ -681,7 +469,42 @@ const styles = StyleSheet.create({
     color: JourneyPalette.white,
     fontSize: 16,
     fontWeight: '800',
-    letterSpacing: -0.2,
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(2, 6, 23, 0.4)',
+  },
+  moveSheet: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    backgroundColor: JourneyPalette.background,
+    paddingTop: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    maxHeight: '78%',
+  },
+  moveHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.lineStrong,
+    marginBottom: 18,
+  },
+  moveHeader: {
+    marginBottom: 16,
+  },
+  moveTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  moveSubtitle: {
+    marginTop: 6,
+    color: JourneyPalette.inkSoft,
+    fontSize: 14,
   },
   moveContent: {
     gap: 16,

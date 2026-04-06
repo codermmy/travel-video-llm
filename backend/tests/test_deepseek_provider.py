@@ -42,7 +42,9 @@ def test_generate_story_reads_chat_completion_content(monkeypatch) -> None:
             assert json["model"] == "deepseek-chat"
             return FakeResponse()
 
-    monkeypatch.setattr("app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient
+    )
 
     result = provider.generate_story("写一段故事")
     assert result == "这是一段旅行故事"
@@ -65,7 +67,7 @@ def test_generate_event_story_parses_json_payload(monkeypatch) -> None:
                 "choices": [
                     {
                         "message": {
-                            "content": '{"title":"西湖之旅","full_story":"湖边散步的一天","emotion":"Peaceful"}',
+                            "content": '{"title":"西湖之旅","full_story":"湖边散步的一天","hero_title":"四月西湖漫游","hero_summary":"湖边的风把脚步和树影都放慢了。","emotion":"Peaceful"}',
                         }
                     }
                 ]
@@ -83,9 +85,19 @@ def test_generate_event_story_parses_json_payload(monkeypatch) -> None:
 
         def post(self, url: str, json, headers):  # noqa: ANN001
             assert json["response_format"] == {"type": "json_object"}
+            prompt = json["messages"][0]["content"]
+            assert "100-140字中文" in prompt
+            assert "hero_title" in prompt
+            assert "hero_summary" in prompt
+            assert "可以直接忽略" in prompt
+            assert "不要逐图展开" in prompt
+            assert "原始坐标" in prompt
+            assert "秋水照见归途" in prompt
             return FakeResponse()
 
-    monkeypatch.setattr("app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient
+    )
 
     story = provider.generate_event_story(
         location="杭州",
@@ -96,6 +108,8 @@ def test_generate_event_story_parses_json_payload(monkeypatch) -> None:
     )
     assert story is not None
     assert story["title"] == "西湖之旅"
+    assert story["hero_title"] == "四月西湖漫游"
+    assert story["hero_summary"] == "湖边的风把脚步和树影都放慢了。"
     assert story["story"] == "湖边散步的一天"
     assert story["emotion"] == "Peaceful"
 
@@ -120,7 +134,9 @@ def test_deepseek_provider_http_error_sets_reason(monkeypatch) -> None:
         def post(self, url: str, json, headers):  # noqa: ANN001
             raise httpx.ReadTimeout("timeout")
 
-    monkeypatch.setattr("app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.deepseek_provider.httpx.Client", FakeHttpxClient
+    )
 
     assert provider.generate_story("写一段故事") is None
     assert provider.get_last_error_code() == "deepseek_http_error"

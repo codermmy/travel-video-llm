@@ -8,8 +8,8 @@ import Animated, { useAnimatedRef, useAnimatedScrollHandler } from 'react-native
 import { JourneyPalette } from '@/styles/colors';
 
 const DEFAULT_COLUMNS = 3;
-const DEFAULT_GRID_GAP = 8;
-const DEFAULT_GRID_HORIZONTAL_PADDING = 2;
+const DEFAULT_GRID_GAP = 2;
+const DEFAULT_GRID_HORIZONTAL_PADDING = 4;
 const DEFAULT_GRID_BOTTOM_PADDING = 8;
 const LONG_PRESS_DURATION_MS = 180;
 const AUTO_SCROLL_START_THRESHOLD = 0.12;
@@ -440,9 +440,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: JourneyPalette.cardMuted,
   },
-  defaultTile: {
-    borderRadius: 14,
-  },
+  defaultTile: {},
   photoManagerTile: {
     borderRadius: 0,
   },

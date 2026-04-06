@@ -7,28 +7,19 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.photo import Photo
+from app.services.story_signal_service import build_visual_desc_from_signal
 
 if TYPE_CHECKING:
     from app.schemas.photo import PhotoUploadItem, PhotoVisionResult
 
 
-def _build_visual_desc(vision: "PhotoVisionResult" | None) -> str | None:
+def _build_visual_desc(vision: "PhotoVisionResult | None") -> str | None:
     if vision is None:
         return None
-
-    parts: list[str] = []
-    if vision.scene_category:
-        parts.append(vision.scene_category)
-    if vision.activity_hint:
-        parts.append(vision.activity_hint)
-    if vision.object_tags:
-        parts.append(" / ".join(vision.object_tags[:3]))
-    if vision.ocr_text:
-        parts.append(vision.ocr_text[:80])
-
-    if not parts:
-        return None
-    return " | ".join(parts)
+    return build_visual_desc_from_signal(
+        vision.model_dump(mode="json"),
+        emotion_tag=vision.emotion_hint,
+    )
 
 
 class PhotoService:
@@ -39,7 +30,9 @@ class PhotoService:
         asset_id = (item.assetId or "").strip()
         if asset_id:
             return db.scalar(
-                select(Photo).where(and_(Photo.user_id == user_id, Photo.asset_id == asset_id))
+                select(Photo).where(
+                    and_(Photo.user_id == user_id, Photo.asset_id == asset_id)
+                )
             )
 
         if item.shootTime is None:
@@ -92,9 +85,13 @@ class PhotoService:
                 file_size=item.fileSize,
                 status="uploaded",
                 visual_desc=_build_visual_desc(item.vision),
-                emotion_tag=item.vision.emotion_hint if item.vision is not None else None,
+                emotion_tag=item.vision.emotion_hint
+                if item.vision is not None
+                else None,
                 vision_result=(
-                    item.vision.model_dump(mode="json") if item.vision is not None else None
+                    item.vision.model_dump(mode="json")
+                    if item.vision is not None
+                    else None
                 ),
             )
             db.add(photo)
@@ -118,7 +115,9 @@ class PhotoService:
         if event_id:
             query = query.where(Photo.event_id == event_id)
         if has_gps is True:
-            query = query.where(and_(Photo.gps_lat.isnot(None), Photo.gps_lon.isnot(None)))
+            query = query.where(
+                and_(Photo.gps_lat.isnot(None), Photo.gps_lon.isnot(None))
+            )
         elif has_gps is False:
             query = query.where(Photo.gps_lat.is_(None))
         if status:
@@ -127,13 +126,17 @@ class PhotoService:
         total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
 
         photos = db.scalars(
-            query.order_by(Photo.shoot_time.desc()).offset((page - 1) * page_size).limit(page_size)
+            query.order_by(Photo.shoot_time.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         ).all()
 
         return list(photos), total
 
     def get_photo_by_id(self, user_id: str, photo_id: str, db: Session) -> Photo | None:
-        return db.scalar(select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == user_id)))
+        return db.scalar(
+            select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == user_id))
+        )
 
     def update_photo(
         self,
@@ -172,10 +175,14 @@ class PhotoService:
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[Photo], int]:
-        query = select(Photo).where(and_(Photo.user_id == user_id, Photo.event_id == event_id))
+        query = select(Photo).where(
+            and_(Photo.user_id == user_id, Photo.event_id == event_id)
+        )
         total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
         photos = db.scalars(
-            query.order_by(Photo.shoot_time.asc()).offset((page - 1) * page_size).limit(page_size)
+            query.order_by(Photo.shoot_time.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         ).all()
         return list(photos), total
 
@@ -194,7 +201,9 @@ class PhotoService:
         )
         clustered = (
             db.scalar(
-                select(func.count()).select_from(base.where(Photo.event_id.isnot(None)).subquery())
+                select(func.count()).select_from(
+                    base.where(Photo.event_id.isnot(None)).subquery()
+                )
             )
             or 0
         )

@@ -5,8 +5,19 @@ const LOCALHOST_API = 'http://localhost:8000';
 const ANDROID_EMULATOR_API = 'http://10.0.2.2:8000';
 const IOS_SIMULATOR_API = 'http://127.0.0.1:8000';
 
+type ExpoExtra = {
+  apiBaseUrl?: string;
+};
+
+function getExpoExtraApiUrl(): string | null {
+  const extra = (Constants.expoConfig?.extra ??
+    (Constants as unknown as { manifest2?: { extra?: ExpoExtra } }).manifest2?.extra ??
+    null) as ExpoExtra | null;
+  return extra?.apiBaseUrl?.trim() || null;
+}
+
 // 优先使用环境变量（支持打包后的 App 配置 API 地址）
-const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL?.trim() || null;
+const ENV_API_URL = process.env.EXPO_PUBLIC_API_URL?.trim() || getExpoExtraApiUrl() || null;
 
 function isPlausibleDevHost(host: string | null | undefined): host is string {
   if (!host) {
@@ -141,6 +152,7 @@ export function getApiConnectionDebugInfo(): Record<string, unknown> {
     activeBaseUrl: activeApiBaseUrl,
     candidates: API_BASE_URL_CANDIDATES,
     envApiUrl: ENV_API_URL,
+    extraApiUrl: getExpoExtraApiUrl(),
     devServerHost: getDevServerHost(),
     executionEnvironment: Constants.executionEnvironment,
     linkingUri: Constants.linkingUri ?? null,

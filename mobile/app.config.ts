@@ -1,6 +1,10 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 type AmapExtra = { androidKey?: string; iosKey?: string };
+type AppExtra = {
+  apiBaseUrl?: string;
+  amap?: AmapExtra;
+};
 
 function mergeAmapExtra(existing: unknown, envAmap: AmapExtra): AmapExtra {
   const base = (
@@ -21,9 +25,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     iosKey: process.env.AMAP_IOS_KEY,
   };
 
-  const existingExtra = (config.extra ?? {}) as Record<string, unknown>;
+  const existingExtra = (config.extra ?? {}) as AppExtra & Record<string, unknown>;
   const mergedExtra = {
     ...existingExtra,
+    apiBaseUrl: process.env.EXPO_PUBLIC_API_URL ?? existingExtra.apiBaseUrl,
     amap: mergeAmapExtra(existingExtra.amap, envAmap),
   };
 

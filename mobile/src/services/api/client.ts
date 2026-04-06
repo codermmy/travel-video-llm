@@ -159,9 +159,9 @@ apiClient.interceptors.response.use(
 
       return Promise.reject(
         new Error(
-          `无法连接后端服务，请确认当前 API 地址可达：${String(
+          `无法连接后端服务，请确认后端已启动且 API 地址可达。当前地址：${String(
             config?.baseURL ?? getApiBaseUrl(),
-          )}`,
+          )}；候选地址：${API_BASE_URL_CANDIDATES.join(', ')}`,
         ),
       );
     }

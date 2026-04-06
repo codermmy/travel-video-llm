@@ -28,6 +28,8 @@ class Event(Base):
     cover_photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     story_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     full_story: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    hero_title: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    hero_summary: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     detailed_location: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     location_tags: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     emotion_tag: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

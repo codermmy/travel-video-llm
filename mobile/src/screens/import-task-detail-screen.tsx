@@ -3,7 +3,15 @@ import { StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
 
-import { EmptyStateCard, PageContent, PageHeader, SurfaceCard, StatusPill, StateChip, MetricPill, SectionLabel, ListItemRow } from '@/components/ui/revamp';
+import {
+  EmptyStateCard,
+  PageContent,
+  PageHeader,
+  SurfaceCard,
+  StateChip,
+  MetricPill,
+  SectionLabel,
+} from '@/components/ui/revamp';
 import {
   loadImportTasks,
   subscribeImportTasks,
@@ -37,9 +45,6 @@ function getTaskDisplaySummary(task: ImportTaskRecord): string {
   const summary = buildImportTaskSummary(task, getImportTaskSourceLabel(task.source)).trim();
   return summary ? summary : '正在准备整理内容';
 }
-
-
-
 function getPhaseIconName(phase: ImportTaskPhase): keyof typeof MaterialCommunityIcons.glyphMap {
   if (phase.status === 'completed') {
     return 'check';
@@ -119,7 +124,7 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
   if (loaded && !task) {
     return (
       <PageContent style={styles.pageContent}>
-        <PageHeader title="任务详情" />
+        <PageHeader title="任务详情" topInset />
         <EmptyStateCard
           icon="timeline-remove-outline"
           title="没有找到这条任务"
@@ -133,7 +138,7 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
   if (!task) {
     return (
       <PageContent style={styles.pageContent}>
-        <PageHeader title="任务详情" subtitle="正在读取任务记录..." />
+        <PageHeader title="任务详情" subtitle="正在读取任务记录..." topInset />
       </PageContent>
     );
   }
@@ -146,9 +151,9 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
   return (
     <PageContent style={styles.pageContent}>
       <PageHeader
-        eyebrow="整理中心"
         title="任务详情"
         subtitle={`${sourceLabel} · ${formatImportTaskTime(task.createdAt)}`}
+        topInset
       />
 
       <SurfaceCard style={styles.heroCard}>
@@ -206,7 +211,10 @@ export function ImportTaskDetailScreen({ taskId }: ImportTaskDetailScreenProps) 
               <View key={phase.key}>
                 <View style={styles.phaseRow}>
                   <View
-                    style={[styles.phaseIconWrap, { backgroundColor: phaseSurface.backgroundColor }]}
+                    style={[
+                      styles.phaseIconWrap,
+                      { backgroundColor: phaseSurface.backgroundColor },
+                    ]}
                   >
                     <MaterialCommunityIcons
                       name={getPhaseIconName(phase)}
@@ -245,7 +253,6 @@ const styles = StyleSheet.create({
   pageContent: {
     backgroundColor: JourneyPalette.background,
     gap: 0,
-    paddingTop: 10,
     paddingBottom: 100,
   },
   emptyState: {

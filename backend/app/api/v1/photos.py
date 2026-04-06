@@ -35,6 +35,7 @@ from app.schemas.photo import (
     PhotoUploadRequest,
 )
 from app.services.event_service import event_service
+from app.services.story_signal_service import build_visual_desc_from_signal
 from app.services.storage_service import storage_service
 from app.tasks.clustering_tasks import trigger_clustering_task, trigger_event_story_task
 
@@ -60,11 +61,15 @@ def _refresh_impacted_events(
     impacted_event_ids: list[str] = []
     deleted_event_ids: list[str] = []
     for event_id in normalized_event_ids:
-        event = event_service.refresh_event_summary(event_id=event_id, user_id=user_id, db=db)
+        event = event_service.refresh_event_summary(
+            event_id=event_id, user_id=user_id, db=db
+        )
         if not event:
             continue
         if event.photo_count == 0:
-            if event_service.delete_empty_event(event_id=event_id, user_id=user_id, db=db):
+            if event_service.delete_empty_event(
+                event_id=event_id, user_id=user_id, db=db
+            ):
                 deleted_event_ids.append(event_id)
             continue
 
@@ -91,20 +96,33 @@ def _refresh_impacted_events(
 def _build_visual_desc(vision: PhotoVisionResult | None) -> str | None:
     if vision is None:
         return None
+    return build_visual_desc_from_signal(
+        vision.model_dump(mode="json"),
+        emotion_tag=vision.emotion_hint,
+    )
 
-    parts: list[str] = []
-    if vision.scene_category:
-        parts.append(vision.scene_category)
-    if vision.activity_hint:
-        parts.append(vision.activity_hint)
-    if vision.object_tags:
-        parts.append(" / ".join(vision.object_tags[:3]))
-    if vision.ocr_text:
-        parts.append(vision.ocr_text[:80])
 
-    if not parts:
+def _normalize_vision_status(value: str | None) -> PhotoVisionStatus:
+    if value == "pending":
+        return "pending"
+    if value == "processing":
+        return "processing"
+    if value == "completed":
+        return "completed"
+    if value == "failed":
+        return "failed"
+    if value == "unsupported":
+        return "unsupported"
+    return "pending"
+
+
+def _normalize_photo_vision_result(value: object) -> PhotoVisionResult | None:
+    if not isinstance(value, dict):
         return None
-    return " | ".join(parts)
+    try:
+        return PhotoVisionResult.model_validate(value)
+    except Exception:
+        return None
 
 
 def _photo_to_out(photo: Photo) -> PhotoOut:
@@ -125,10 +143,10 @@ def _photo_to_out(photo: Photo) -> PhotoOut:
         caption=photo.caption,
         visualDesc=photo.visual_desc,
         emotionTag=photo.emotion_tag,
-        visionStatus=photo.vision_status,
+        visionStatus=_normalize_vision_status(photo.vision_status),
         visionError=photo.vision_error,
         visionUpdatedAt=photo.vision_updated_at,
-        vision=photo.vision_result,
+        vision=_normalize_photo_vision_result(photo.vision_result),
     )
 
 
@@ -177,7 +195,10 @@ def _find_existing_photo_for_upload(
     return db.scalar(query.limit(1))
 
 
-@router.post("/check-duplicates-by-metadata", response_model=ApiResponse[CheckDuplicatesByMetadataData])
+@router.post(
+    "/check-duplicates-by-metadata",
+    response_model=ApiResponse[CheckDuplicatesByMetadataData],
+)
 def check_duplicates_by_metadata(
     request: CheckDuplicatesByMetadataRequest,
     current_user_id: CurrentUserIdDep,
@@ -282,11 +303,15 @@ def upload_metadata(
                 height=item.height,
                 status="uploaded",
                 visual_desc=_build_visual_desc(item.vision),
-                emotion_tag=(item.vision.emotion_hint if item.vision is not None else None),
+                emotion_tag=(
+                    item.vision.emotion_hint if item.vision is not None else None
+                ),
                 vision_status="completed" if item.vision is not None else "pending",
                 vision_error=None,
                 vision_result=(
-                    item.vision.model_dump(mode="json") if item.vision is not None else None
+                    item.vision.model_dump(mode="json")
+                    if item.vision is not None
+                    else None
                 ),
                 vision_updated_at=(
                     datetime.now(tz=timezone.utc) if item.vision is not None else None
@@ -355,7 +380,9 @@ def list_photos(
     total_pages = max(1, math.ceil(total / pageSize))
 
     photos = db.scalars(
-        query.order_by(Photo.shoot_time.desc()).offset((page - 1) * pageSize).limit(pageSize)
+        query.order_by(Photo.shoot_time.desc())
+        .offset((page - 1) * pageSize)
+        .limit(pageSize)
     ).all()
 
     return ApiResponse.ok(
@@ -380,14 +407,18 @@ def get_stats(
     with_gps = (
         db.scalar(
             select(func.count()).select_from(
-                base.where(and_(Photo.gps_lat.isnot(None), Photo.gps_lon.isnot(None))).subquery()
+                base.where(
+                    and_(Photo.gps_lat.isnot(None), Photo.gps_lon.isnot(None))
+                ).subquery()
             )
         )
         or 0
     )
     clustered = (
         db.scalar(
-            select(func.count()).select_from(base.where(Photo.event_id.isnot(None)).subquery())
+            select(func.count()).select_from(
+                base.where(Photo.event_id.isnot(None)).subquery()
+            )
         )
         or 0
     )
@@ -411,13 +442,17 @@ def get_photos_by_event(
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
 ) -> ApiResponse[PhotoListData]:
-    query = select(Photo).where(and_(Photo.user_id == current_user_id, Photo.event_id == event_id))
+    query = select(Photo).where(
+        and_(Photo.user_id == current_user_id, Photo.event_id == event_id)
+    )
 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     total_pages = max(1, math.ceil(total / pageSize))
 
     photos = db.scalars(
-        query.order_by(Photo.shoot_time.asc()).offset((page - 1) * pageSize).limit(pageSize)
+        query.order_by(Photo.shoot_time.asc())
+        .offset((page - 1) * pageSize)
+        .limit(pageSize)
     ).all()
 
     return ApiResponse.ok(
@@ -438,7 +473,9 @@ def get_photo(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PhotoOut]:
     photo = db.scalar(
-        select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == current_user_id))
+        select(Photo).where(
+            and_(Photo.id == photo_id, Photo.user_id == current_user_id)
+        )
     )
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
@@ -453,7 +490,9 @@ def update_photo(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PhotoOut]:
     photo = db.scalar(
-        select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == current_user_id))
+        select(Photo).where(
+            and_(Photo.id == photo_id, Photo.user_id == current_user_id)
+        )
     )
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")
@@ -534,7 +573,9 @@ def update_photo(
     return ApiResponse.ok(_photo_to_out(photo))
 
 
-@router.post("/batch/reassign-event", response_model=ApiResponse[PhotoBatchEventUpdateResponse])
+@router.post(
+    "/batch/reassign-event", response_model=ApiResponse[PhotoBatchEventUpdateResponse]
+)
 def batch_reassign_photos_to_event(
     request: PhotoBatchEventUpdateRequest,
     current_user_id: CurrentUserIdDep,
@@ -560,7 +601,9 @@ def batch_reassign_photos_to_event(
         ).all()
     )
     if len(photos) != len(set(request.photoIds)):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片"
+        )
 
     impacted_event_ids = {photo.event_id for photo in photos}
     if request.eventId:
@@ -605,7 +648,9 @@ def batch_delete_photos(
         ).all()
     )
     if len(photos) != len(set(request.photoIds)):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="存在无效照片"
+        )
 
     impacted_event_ids = {photo.event_id for photo in photos}
     for photo in photos:
@@ -635,7 +680,9 @@ def delete_photo(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PhotoDeleteResponse]:
     photo = db.scalar(
-        select(Photo).where(and_(Photo.id == photo_id, Photo.user_id == current_user_id))
+        select(Photo).where(
+            and_(Photo.id == photo_id, Photo.user_id == current_user_id)
+        )
     )
     if not photo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="照片不存在")

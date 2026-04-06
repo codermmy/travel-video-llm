@@ -44,6 +44,8 @@ class EventResponse(BaseModel):
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
     fullStory: Optional[str] = None
+    heroTitle: Optional[str] = None
+    heroSummary: Optional[str] = None
     detailedLocation: Optional[str] = None
     locationTags: Optional[str] = None
     emotionTag: Optional[str] = None
@@ -129,6 +131,8 @@ class EventUpdateRequest(BaseModel):
     coverPhotoUrl: Optional[str] = None
     storyText: Optional[str] = None
     fullStory: Optional[str] = None
+    heroTitle: Optional[str] = None
+    heroSummary: Optional[str] = None
     detailedLocation: Optional[str] = None
     locationTags: Optional[str] = None
     emotionTag: Optional[str] = None

@@ -175,8 +175,20 @@ export default function RootLayout() {
             />
             <Stack.Screen name="events/[eventId]" options={{ headerShown: false }} />
             <Stack.Screen name="event-location/[eventId]" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="events/[eventId]/photos"
+              options={{ headerShown: false, presentation: 'fullScreenModal' }}
+            />
+            <Stack.Screen
+              name="events/[eventId]/photos/import"
+              options={{ headerShown: false, presentation: 'fullScreenModal' }}
+            />
             <Stack.Screen name="map/missing-locations" options={{ headerShown: false }} />
             <Stack.Screen name="profile/edit" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="profile/import"
+              options={{ headerShown: false, presentation: 'fullScreenModal' }}
+            />
             <Stack.Screen name="profile/import-tasks" options={{ headerShown: false }} />
             <Stack.Screen name="profile/import-task/[taskId]" options={{ headerShown: false }} />
           </Stack>

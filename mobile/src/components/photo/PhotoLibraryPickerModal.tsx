@@ -3,24 +3,27 @@ import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'rea
 import * as MediaLibrary from 'expo-media-library';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SelectableMediaGrid } from '@/components/photo/SelectableMediaGrid';
 import { PermissionRecoveryCard } from '@/components/photo/PermissionRecoveryCard';
-import { ActionButton, BottomSheetScaffold, SurfaceCard } from '@/components/ui/revamp';
 import { JourneyPalette } from '@/styles/colors';
 
 const PAGE_SIZE = 90;
 
-type PhotoLibraryPickerModalProps = {
-  visible: boolean;
-  title: string;
-  hint: string;
-  confirmLabel: string;
+type PhotoLibraryPickerScreenProps = {
   maxSelection?: number;
   confirmLoading?: boolean;
   permissionContext?: 'manual-import' | 'event-add-photo' | 'avatar-source';
   onClose: () => void;
   onConfirm: (assets: MediaLibrary.Asset[]) => Promise<void> | void;
+};
+
+type PhotoLibraryPickerModalProps = PhotoLibraryPickerScreenProps & {
+  visible: boolean;
+  title: string;
+  hint: string;
+  confirmLabel: string;
 };
 
 function getAssetIdentity(asset: MediaLibrary.Asset): string {
@@ -31,17 +34,28 @@ function getAssetRenderKey(asset: MediaLibrary.Asset, index: number): string {
   return `${asset.id}:${asset.creationTime ?? 0}:${asset.uri ?? 'missing'}:${index}`;
 }
 
-export function PhotoLibraryPickerModal({
-  visible,
-  title,
-  hint,
-  confirmLabel,
+function resolveMonthLabel(assets: MediaLibrary.Asset[]): string {
+  const creationTime = assets[0]?.creationTime;
+  if (!creationTime) {
+    return '未知时间';
+  }
+
+  const date = new Date(creationTime);
+  if (Number.isNaN(date.getTime())) {
+    return '未知时间';
+  }
+
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+}
+
+export function PhotoLibraryPickerScreen({
   maxSelection,
   confirmLoading = false,
   permissionContext = 'manual-import',
   onClose,
   onConfirm,
-}: PhotoLibraryPickerModalProps) {
+}: PhotoLibraryPickerScreenProps) {
+  const insets = useSafeAreaInsets();
   const [assets, setAssets] = useState<MediaLibrary.Asset[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [totalAssetCount, setTotalAssetCount] = useState(0);
@@ -55,7 +69,6 @@ export function PhotoLibraryPickerModal({
   const loadingInitialRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const canClose = !confirmLoading;
-  const selectionMode = selectedIds.length > 0;
 
   const mergeUniqueAssets = useCallback(
     (current: MediaLibrary.Asset[], incoming: MediaLibrary.Asset[]): MediaLibrary.Asset[] => {
@@ -157,10 +170,6 @@ export function PhotoLibraryPickerModal({
   }, [mergeUniqueAssets]);
 
   useEffect(() => {
-    if (!visible) {
-      return;
-    }
-
     setSelectedIds([]);
     void (async () => {
       const permission = await MediaLibrary.requestPermissionsAsync();
@@ -174,7 +183,7 @@ export function PhotoLibraryPickerModal({
       }
       await loadAssets('reset');
     })();
-  }, [loadAssets, visible]);
+  }, [loadAssets]);
 
   const selectableItems = useMemo(
     () =>
@@ -191,15 +200,11 @@ export function PhotoLibraryPickerModal({
     return assets.filter((asset) => selectedIdSet.has(asset.id));
   }, [assets, selectedIds]);
 
-  const effectiveConfirmLabel = useMemo(() => {
-    if (selectedAssets.length === 0) {
-      return confirmLabel;
-    }
-    if (confirmLabel.includes('导入')) {
-      return `开始导入 ${selectedAssets.length} 张`;
-    }
-    return confirmLabel;
-  }, [confirmLabel, selectedAssets.length]);
+  const totalCount = totalAssetCount || assets.length;
+  const subtitle = useMemo(
+    () => `共 ${totalCount} 张 · ${resolveMonthLabel(assets)}`,
+    [assets, totalCount],
+  );
 
   const handleSelectAll = useCallback(async () => {
     const allAssets = await loadAllAssets();
@@ -216,129 +221,151 @@ export function PhotoLibraryPickerModal({
     void loadAssets('append');
   }, [loadAssets]);
 
-  const handleClose = useCallback(() => {
-    if (!canClose) {
-      return;
-    }
-    onClose();
-  }, [canClose, onClose]);
+  return (
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <View style={styles.screen}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="关闭"
+          onPress={onClose}
+          disabled={!canClose}
+          style={({ pressed }) => [
+            styles.dismissButton,
+            { top: Math.max(insets.top + 12, 18) },
+            pressed && styles.pressed,
+            !canClose && styles.disabledAction,
+          ]}
+        >
+          <MaterialCommunityIcons name="close" size={20} color={JourneyPalette.ink} />
+        </Pressable>
 
-  const header = (
-    <View style={styles.gridHeader}>
-      <View style={styles.toolbarCard}>
-        <Text style={styles.selectionStatsText}>
-          {selectionMode
-            ? `已选择 ${selectedIds.length}${maxSelection ? ` / ${maxSelection}` : ''}`
-            : `共 ${totalAssetCount || assets.length} 张，轻触选择`}
-        </Text>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 16, 60) }]}>
+          <Text style={styles.title}>选择照片</Text>
+          <Text numberOfLines={1} style={styles.subtitle}>
+            {subtitle}
+          </Text>
+        </View>
 
-        <View style={styles.toolbarRow}>
+        <View style={styles.toolbarWrap}>
+          <View style={styles.toolbar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="全选"
+              onPress={() => {
+                void handleSelectAll();
+              }}
+              disabled={selectingAll || loadingInitial || confirmLoading}
+              style={({ pressed }) => [
+                styles.pill,
+                styles.pillActive,
+                pressed && styles.pressed,
+                (selectingAll || loadingInitial || confirmLoading) && styles.disabledAction,
+              ]}
+            >
+              <Text style={[styles.pillText, styles.pillTextActive]}>全选</Text>
+            </Pressable>
+
+            <View style={styles.pill}>
+              <Text style={[styles.pillText, styles.pillTextMuted]}>按日期</Text>
+            </View>
+
+            <View style={styles.pill}>
+              <Text style={[styles.pillText, styles.pillTextMuted]}>仅风景</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.gridArea}>
+          {permissionDenied ? (
+            <View style={styles.stateBlock}>
+              <PermissionRecoveryCard
+                mode="media"
+                context={permissionContext}
+                onDismiss={onClose}
+              />
+            </View>
+          ) : loadingInitial ? (
+            <View style={styles.stateBlock}>
+              <View style={styles.loadingState}>
+                <ActivityIndicator color={JourneyPalette.accent} />
+                <Text style={styles.loadingText}>正在读取相册照片...</Text>
+              </View>
+            </View>
+          ) : (
+            <SelectableMediaGrid
+              items={selectableItems}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              emptyText="相册里还没有可导入的照片"
+              maxSelection={maxSelection}
+              onEndReached={handleLoadMore}
+              browseTapBehavior="select"
+              footer={
+                loadingMore ? (
+                  <View style={styles.footerLoading}>
+                    <ActivityIndicator color={JourneyPalette.accent} />
+                    <Text style={styles.footerLoadingText}>正在加载更多照片...</Text>
+                  </View>
+                ) : null
+              }
+            />
+          )}
+        </View>
+
+        <View
+          style={[
+            styles.footer,
+            {
+              paddingBottom: Math.max(insets.bottom + 24, 24),
+            },
+          ]}
+        >
           <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`开始整理 ${selectedAssets.length} 张`}
             onPress={() => {
-              void handleSelectAll();
+              void onConfirm(selectedAssets);
             }}
-            disabled={selectingAll || loadingInitial || confirmLoading}
+            disabled={selectedAssets.length === 0 || confirmLoading}
             style={({ pressed }) => [
-              styles.toolbarButton,
+              styles.confirmButton,
               pressed && styles.pressed,
-              (selectingAll || loadingInitial || confirmLoading) && styles.disabledAction,
+              (selectedAssets.length === 0 || confirmLoading) && styles.confirmButtonDisabled,
             ]}
           >
-            <MaterialCommunityIcons
-              name="checkbox-multiple-marked-outline"
-              size={16}
-              color={JourneyPalette.ink}
-            />
-            <Text style={styles.toolbarButtonText}>{selectingAll ? '全选中...' : '全选全部'}</Text>
+            {confirmLoading ? (
+              <ActivityIndicator color={JourneyPalette.white} />
+            ) : (
+              <Text style={styles.confirmButtonText}>{`开始整理 ${selectedAssets.length} 张`}</Text>
+            )}
           </Pressable>
-
-          {selectionMode ? (
-            <Pressable
-              onPress={() => setSelectedIds([])}
-              style={({ pressed }) => [styles.toolbarButton, pressed && styles.pressed]}
-            >
-              <MaterialCommunityIcons
-                name="close-circle-outline"
-                size={16}
-                color={JourneyPalette.ink}
-              />
-              <Text style={styles.toolbarButtonText}>取消选择</Text>
-            </Pressable>
-          ) : null}
         </View>
       </View>
-    </View>
+    </GestureHandlerRootView>
   );
+}
+
+export function PhotoLibraryPickerModal({
+  visible,
+  maxSelection,
+  confirmLoading,
+  permissionContext,
+  onClose,
+  onConfirm,
+}: PhotoLibraryPickerModalProps) {
+  if (!visible) {
+    return null;
+  }
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
-      <GestureHandlerRootView style={styles.gestureRoot}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} disabled={!canClose} />
-          <BottomSheetScaffold
-            title={title}
-            hint={hint}
-            onClose={canClose ? handleClose : undefined}
-            style={styles.modalSheet}
-            bodyStyle={styles.modalSheetBody}
-            footer={
-              <View style={styles.modalActions}>
-                <ActionButton
-                  label={effectiveConfirmLabel}
-                  onPress={() => {
-                    void onConfirm(selectedAssets);
-                  }}
-                  disabled={selectedAssets.length === 0 || confirmLoading}
-                />
-                <ActionButton
-                  label="取消"
-                  tone="secondary"
-                  onPress={handleClose}
-                  disabled={!canClose}
-                />
-              </View>
-            }
-          >
-            {permissionDenied ? (
-              <View style={styles.modalContent}>
-                <PermissionRecoveryCard
-                  mode="media"
-                  context={permissionContext}
-                  onDismiss={handleClose}
-                />
-              </View>
-            ) : loadingInitial ? (
-              <View style={styles.modalContent}>
-                <SurfaceCard style={styles.loadingCard}>
-                  <ActivityIndicator color={JourneyPalette.accent} />
-                  <Text style={styles.loadingText}>正在读取相册照片...</Text>
-                </SurfaceCard>
-              </View>
-            ) : (
-              <View style={styles.gridContainer}>
-                <SelectableMediaGrid
-                  items={selectableItems}
-                  selectedIds={selectedIds}
-                  onSelectionChange={setSelectedIds}
-                  emptyText="相册里还没有可导入的照片"
-                  maxSelection={maxSelection}
-                  onEndReached={handleLoadMore}
-                  browseTapBehavior="select"
-                  header={header}
-                  footer={
-                    loadingMore ? (
-                      <View style={styles.footerLoading}>
-                        <ActivityIndicator color={JourneyPalette.accent} />
-                        <Text style={styles.footerLoadingText}>正在加载更多照片...</Text>
-                      </View>
-                    ) : null
-                  }
-                />
-              </View>
-            )}
-          </BottomSheetScaffold>
-        </View>
-      </GestureHandlerRootView>
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <PhotoLibraryPickerScreen
+        maxSelection={maxSelection}
+        confirmLoading={confirmLoading}
+        permissionContext={permissionContext}
+        onClose={onClose}
+        onConfirm={onConfirm}
+      />
     </Modal>
   );
 }
@@ -347,75 +374,82 @@ const styles = StyleSheet.create({
   gestureRoot: {
     flex: 1,
   },
-  modalBackdrop: {
+  screen: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(2, 6, 23, 0.4)',
+    backgroundColor: JourneyPalette.background,
   },
-  modalSheet: {
-    height: '92%',
-    paddingBottom: 24,
-  },
-  modalSheetBody: {
-    flex: 1,
-    minHeight: 0,
-  },
-  modalContent: {
-    flex: 1,
-    minHeight: 0,
-    justifyContent: 'center',
-    paddingBottom: 24,
-  },
-  gridContainer: {
-    flex: 1,
-    minHeight: 0,
-    paddingTop: 12,
-  },
-  gridHeader: {
-    paddingBottom: 16,
-  },
-  toolbarCard: {
-    borderRadius: 28,
+  dismissButton: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: JourneyPalette.surfaceVariant,
-    padding: 20,
-    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  selectionStatsText: {
-    fontSize: 15,
-    fontWeight: '900',
+  header: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  title: {
     color: JourneyPalette.ink,
-    letterSpacing: -0.2,
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: -1.2,
   },
-  toolbarRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+  subtitle: {
+    marginTop: 4,
+    color: JourneyPalette.inkSoft,
+    fontSize: 14,
+    fontWeight: '600',
   },
-  toolbarButton: {
-    minHeight: 44,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
+  toolbarWrap: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    shadowColor: JourneyPalette.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderRadius: 24,
+    backgroundColor: JourneyPalette.surfaceVariant,
+    padding: 12,
   },
-  toolbarButtonText: {
-    fontWeight: '800',
+  pill: {
+    borderRadius: 999,
+    backgroundColor: JourneyPalette.background,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  pillActive: {
+    backgroundColor: JourneyPalette.ink,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '900',
     color: JourneyPalette.ink,
-    fontSize: 13,
   },
-  loadingCard: {
+  pillTextActive: {
+    color: JourneyPalette.white,
+  },
+  pillTextMuted: {
+    color: JourneyPalette.muted,
+  },
+  gridArea: {
+    flex: 1,
+    minHeight: 0,
+  },
+  stateBlock: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    justifyContent: 'center',
+  },
+  loadingState: {
     alignItems: 'center',
-    paddingVertical: 40,
     gap: 12,
-    borderWidth: 0,
-    backgroundColor: 'transparent',
   },
   loadingText: {
     color: JourneyPalette.inkSoft,
@@ -432,10 +466,26 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  modalActions: {
-    flexDirection: 'column',
-    gap: 12,
-    paddingTop: 8,
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  confirmButton: {
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: JourneyPalette.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonDisabled: {
+    opacity: 0.4,
+  },
+  confirmButtonText: {
+    color: JourneyPalette.white,
+    fontSize: 18,
+    fontWeight: '900',
   },
   disabledAction: {
     opacity: 0.4,

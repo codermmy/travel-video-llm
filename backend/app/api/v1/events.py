@@ -146,6 +146,8 @@ def _event_to_response(
         coverPhotoUrl=storage_service.resolve_client_url(event.cover_photo_url),
         storyText=event.story_text,
         fullStory=full_story,
+        heroTitle=event.hero_title,
+        heroSummary=event.hero_summary,
         detailedLocation=event.detailed_location,
         locationTags=event.location_tags,
         emotionTag=event.emotion_tag,
@@ -637,6 +639,10 @@ def update_event(
         payload_fields["story_text"] = payload.storyText
     if "fullStory" in payload.model_fields_set:
         payload_fields["full_story"] = payload.fullStory
+    if "heroTitle" in payload.model_fields_set:
+        payload_fields["hero_title"] = payload.heroTitle
+    if "heroSummary" in payload.model_fields_set:
+        payload_fields["hero_summary"] = payload.heroSummary
     if "detailedLocation" in payload.model_fields_set:
         payload_fields["detailed_location"] = payload.detailedLocation
     if "locationTags" in payload.model_fields_set:

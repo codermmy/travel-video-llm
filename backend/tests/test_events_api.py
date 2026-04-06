@@ -171,7 +171,9 @@ def test_event_detail_fallback_title_and_location() -> None:
     assert payload["locationName"] is None
 
 
-def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured(monkeypatch) -> None:
+def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured(
+    monkeypatch,
+) -> None:
     token = _register_and_get_token("events-test-device-004")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -209,7 +211,9 @@ def test_regenerate_story_endpoint_marks_failure_when_ai_unconfigured(monkeypatc
     finally:
         db.close()
 
-    monkeypatch.setattr("app.services.event_ai_service.ai_service.is_configured", lambda: False)
+    monkeypatch.setattr(
+        "app.services.event_ai_service.ai_service.is_configured", lambda: False
+    )
     monkeypatch.setattr(
         "app.services.event_ai_service.ai_service.configuration_error_code",
         lambda: "provider_api_key_not_configured",
@@ -360,7 +364,10 @@ def test_update_photo_reassigns_event_and_refreshes_summaries() -> None:
 
     event_b_payload = event_b_detail.json()["data"]
     assert event_b_payload["photoCount"] == 2
-    assert {photo["id"] for photo in event_b_payload["photos"]} == {photo_a_id, photo_b_id}
+    assert {photo["id"] for photo in event_b_payload["photos"]} == {
+        photo_a_id,
+        photo_b_id,
+    }
 
 
 def test_update_photo_vision_marks_event_stale() -> None:
@@ -369,7 +376,9 @@ def test_update_photo_vision_marks_event_stale() -> None:
 
     db: Session = TestingSessionLocal()
     try:
-        user = db.scalar(select(User).where(User.device_id == "events-test-device-vision-001"))
+        user = db.scalar(
+            select(User).where(User.device_id == "events-test-device-vision-001")
+        )
         assert user is not None
 
         base_time = datetime(2024, 6, 2, 8, 0, 0, tzinfo=timezone.utc)
@@ -550,7 +559,11 @@ def test_update_event_manual_location_persists_coordinates(monkeypatch) -> None:
 
     db: Session = TestingSessionLocal()
     try:
-        user = db.scalar(select(User).where(User.device_id == "events-test-device-manual-location-001"))
+        user = db.scalar(
+            select(User).where(
+                User.device_id == "events-test-device-manual-location-001"
+            )
+        )
         assert user is not None
 
         event = Event(
@@ -682,7 +695,9 @@ def test_batch_reassign_event_updates_versions_once(monkeypatch) -> None:
     finally:
         db.close()
 
-    monkeypatch.setattr("app.services.event_ai_service.ai_service.is_configured", lambda: False)
+    monkeypatch.setattr(
+        "app.services.event_ai_service.ai_service.is_configured", lambda: False
+    )
     monkeypatch.setattr(
         "app.services.event_ai_service.ai_service.configuration_error_code",
         lambda: "provider_api_key_not_configured",
@@ -769,7 +784,9 @@ def test_create_event_deletes_source_event_when_all_selected_photos_moved() -> N
     )
     assert response.status_code == 200
 
-    source_event_detail = client.get(f"/api/v1/events/{source_event_id}", headers=headers)
+    source_event_detail = client.get(
+        f"/api/v1/events/{source_event_id}", headers=headers
+    )
     assert source_event_detail.status_code == 404
 
 
@@ -811,12 +828,16 @@ class _StructuredStoryProviderStub:
         assert date_range
         assert photo_descriptions
         assert "主要场景" in structured_summary
+        assert "1234" not in structured_summary
+        assert "AB12" not in structured_summary
         assert timeline_clues
         assert detailed_location
         assert location_tags
         return {
             "title": "西湖午后散步",
-            "full_story": "午后的行程沿着湖边展开，脚步和风景顺着时间慢慢铺开。",
+            "full_story": "沿着西湖慢慢散步，湖风和树影把这段午后收成了一次轻松又安静的城市漫游。",
+            "hero_title": "四月西湖黄昏漫游",
+            "hero_summary": "湖风和树影把这段临水散步压成了更轻的一幕。",
             "emotion": "Peaceful",
         }
 
@@ -828,7 +849,7 @@ class _StructuredStoryProviderStub:
             return json.dumps(
                 {
                     "chapter_title": "湖边片段",
-                    "chapter_story": "沿着湖岸慢慢前行，风景和步伐被时间轻轻串在一起。",
+                    "chapter_story": "沿着湖岸慢慢前行，风景和步伐都轻了下来。",
                     "slideshow_caption": "湖边散步",
                 },
                 ensure_ascii=False,
@@ -848,7 +869,85 @@ class _StructuredStoryProviderStub:
                 {
                     "title": "西湖增强版午后散步",
                     "full_story": "湖边步道、树影和水面反光把这段午后拉得更长，风声和脚步沿着岸线慢慢展开，连停顿都显得更清晰。",
+                    "hero_title": "西湖傍晚漫游",
+                    "hero_summary": "风沿着岸线吹过，水面和脚步都慢了下来。",
                     "emotion": "Peaceful",
+                },
+                ensure_ascii=False,
+            )
+        return "旅途仍在继续"
+
+
+class _DuplicateHeroFallbackProviderStub:
+    def provider_name(self) -> str:
+        return "duplicate-hero-stub"
+
+    def is_configured(self) -> bool:
+        return True
+
+    def configuration_error_code(self) -> str:
+        return "stub_not_configured"
+
+    def current_models(self) -> dict[str, str]:
+        return {"story_model": "stub-story", "vision_model": "none"}
+
+    def get_last_error_code(self) -> None:
+        return None
+
+    def analyze_image(self, image_url: str, prompt: str = "") -> dict | None:
+        _ = image_url
+        _ = prompt
+        return {
+            "description": "沿着栈道慢慢前行，周围是水声和山风。",
+            "emotion": "Peaceful",
+        }
+
+    def generate_event_story(
+        self,
+        location: str,
+        date_range: str,
+        photo_descriptions: list[str],
+        detailed_location: str = "",
+        location_tags: str = "",
+        structured_summary: str = "",
+        timeline_clues: list[str] | None = None,
+    ) -> dict:
+        assert location == "旅途中的一站"
+        assert detailed_location == "旅途中的一站"
+        assert date_range
+        assert photo_descriptions == ["栈道慢行"]
+        assert "33.1909" not in structured_summary
+        assert "103.8885" not in structured_summary
+        assert timeline_clues == ["09:00 栈道慢行"]
+        _ = location_tags
+        return {
+            "title": "栈道慢行",
+            "full_story": "在33.1909, 103.8885附近沿着栈道慢慢前行，山风和水声把这段路途放得更轻。",
+            "hero_title": "栈道慢行",
+            "hero_summary": "在33.1909, 103.8885附近沿着栈道慢慢前行，山风和水声把这段路途放得更轻。",
+            "emotion": "Peaceful",
+        }
+
+    def generate_story(self, prompt: str, max_tokens: int = 500) -> str | None:
+        _ = max_tokens
+        if "请为照片生成中文短文案" in prompt:
+            return "栈道 · 山风 · 水声"
+        if "请写一个章节故事" in prompt:
+            return json.dumps(
+                {
+                    "chapter_title": "33.1909, 103.8885",
+                    "chapter_story": "在33.1909, 103.8885附近沿着栈道慢慢前行，水声和山风把这一段路收得更安静。",
+                    "slideshow_caption": "33.1909, 103.8885",
+                },
+                ensure_ascii=False,
+            )
+        if "请基于结构化旅行线索写一条微故事" in prompt:
+            return "风从山谷里吹来，脚步也放慢了"
+        if "请为旅行章节生成引言和总结" in prompt:
+            return json.dumps(
+                {
+                    "intro": "这一章从栈道的缓行开始。",
+                    "summary": "这一段停在山风和水声里。",
                 },
                 ensure_ascii=False,
             )
@@ -882,14 +981,16 @@ def test_generate_event_story_uses_structured_signals_without_public_urls() -> N
         vision_payload = {
             "schema_version": "single-device-vision/v1",
             "source_platform": "android-mlkit",
-            "generated_at": datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc).isoformat(),
+            "generated_at": datetime(
+                2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc
+            ).isoformat(),
             "scene_category": "lake",
-            "object_tags": ["water", "tree", "walkway"],
+            "object_tags": ["water", "tree", "AB12"],
             "activity_hint": "walking",
             "people_present": True,
             "people_count_bucket": "1",
             "emotion_hint": "peaceful",
-            "ocr_text": "West Lake",
+            "ocr_text": "1234 AB12",
             "landmark_hint": "lake",
             "image_quality_flags": [],
             "cover_score": 0.82,
@@ -902,7 +1003,9 @@ def test_generate_event_story_uses_structured_signals_without_public_urls() -> N
                     event_id=event.id,
                     file_hash=f"{index + 2:064x}",
                     thumbnail_url=None,
-                    shoot_time=datetime(2024, 5, 1, 14, index * 10, 0, tzinfo=timezone.utc),
+                    shoot_time=datetime(
+                        2024, 5, 1, 14, index * 10, 0, tzinfo=timezone.utc
+                    ),
                     status="clustered",
                     visual_desc="lake | walking | water / tree / walkway | West Lake",
                     vision_result=vision_payload,
@@ -910,19 +1013,104 @@ def test_generate_event_story_uses_structured_signals_without_public_urls() -> N
             )
         db.commit()
 
-        ok, reason = generate_event_story_for_event(db=db, user_id=user.id, event_id=event.id)
+        ok, reason = generate_event_story_for_event(
+            db=db, user_id=user.id, event_id=event.id
+        )
         assert ok is True
         assert reason is None
 
         db.refresh(event)
         assert event.status == "generated"
         assert event.full_story
+        assert len(event.full_story) <= 140
         assert event.title == "西湖午后散步"
+        assert event.hero_title == "四月西湖黄昏漫游"
+        assert event.hero_summary == "湖风和树影把这段临水散步压成了更轻的一幕。"
         assert event.emotion_tag == "Peaceful"
+
+        chapters = (
+            db.query(EventChapter).filter(EventChapter.event_id == event.id).all()
+        )
+        assert chapters
+        assert all(len((chapter.chapter_story or "")) <= 60 for chapter in chapters)
 
         photos = db.query(Photo).filter(Photo.event_id == event.id).all()
         assert all(photo.caption for photo in photos)
         assert all(photo.micro_story for photo in photos)
+    finally:
+        ai_service.client = original_client
+        db.close()
+
+
+def test_generate_event_story_replaces_coordinate_location_and_duplicate_hero_copy() -> None:
+    original_client = ai_service.client
+    ai_service.client = _DuplicateHeroFallbackProviderStub()
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = User(
+            device_id="events-test-device-location-noise-fallback-001",
+            auth_type="device",
+        )
+        db.add(user)
+        db.flush()
+
+        event = Event(
+            user_id=user.id,
+            title="",
+            location_name="33.1909, 103.8885",
+            detailed_location="33.1909, 103.8885",
+            start_time=datetime(2024, 6, 2, 9, 0, 0, tzinfo=timezone.utc),
+            end_time=datetime(2024, 6, 2, 9, 30, 0, tzinfo=timezone.utc),
+            photo_count=1,
+            status="ai_pending",
+        )
+        db.add(event)
+        db.flush()
+
+        db.add(
+            Photo(
+                user_id=user.id,
+                event_id=event.id,
+                file_hash=f"{300:064x}",
+                thumbnail_url=None,
+                shoot_time=datetime(2024, 6, 2, 9, 0, 0, tzinfo=timezone.utc),
+                status="clustered",
+                vision_result={
+                    "description": "33.1909, 103.8885 | AB12 | 栈道慢行",
+                    "ocr_text": "33.1909, 103.8885",
+                },
+            )
+        )
+        db.commit()
+
+        ok, reason = generate_event_story_for_event(
+            db=db,
+            user_id=user.id,
+            event_id=event.id,
+        )
+        assert ok is True
+        assert reason is None
+
+        db.refresh(event)
+        assert event.location_name == "旅途中的一站"
+        assert event.detailed_location == "旅途中的一站"
+        assert event.full_story is not None
+        assert "33.1909" not in event.full_story
+        assert event.hero_title is not None
+        assert event.hero_title != event.title
+        assert event.hero_summary is not None
+        assert event.hero_summary != event.full_story
+        assert "33.1909" not in event.hero_summary
+
+        chapter = db.scalar(
+            select(EventChapter).where(EventChapter.event_id == event.id)
+        )
+        assert chapter is not None
+        assert chapter.chapter_title
+        assert "33.1909" not in (chapter.chapter_title or "")
+        assert "33.1909" not in (chapter.chapter_story or "")
+        assert "33.1909" not in (chapter.slideshow_caption or "")
     finally:
         ai_service.client = original_client
         db.close()
@@ -943,7 +1131,9 @@ def test_generate_event_story_persists_location_context(monkeypatch) -> None:
 
     db: Session = TestingSessionLocal()
     try:
-        user = User(device_id="events-test-device-location-context-001", auth_type="device")
+        user = User(
+            device_id="events-test-device-location-context-001", auth_type="device"
+        )
         db.add(user)
         db.flush()
 
@@ -964,7 +1154,9 @@ def test_generate_event_story_persists_location_context(monkeypatch) -> None:
         vision_payload = {
             "schema_version": "single-device-vision/v1",
             "source_platform": "android-mlkit",
-            "generated_at": datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc).isoformat(),
+            "generated_at": datetime(
+                2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc
+            ).isoformat(),
             "scene_category": "lake",
             "object_tags": ["water", "tree", "walkway"],
             "activity_hint": "walking",
@@ -984,7 +1176,9 @@ def test_generate_event_story_persists_location_context(monkeypatch) -> None:
                     event_id=event.id,
                     file_hash=f"{index + 200:064x}",
                     thumbnail_url=None,
-                    shoot_time=datetime(2024, 5, 1, 14, index * 10, 0, tzinfo=timezone.utc),
+                    shoot_time=datetime(
+                        2024, 5, 1, 14, index * 10, 0, tzinfo=timezone.utc
+                    ),
                     status="clustered",
                     visual_desc="lake | walking | water / tree / walkway | West Lake",
                     vision_result=vision_payload,
@@ -992,7 +1186,9 @@ def test_generate_event_story_persists_location_context(monkeypatch) -> None:
             )
         db.commit()
 
-        ok, reason = generate_event_story_for_event(db=db, user_id=user.id, event_id=event.id)
+        ok, reason = generate_event_story_for_event(
+            db=db, user_id=user.id, event_id=event.id
+        )
         assert ok is True
         assert reason is None
 
@@ -1001,6 +1197,8 @@ def test_generate_event_story_persists_location_context(monkeypatch) -> None:
         assert event.location_name == "杭州西湖"
         assert event.detailed_location == "西湖风景名胜区"
         assert event.location_tags == "湖光山色、城市漫游"
+        assert event.hero_title == "四月西湖黄昏漫游"
+        assert event.hero_summary
     finally:
         ai_service.client = original_client
         db.close()
@@ -1046,7 +1244,9 @@ def test_event_enhancement_upload_and_retry_flow() -> None:
                 vision_result={
                     "schema_version": "single-device-vision/v1",
                     "source_platform": "android-mlkit",
-                    "generated_at": datetime(2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc).isoformat(),
+                    "generated_at": datetime(
+                        2024, 5, 1, 14, 0, 0, tzinfo=timezone.utc
+                    ).isoformat(),
                     "scene_category": "lake",
                     "object_tags": ["water", "tree", "walkway"],
                     "activity_hint": "walking",
@@ -1181,7 +1381,9 @@ def test_regenerate_story_replaces_existing_chapters_and_groups() -> None:
                     user_id=user.id,
                     event_id=event.id,
                     file_hash=f"{index + 100:064x}",
-                    shoot_time=datetime(2024, 5, 1, 14, index * 5, 0, tzinfo=timezone.utc),
+                    shoot_time=datetime(
+                        2024, 5, 1, 14, index * 5, 0, tzinfo=timezone.utc
+                    ),
                     status="clustered",
                     vision_status="completed",
                     vision_result={
@@ -1196,16 +1398,24 @@ def test_regenerate_story_replaces_existing_chapters_and_groups() -> None:
 
         db.commit()
 
-        ok, reason = generate_event_story_for_event(db=db, user_id=user.id, event_id=event.id)
+        ok, reason = generate_event_story_for_event(
+            db=db, user_id=user.id, event_id=event.id
+        )
 
         assert ok is True
         assert reason is None
 
         db.refresh(event)
         assert event.status == "generated"
+        assert event.hero_title
+        assert event.hero_summary
 
-        chapters = db.scalars(select(EventChapter).where(EventChapter.event_id == event.id)).all()
-        groups = db.scalars(select(PhotoGroup).where(PhotoGroup.event_id == event.id)).all()
+        chapters = db.scalars(
+            select(EventChapter).where(EventChapter.event_id == event.id)
+        ).all()
+        groups = db.scalars(
+            select(PhotoGroup).where(PhotoGroup.event_id == event.id)
+        ).all()
         assert chapters
         assert groups
         assert all(group.chapter_id for group in groups)

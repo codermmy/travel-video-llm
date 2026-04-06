@@ -64,6 +64,8 @@ export interface EventRecord {
   coverPhotoUrl?: string | null;
   storyText?: string | null;
   fullStory?: string | null;
+  heroTitle?: string | null;
+  heroSummary?: string | null;
   detailedLocation?: string | null;
   locationTags?: string | null;
   emotionTag?: string | null;

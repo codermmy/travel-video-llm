@@ -13,8 +13,8 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PageHeader } from '@/components/ui/revamp';
 import { TimelineEventCard } from '@/components/timeline/TimelineEventCard';
 import { MonthHeader } from '@/components/timeline/MonthHeader';
 import { eventApi } from '@/services/api/eventApi';
@@ -30,7 +30,6 @@ import * as Linking from 'expo-linking';
 
 export default function MemoriesScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -135,26 +134,19 @@ export default function MemoriesScreen() {
 
   const renderTimelineCard = useCallback(
     ({ item }: { item: EventRecord; index: number; section: MonthSection }) => {
-      return (
-        <TimelineEventCard
-          event={item}
-          onPress={goToEventDetail}
-        />
-      );
+      return <TimelineEventCard event={item} onPress={goToEventDetail} />;
     },
     [goToEventDetail],
   );
 
   const heroSection = (
     <View style={styles.headerBlock}>
-      <View style={[styles.pageHeader, { paddingTop: insets.top + 40 }]}>
-        <Text selectable style={styles.pageTitle}>
-          回忆
-        </Text>
-        <Text selectable style={styles.pageSubtitle}>
-          来自你的 {events.reduce((sum, e) => sum + e.photoCount, 0).toLocaleString()} 张照片
-        </Text>
-      </View>
+      <PageHeader
+        title="回忆"
+        subtitle={`来自你的 ${events.reduce((sum, e) => sum + e.photoCount, 0).toLocaleString()} 张照片`}
+        topInset
+        style={styles.pageHeader}
+      />
 
       {(failedEventCount > 0 || activeEventCount > 0) && events.length > 0 ? (
         <Pressable
@@ -320,6 +312,7 @@ export default function MemoriesScreen() {
       ) : (
         <SectionList
           style={styles.list}
+          contentInsetAdjustmentBehavior="never"
           contentContainerStyle={styles.listContent}
           sections={monthSections}
           keyExtractor={(item) => item.id}
@@ -363,18 +356,6 @@ const styles = StyleSheet.create({
   pageHeader: {
     paddingHorizontal: 24,
     paddingBottom: 20,
-  },
-  pageTitle: {
-    fontSize: 38,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-    color: JourneyPalette.ink,
-  },
-  pageSubtitle: {
-    fontSize: 15,
-    color: JourneyPalette.inkSoft,
-    fontWeight: '500',
-    marginTop: 4,
   },
   statusBanner: {
     marginHorizontal: 20,

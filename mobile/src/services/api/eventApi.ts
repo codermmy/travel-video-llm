@@ -61,6 +61,8 @@ function normalizeEvent(e: EventRecord): EventRecord {
     coverPhotoUrl: resolveApiUrl(e.coverPhotoUrl),
     musicUrl: resolveApiUrl(e.musicUrl),
     fullStory: e.fullStory ?? e.storyText ?? null,
+    heroTitle: e.heroTitle ?? null,
+    heroSummary: e.heroSummary ?? null,
   };
 }
 

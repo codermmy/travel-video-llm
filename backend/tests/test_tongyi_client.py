@@ -59,7 +59,7 @@ def test_generate_event_story_parses_json_block(monkeypatch) -> None:
 
     def fake_generate_story(prompt: str, max_tokens: int = 500, temperature: float = 0.7):
         return """```json
-{"title":"西湖之旅","full_story":"很美的一天","emotion":"Peaceful"}
+{"title":"西湖之旅","full_story":"很美的一天","hero_title":"四月西湖漫游","hero_summary":"湖风把这段午后吹得更轻一些。","emotion":"Peaceful"}
 ```"""
 
     monkeypatch.setattr(client, "generate_story", fake_generate_story)
@@ -71,6 +71,8 @@ def test_generate_event_story_parses_json_block(monkeypatch) -> None:
     )
     assert story is not None
     assert story["title"] == "西湖之旅"
+    assert story["hero_title"] == "四月西湖漫游"
+    assert story["hero_summary"] == "湖风把这段午后吹得更轻一些。"
     assert story["emotion"] == "Peaceful"
 
 

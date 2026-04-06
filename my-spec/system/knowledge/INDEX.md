@@ -48,6 +48,7 @@ find my-spec/system/knowledge -name "*.md" | xargs grep -l "maestro"
 | 问题 | 文件 | 关键词 |
 |------|------|--------|
 | SectionList renderItem 不显示 | `sectionlist-flex-layout.md` | SectionList, flex, 布局, visible false, bounds 异常 |
+| 页面标题顶部间距不一致 | `unified-top-header-spacing.md` | safe area, PageHeader, 顶部标题, 顶部间距 |
 
 ### 业务逻辑 (`business/`)
 

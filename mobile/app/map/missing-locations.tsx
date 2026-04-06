@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActionButton, EmptyStateCard } from '@/components/ui/revamp';
+import { ActionButton, EmptyStateCard, HeaderIconButton, PageHeader } from '@/components/ui/revamp';
 import { eventApi } from '@/services/api/eventApi';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
@@ -87,21 +87,18 @@ export default function MissingLocationsScreen() {
 
   return (
     <View style={styles.screen}>
-      <View style={[styles.header, { paddingTop: Math.max(60, insets.top + 8) }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="返回"
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.backButton,
-            { top: Math.max(60, insets.top + 8) },
-            pressed && styles.pressed,
-          ]}
-        >
-          <MaterialCommunityIcons name="arrow-left" size={18} color={JourneyPalette.ink} />
-        </Pressable>
-        <Text style={styles.title}>补全地点</Text>
-      </View>
+      <PageHeader
+        title="补全地点"
+        topInset
+        style={styles.header}
+        rightSlot={
+          <HeaderIconButton
+            icon="arrow-left"
+            accessibilityLabel="返回"
+            onPress={() => router.back()}
+          />
+        }
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -156,22 +153,6 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingBottom: 20,
-  },
-  backButton: {
-    position: 'absolute',
-    right: 24,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: JourneyPalette.surfaceVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    color: JourneyPalette.ink,
-    fontSize: 32,
-    fontWeight: '900',
-    letterSpacing: -1.2,
   },
   listContent: {
     paddingHorizontal: 24,

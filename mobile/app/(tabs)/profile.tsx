@@ -14,41 +14,20 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Snackbar } from 'react-native-paper';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ImportProgressModal, type ImportProgress } from '@/components/import/ImportProgressModal';
-import { PhotoLibraryPickerModal } from '@/components/photo/PhotoLibraryPickerModal';
-import { UploadProgress } from '@/components/upload/UploadProgress';
+import { PageHeader } from '@/components/ui/revamp';
 import { eventApi } from '@/services/api/eventApi';
 import {
   clearImportCache,
   getImportCacheSummary,
-  importSelectedLibraryAssets,
-  type ImportResult,
   type ImportCacheSummary,
 } from '@/services/album/photoImportService';
 import { loadImportTasks, subscribeImportTasks } from '@/services/import/importTaskService';
 import { userApi, type UserProfile } from '@/services/api/userApi';
 import { JourneyPalette } from '@/styles/colors';
-import { openAppSettings } from '@/utils/permissionUtils';
+import { consumePendingProfileImportMessage } from '@/utils/photoRouteResults';
 
 type LocalDataSummary = ImportCacheSummary;
-
-function buildImportSummaryText(result: ImportResult, queued: boolean): string {
-  const parts = [`已读取 ${result.selected} 张`, `新增 ${result.dedupedNew} 张`];
-
-  if (result.dedupedExisting > 0) {
-    parts.push(`去重 ${result.dedupedExisting} 张`);
-  }
-  if (result.failed > 0) {
-    parts.push(`失败 ${result.failed} 张`);
-  }
-  if (result.queuedVision > 0) {
-    parts.push(`后台分析 ${result.queuedVision} 张`);
-  }
-
-  return queued ? `${parts.join('，')}，正在生成回忆...` : parts.join('，');
-}
 
 type GroupHeaderProps = {
   title: string;
@@ -155,7 +134,6 @@ function ListRow({
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [cleaning, setCleaning] = useState(false);
@@ -164,12 +142,6 @@ export default function ProfileScreen() {
   const [memoryCount, setMemoryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [runningTaskCount, setRunningTaskCount] = useState(0);
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerSubmitting, setPickerSubmitting] = useState(false);
-  const [importVisible, setImportVisible] = useState(false);
-  const [importProgress, setImportProgress] = useState<ImportProgress>({ stage: 'idle' });
-  const [taskProgressVisible, setTaskProgressVisible] = useState(false);
-  const [taskId, setTaskId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState('');
 
   const loadSettings = useCallback(async () => {
@@ -198,6 +170,10 @@ export default function ProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      const pendingMessage = consumePendingProfileImportMessage();
+      if (pendingMessage) {
+        setSnackbar(pendingMessage);
+      }
       void loadSettings();
     }, [loadSettings]),
   );
@@ -272,73 +248,6 @@ export default function ProfileScreen() {
     router.push('/profile/edit');
   }, [router]);
 
-  const executeLibraryImport = useCallback(
-    async (assets: import('expo-media-library').Asset[]) => {
-      setImportVisible(true);
-      setImportProgress({
-        stage: 'scanning',
-        detail: '正在准备导入照片...',
-      });
-
-      try {
-        const result = await importSelectedLibraryAssets({
-          assets,
-          onProgress: (progress) => setImportProgress(progress),
-        });
-
-        if (result.selected === 0) {
-          setSnackbar('你取消了本次导入');
-          return;
-        }
-
-        if (result.dedupedNew === 0) {
-          if (result.failed > 0) {
-            setSnackbar('导入失败：所选照片无法处理');
-            return;
-          }
-
-          setSnackbar(
-            result.dedupedExisting > 0
-              ? `没有发现可新增的照片，已去重 ${result.dedupedExisting} 张`
-              : '没有发现可新增的照片',
-          );
-          return;
-        }
-
-        if (result.taskId) {
-          setTaskId(result.taskId);
-          setTaskProgressVisible(true);
-          setSnackbar(buildImportSummaryText(result, true));
-        } else {
-          setSnackbar(buildImportSummaryText(result, false));
-          await loadSettings();
-        }
-      } catch (importError) {
-        const message = String(importError);
-        if (message.includes('permission_denied')) {
-          Alert.alert('需要相册权限', '请先在系统设置中开启相册权限。', [
-            { text: '取消', style: 'cancel' },
-            { text: '打开设置', onPress: openAppSettings },
-          ]);
-        } else {
-          setSnackbar('导入失败，请稍后重试');
-        }
-      } finally {
-        setImportVisible(false);
-        setImportProgress({ stage: 'idle' });
-        setPickerSubmitting(false);
-        setPickerVisible(false);
-        await loadSettings();
-      }
-    },
-    [loadSettings],
-  );
-
-  const canShowImportProgress = useMemo(
-    () => importVisible && importProgress.stage !== 'idle',
-    [importProgress.stage, importVisible],
-  );
-
   if (loading) {
     return (
       <View style={styles.centerState}>
@@ -370,10 +279,10 @@ export default function ProfileScreen() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.pageTitle, { marginTop: insets.top + 16 - 40 }]}>我的</Text>
+        <PageHeader title="我的" topInset style={styles.pageHeader} />
 
         <Pressable
           onPress={openProfileEditor}
@@ -431,7 +340,7 @@ export default function ProfileScreen() {
             iconTint={JourneyPalette.ink}
             iconBackgroundColor={JourneyPalette.surfaceVariant}
             title="添加照片"
-            onPress={() => setPickerVisible(true)}
+            onPress={() => router.push('/profile/import')}
           />
         </View>
 
@@ -457,45 +366,6 @@ export default function ProfileScreen() {
         </View>
       </ScrollView>
 
-      <ImportProgressModal
-        visible={canShowImportProgress}
-        progress={importProgress}
-        allowClose={false}
-      />
-      <PhotoLibraryPickerModal
-        visible={pickerVisible}
-        title="导入照片"
-        hint="从系统相册选择照片"
-        confirmLabel="开始导入"
-        confirmLoading={pickerSubmitting}
-        onClose={() => {
-          if (pickerSubmitting) {
-            return;
-          }
-          setPickerVisible(false);
-        }}
-        onConfirm={async (assets) => {
-          setPickerSubmitting(true);
-          await executeLibraryImport(assets);
-        }}
-      />
-      <UploadProgress
-        visible={taskProgressVisible}
-        taskId={taskId}
-        onContinueInBackground={() => {
-          setTaskProgressVisible(false);
-        }}
-        onDismissFailed={() => {
-          setTaskProgressVisible(false);
-          setTaskId(null);
-        }}
-        onComplete={() => {
-          setTaskProgressVisible(false);
-          setTaskId(null);
-          setSnackbar('事件生成完成，已更新列表');
-          void loadSettings();
-        }}
-      />
       <Snackbar visible={Boolean(snackbar)} onDismiss={() => setSnackbar('')} duration={2500}>
         {snackbar}
       </Snackbar>
@@ -510,14 +380,10 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 0,
     paddingBottom: 100,
   },
-  pageTitle: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: JourneyPalette.ink,
-    letterSpacing: -1.2,
+  pageHeader: {
     marginBottom: 32,
   },
   centerState: {

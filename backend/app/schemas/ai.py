@@ -37,6 +37,8 @@ class StoryGenerationResponse(BaseModel):
     title: str = Field(..., description="事件标题")
     story: str = Field(..., description="故事内容")
     full_story: Optional[str] = Field(None, description="完整故事")
+    hero_title: Optional[str] = Field(None, description="视频面板标题")
+    hero_summary: Optional[str] = Field(None, description="视频面板短文案")
     emotion: str = Field(default="Peaceful", description="情感标签")
 
 

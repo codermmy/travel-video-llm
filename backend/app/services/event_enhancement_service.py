@@ -16,6 +16,7 @@ from app.models.photo import Photo
 from app.schemas.event import EnhancementStorageSummary, EventEnhancementSummary
 from app.services.ai_service import ai_service
 from app.services.event_ai_service import (
+    _apply_story_payload_to_event,
     _ensure_location_context,
     _save_event_chapters,
     _save_photo_captions,
@@ -63,8 +64,19 @@ def build_event_enhancement_summary(
         return EventEnhancementSummary()
 
     current = now or _now_utc()
-    retained_until = max((_coerce_utc(asset.expires_at) for asset in assets), default=None)
-    last_uploaded_at = max((_coerce_utc(asset.created_at) for asset in assets), default=None)
+    retained_candidates: list[datetime] = []
+    uploaded_candidates: list[datetime] = []
+    for asset in assets:
+        retained_candidate = _coerce_utc(asset.expires_at)
+        if retained_candidate is not None:
+            retained_candidates.append(retained_candidate)
+
+        uploaded_candidate = _coerce_utc(asset.created_at)
+        if uploaded_candidate is not None:
+            uploaded_candidates.append(uploaded_candidate)
+
+    retained_until = max(retained_candidates, default=None)
+    last_uploaded_at = max(uploaded_candidates, default=None)
     total_bytes = sum(int(asset.file_size or 0) for asset in assets)
     can_retry = retained_until is not None and retained_until > current
 
@@ -82,7 +94,9 @@ def cleanup_expired_event_enhancements(db: Session) -> int:
     current = _now_utc()
     expired_assets = list(db.scalars(select(EventEnhancementAsset)).all())
     expired_assets = [
-        asset for asset in expired_assets if (_coerce_utc(asset.expires_at) or current) <= current
+        asset
+        for asset in expired_assets
+        if (_coerce_utc(asset.expires_at) or current) <= current
     ]
     if not expired_assets:
         return 0
@@ -115,7 +129,11 @@ def get_active_event_enhancement_assets(
         ).all()
     )
     current = _now_utc()
-    return [asset for asset in assets if (_coerce_utc(asset.expires_at) or current) > current]
+    return [
+        asset
+        for asset in assets
+        if (_coerce_utc(asset.expires_at) or current) > current
+    ]
 
 
 def replace_event_enhancement_assets(
@@ -169,7 +187,11 @@ def replace_event_enhancement_assets(
             asset_id=asset.id,
             file_obj=upload.file_obj,
         )
-        file_size = Path(saved.local_path).stat().st_size if Path(saved.local_path).exists() else 0
+        file_size = (
+            Path(saved.local_path).stat().st_size
+            if Path(saved.local_path).exists()
+            else 0
+        )
         asset.local_path = saved.local_path
         asset.public_url = saved.public_url
         asset.storage_provider = saved.storage_provider
@@ -207,10 +229,14 @@ def get_event_enhancement_storage_summary(
     )
 
 
-def clear_user_event_enhancement_assets(db: Session, *, user_id: str) -> EnhancementStorageSummary:
+def clear_user_event_enhancement_assets(
+    db: Session, *, user_id: str
+) -> EnhancementStorageSummary:
     assets = list(
         db.scalars(
-            select(EventEnhancementAsset).where(EventEnhancementAsset.user_id == user_id)
+            select(EventEnhancementAsset).where(
+                EventEnhancementAsset.user_id == user_id
+            )
         ).all()
     )
     for asset in assets:
@@ -236,7 +262,9 @@ def _load_image_input(asset: EventEnhancementAsset) -> Optional[str]:
     return storage_service.resolve_public_url(asset.public_url) or str(local_path)
 
 
-def _build_enhancement_narrative(analyses: list[dict[str, object]]) -> tuple[str, Optional[str]]:
+def _build_enhancement_narrative(
+    analyses: list[dict[str, object]],
+) -> tuple[str, Optional[str]]:
     descriptions: list[str] = []
     emotions: list[str] = []
 
@@ -251,7 +279,9 @@ def _build_enhancement_narrative(analyses: list[dict[str, object]]) -> tuple[str
     if not descriptions:
         return ("", emotions[0] if emotions else None)
 
-    narrative = "\n".join([f"- {item}" for item in descriptions[:ENHANCEMENT_MAX_IMAGES]])
+    narrative = "\n".join(
+        [f"- {item}" for item in descriptions[:ENHANCEMENT_MAX_IMAGES]]
+    )
     dominant_emotion = emotions[0] if emotions else None
     return (narrative, dominant_emotion)
 
@@ -266,35 +296,42 @@ def _generate_enhanced_story_text(
     timeline_clues: list[str],
     enhancement_narrative: str,
 ) -> dict[str, object] | None:
-    prompt = f"""你是一位旅行写作者。用户这次主动上传了少量代表图，希望生成一版更有画面感、但仍然真实克制的旅行故事。
+    prompt = f"""你是一位旅行写作者。用户这次主动上传了少量代表图，希望生成一版更有画面感、但仍然真实克制的事件总览。
 
 【事件信息】
 地点：{detailed_location or location}
 时间：{date_range}
-地点特色：{location_tags or '根据旅行线索判断'}
+地点特色：{location_tags or "根据旅行线索判断"}
 结构化摘要：
-{structured_summary or '暂无结构化摘要'}
+{structured_summary or "暂无结构化摘要"}
 时间线索：
-{chr(10).join(timeline_clues[:10]) or '暂无'}
+{chr(10).join(timeline_clues[:10]) or "暂无"}
 
 【增强代表图可见内容】
-{enhancement_narrative or '- 暂无'}
+{enhancement_narrative or "- 暂无"}
 
 【要求】
-1. 输出 220-320 字中文旅行故事
-2. 细节必须来自结构化线索或增强代表图可见内容，不能编造
-3. 比默认故事更有画面感，但不要夸张
-4. 如果增强图像提供了更明确的情绪或场景，可优先吸收
+1. title：16字以内，用于事件标题，清晰概括地点和活动
+2. full_story：100-140字中文，用于故事面板展示，是事件整体概览，不要逐图展开，不要写成长篇故事
+3. hero_title：18字以内，用于视频面板标题，要更文艺、更凝练，可点明月份、地点或时间感，不要直接复述 title
+4. hero_summary：30-40字中文，用于视频面板短文案，要比 full_story 更短更轻，不要重复完整故事
+5. 细节必须来自结构化线索或增强代表图可见内容，不能编造
+6. 输入中可能存在 OCR、英文字母、数字、原始坐标、碎片化或低关联脏数据；对难以理解、无法自然连接、没有叙事价值的信息可以直接忽略
+7. 优先使用重复出现或相互印证的线索；如果增强图像提供了更明确的情绪或场景，可优先吸收
+8. 比默认故事更有画面感，但保持克制，不要夸张
+9. 视频文案风格锚点：hero_title 可参考“秋水照见归途”，hero_summary 可参考“这一程不急着抵达，只让江岸与晚风把心绪放慢。” 要有画面感、回望感和更轻的情绪入口
 
 请严格返回 JSON：
 {{
   "title": "事件标题",
   "full_story": "完整故事",
+  "hero_title": "视频面板标题",
+  "hero_summary": "视频面板短文案",
   "emotion": "情感标签（Joyful/Exciting/Adventurous/Epic/Romantic/Peaceful/Nostalgic/Thoughtful/Melancholic/Solitary）"
 }}
 """
 
-    response_text = ai_service.client.generate_story(prompt, max_tokens=1200)
+    response_text = ai_service.client.generate_story(prompt, max_tokens=500)
     if not response_text:
         return None
     return parse_story_json_payload(response_text=response_text, location=location)
@@ -412,7 +449,8 @@ def generate_event_enhanced_story_for_event(
         event_service.mark_story_failed(
             event=event,
             target_version=generation_version,
-            reason=ai_service.last_error_code or "event_enhanced_story_generation_failed",
+            reason=ai_service.last_error_code
+            or "event_enhanced_story_generation_failed",
         )
         event.title = ensure_event_title(event)
         db.commit()
@@ -422,14 +460,18 @@ def generate_event_enhanced_story_for_event(
     if event.event_version != generation_version:
         return True, "event_version_outdated"
 
-    full_story = str(story.get("full_story") or story.get("story") or "").strip()
-    if not event.title_manually_set:
-        event.title = str(story.get("title") or ensure_event_title(event))
-    event.full_story = full_story or None
-    event.story_text = full_story or None
-    event.emotion_tag = str(
-        story.get("emotion") or dominant_emotion or signals.get("dominant_emotion") or ""
-    ).strip() or event.emotion_tag
+    _apply_story_payload_to_event(
+        event=event,
+        story=story,
+        fallback_emotion=(
+            str(
+                dominant_emotion
+                or signals.get("dominant_emotion")
+                or ""
+            ).strip()
+            or None
+        ),
+    )
 
     _save_photo_captions(photos)
     _save_event_chapters(

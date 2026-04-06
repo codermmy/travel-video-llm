@@ -1,3 +1,16 @@
+import Constants from 'expo-constants';
+
+type ExpoExtra = {
+  apiBaseUrl?: string;
+};
+
+const extraApiBaseUrl =
+  (
+    (Constants.expoConfig?.extra ??
+      (Constants as unknown as { manifest2?: { extra?: ExpoExtra } }).manifest2?.extra ??
+      null) as ExpoExtra | null
+  )?.apiBaseUrl || null;
+
 export const THUMBNAIL_CONFIG = {
   WIDTH: 1080,
   QUALITY: 0.8,
@@ -13,7 +26,7 @@ export const FILE_SIZE_UNITS = {
 } as const;
 
 export const API_CONFIG = {
-  BASE_URL: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000',
+  BASE_URL: process.env.EXPO_PUBLIC_API_URL || extraApiBaseUrl || 'http://localhost:8000',
   TIMEOUT: 30000,
 } as const;
 

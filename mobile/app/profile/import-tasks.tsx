@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ProgressBar } from 'react-native-paper';
 
-import { EmptyStateCard, PageContent } from '@/components/ui/revamp';
+import { EmptyStateCard, PageContent, PageHeader } from '@/components/ui/revamp';
 import { ImportTaskDetailScreen } from '@/screens/import-task-detail-screen';
 import {
   getImportTaskSourceLabel,
@@ -272,8 +272,12 @@ export default function ImportTasksScreen() {
 
   return (
     <PageContent style={styles.pageContent}>
-      <Text style={styles.pageTitle}>整理中心</Text>
-      <Text style={styles.pageSubtitle}>AI 正在实验室中精心冲印</Text>
+      <PageHeader
+        title="整理中心"
+        subtitle="AI 正在实验室中精心冲印"
+        topInset
+        style={styles.pageHeader}
+      />
 
       {currentTask ? (
         <Pressable
@@ -361,23 +365,10 @@ const styles = StyleSheet.create({
   pageContent: {
     backgroundColor: JourneyPalette.background,
     gap: 0,
-    paddingTop: 20,
     paddingHorizontal: 24,
     paddingBottom: 100,
   },
-  pageTitle: {
-    color: JourneyPalette.ink,
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: -1.2,
-    marginTop: 20,
-    marginBottom: 4,
-  },
-  pageSubtitle: {
-    color: JourneyPalette.inkSoft,
-    fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '500',
+  pageHeader: {
     marginBottom: 32,
   },
   heroCard: {

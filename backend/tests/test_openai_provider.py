@@ -24,7 +24,10 @@ def test_analyze_image_parses_responses_output(monkeypatch) -> None:
                     {
                         "type": "message",
                         "content": [
-                            {"type": "output_text", "text": "这是一次开心的旅行，有笑容与欢乐"}
+                            {
+                                "type": "output_text",
+                                "text": "这是一次开心的旅行，有笑容与欢乐",
+                            }
                         ],
                     }
                 ],
@@ -45,7 +48,9 @@ def test_analyze_image_parses_responses_output(monkeypatch) -> None:
             assert json["model"] == "gpt-5.1-codex"
             return FakeResponse()
 
-    monkeypatch.setattr("app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient
+    )
 
     result = provider.analyze_image("https://example.com/image.jpg")
     assert result is not None
@@ -75,7 +80,7 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
                         "content": [
                             {
                                 "type": "output_text",
-                                "text": '```json\n{"title":"西湖之旅","full_story":"很美的一天","emotion":"Peaceful"}\n```',
+                                "text": '```json\n{"title":"西湖之旅","full_story":"很美的一天","hero_title":"四月西湖漫游","hero_summary":"湖风把这段午后吹得更轻一些。","emotion":"Peaceful"}\n```',
                             }
                         ],
                     }
@@ -93,9 +98,19 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
             return False
 
         def post(self, url: str, json, headers):  # noqa: ANN001
+            prompt = json["input"][0]["content"][0]["text"]
+            assert "100-140字中文" in prompt
+            assert "hero_title" in prompt
+            assert "hero_summary" in prompt
+            assert "可以直接忽略" in prompt
+            assert "不要逐图展开" in prompt
+            assert "原始坐标" in prompt
+            assert "秋水照见归途" in prompt
             return FakeResponse()
 
-    monkeypatch.setattr("app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient
+    )
 
     story = provider.generate_event_story(
         location="杭州",
@@ -106,6 +121,8 @@ def test_generate_event_story_parses_json_text(monkeypatch) -> None:
     )
     assert story is not None
     assert story["title"] == "西湖之旅"
+    assert story["hero_title"] == "四月西湖漫游"
+    assert story["hero_summary"] == "湖风把这段午后吹得更轻一些。"
     assert story["emotion"] == "Peaceful"
     assert story["story"] == "很美的一天"
 
@@ -129,7 +146,9 @@ def test_openai_provider_http_error_sets_reason(monkeypatch) -> None:
         def post(self, url: str, json, headers):  # noqa: ANN001
             raise httpx.ReadTimeout("timeout")
 
-    monkeypatch.setattr("app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient)
+    monkeypatch.setattr(
+        "app.integrations.providers.openai_responses.httpx.Client", FakeHttpxClient
+    )
 
     assert provider.analyze_image("https://example.com/image.jpg") is None
     assert provider.get_last_error_code() == "openai_http_error"
