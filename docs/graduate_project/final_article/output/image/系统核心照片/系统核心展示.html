@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统核心成果展示</title>
+    <style>
+        :root {
+            --paper: #f6f1e8;
+            --paper-deep: #ebe2d4;
+            --ink: #171717;
+            --muted: #5b564f;
+            --line: rgba(23, 23, 23, 0.1);
+            --card: rgba(255, 255, 255, 0.78);
+            --accent: #1d4ed8;
+            --accent-soft: rgba(29, 78, 216, 0.1);
+            --shadow: 0 28px 70px rgba(34, 31, 26, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(29, 78, 216, 0.08), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(180, 83, 9, 0.08), transparent 24%),
+                linear-gradient(180deg, var(--paper) 0%, #f3ede3 100%);
+            min-height: 100vh;
+            padding: 36px 24px 56px;
+        }
+
+        .page {
+            max-width: 1460px;
+            margin: 0 auto;
+        }
+
+        .hero {
+            position: relative;
+            padding: 34px 38px 30px;
+            border: 1px solid var(--line);
+            border-radius: 32px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.68));
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .hero::after {
+            content: "";
+            position: absolute;
+            right: -90px;
+            top: -70px;
+            width: 260px;
+            height: 260px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(29, 78, 216, 0.15), transparent 66%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: var(--muted);
+            letter-spacing: 0.08em;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 40px;
+            height: 1px;
+            background: rgba(23, 23, 23, 0.25);
+        }
+
+        h1 {
+            margin-top: 14px;
+            font-size: clamp(34px, 4vw, 56px);
+            line-height: 1.12;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .intro {
+            max-width: 980px;
+            margin-top: 18px;
+            font-size: 18px;
+            line-height: 1.9;
+            color: var(--muted);
+        }
+
+        .summary {
+            margin-top: 22px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .summary-item {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid rgba(23, 23, 23, 0.08);
+        }
+
+        .summary-item strong {
+            display: block;
+            font-size: 16px;
+            margin-bottom: 6px;
+        }
+
+        .summary-item span {
+            display: block;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--muted);
+        }
+
+        .grid {
+            margin-top: 24px;
+            display: grid;
+            grid-template-columns: 1.28fr 1fr;
+            gap: 24px;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 30px;
+            background: var(--card);
+            box-shadow: var(--shadow);
+            padding: 26px;
+            backdrop-filter: blur(10px);
+        }
+
+        .panel-home {
+            grid-column: 1 / -1;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 58px;
+            height: 34px;
+            padding: 0 14px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+        }
+
+        .panel-title {
+            font-size: 28px;
+            line-height: 1.25;
+            margin-top: 10px;
+        }
+
+        .panel-text {
+            max-width: 780px;
+            margin-top: 12px;
+            font-size: 16px;
+            line-height: 1.9;
+            color: var(--muted);
+        }
+
+        .image-grid-home {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 18px;
+        }
+
+        .image-frame {
+            padding: 14px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 244, 238, 0.96));
+            border: 1px solid rgba(23, 23, 23, 0.08);
+            border-radius: 24px;
+        }
+
+        .image-frame img {
+            display: block;
+            width: 100%;
+            height: auto;
+            border-radius: 18px;
+            box-shadow: 0 18px 34px rgba(18, 17, 14, 0.12);
+        }
+
+        .caption {
+            margin-top: 12px;
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: baseline;
+        }
+
+        .caption strong {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .caption span {
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.7;
+            text-align: right;
+        }
+
+        .panel-single .image-frame {
+            height: 100%;
+        }
+
+        .panel-single img {
+            max-height: 720px;
+            object-fit: contain;
+            margin: 0 auto;
+        }
+
+        .footer-note {
+            margin-top: 22px;
+            padding: 22px 26px;
+            border-radius: 24px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.7);
+            color: var(--muted);
+            font-size: 15px;
+            line-height: 1.9;
+            box-shadow: 0 18px 40px rgba(34, 31, 26, 0.08);
+        }
+
+        @media (max-width: 1120px) {
+            .summary,
+            .grid,
+            .image-grid-home {
+                grid-template-columns: 1fr;
+            }
+
+            .panel-home {
+                grid-column: auto;
+            }
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 18px 12px 36px;
+            }
+
+            .hero,
+            .panel {
+                padding: 20px;
+                border-radius: 24px;
+            }
+
+            .panel-header {
+                flex-direction: column;
+            }
+
+            .caption {
+                flex-direction: column;
+            }
+
+            .caption span {
+                text-align: left;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+
+            .panel-title {
+                font-size: 24px;
+            }
+
+            .intro {
+                font-size: 16px;
+            }
+        }
+
+        @media print {
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .page {
+                max-width: none;
+            }
+
+            .hero,
+            .panel,
+            .footer-note {
+                box-shadow: none;
+                backdrop-filter: none;
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="eyebrow">Conclusion Display</div>
+            <h1>系统核心成果展示</h1>
+            <p class="intro">
+                本系统围绕旅途照片的自动整理、空间组织、事件叙事与成片输出构建完整闭环。下列界面集中展示了论文工作的核心成果：用户可从主页进入回忆内容，在地图中按地点回看旅程，在事件详情页浏览自动生成的图文结构，并最终获得可预览的视频成片。
+            </p>
+            <div class="summary">
+                <div class="summary-item">
+                    <strong>回忆主页</strong>
+                    <span>汇总系统生成结果，展示主题封面、时间轴与推荐回忆。</span>
+                </div>
+                <div class="summary-item">
+                    <strong>地图页</strong>
+                    <span>按地理位置聚合回忆内容，帮助用户进行空间化回顾。</span>
+                </div>
+                <div class="summary-item">
+                    <strong>事件详情页</strong>
+                    <span>以图文卡片组织单次事件，形成可阅读的叙事结构。</span>
+                </div>
+                <div class="summary-item">
+                    <strong>视频预览结果</strong>
+                    <span>呈现系统自动生成的竖屏视频，完成从照片到成片的输出。</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid">
+            <article class="panel panel-home">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-index">01</div>
+                        <h2 class="panel-title">回忆主页</h2>
+                        <p class="panel-text">
+                            主页承担系统主入口的作用，集中呈现自动整理后的回忆结果。图 01 展示用户首次进入页面时看到的核心卡片与主题封面，图 02 展示下滑后的延展内容，用于补充时间线与更多回忆入口，两张图共同构成同一板块的完整视图。
+                        </p>
+                    </div>
+                </div>
+                <div class="image-grid-home">
+                    <figure class="image-frame">
+                        <img src="./01主页.jpg" alt="回忆主页首屏">
+                        <figcaption class="caption">
+                            <strong>图 01 主页首屏</strong>
+                            <span>展示系统整理进度、主题封面与首页推荐入口。</span>
+                        </figcaption>
+                    </figure>
+                    <figure class="image-frame">
+                        <img src="./02主页-下滑可见.jpg" alt="回忆主页下滑内容">
+                        <figcaption class="caption">
+                            <strong>图 02 主页下滑内容</strong>
+                            <span>补充时间分段与更多回忆卡片，体现内容延展结构。</span>
+                        </figcaption>
+                    </figure>
+                </div>
+            </article>
+
+            <article class="panel panel-single">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-index">02</div>
+                        <h2 class="panel-title">地图页</h2>
+                        <p class="panel-text">
+                            地图页将回忆按地理位置进行聚合与展示，使照片内容从时间序列扩展为空间序列。用户可以直接从地图标记进入附近事件，增强旅程回顾的场景感。
+                        </p>
+                    </div>
+                </div>
+                <figure class="image-frame">
+                    <img src="./03地图.jpg" alt="地图页">
+                    <figcaption class="caption">
+                        <strong>图 03 地图页</strong>
+                        <span>通过地图标记与地点列表建立回忆的空间索引。</span>
+                    </figcaption>
+                </figure>
+            </article>
+
+            <article class="panel panel-single">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-index">03</div>
+                        <h2 class="panel-title">事件详情页</h2>
+                        <p class="panel-text">
+                            事件详情页以图文方式展开单次回忆内容，整合标题、摘要、片段卡片与配图信息，帮助用户快速理解系统如何将原始照片组织为可阅读、可播放的事件叙事。
+                        </p>
+                    </div>
+                </div>
+                <figure class="image-frame">
+                    <img src="./04事件详情页面.jpg" alt="事件详情页面">
+                    <figcaption class="caption">
+                        <strong>图 04 事件详情页</strong>
+                        <span>将事件拆解为若干叙事片段，形成结构化回忆内容。</span>
+                    </figcaption>
+                </figure>
+            </article>
+
+            <article class="panel panel-single">
+                <div class="panel-header">
+                    <div>
+                        <div class="panel-index">04</div>
+                        <h2 class="panel-title">视频预览结果</h2>
+                        <p class="panel-text">
+                            在完成内容组织后，系统可自动生成竖屏视频并提供预览界面。该结果页展示了成片标题、画面排布、播放进度与时长信息，体现出从照片素材到视频表达的最终输出能力。
+                        </p>
+                    </div>
+                </div>
+                <figure class="image-frame">
+                    <img src="./05幻灯片预览.jpg" alt="视频预览结果">
+                    <figcaption class="caption">
+                        <strong>图 05 视频预览结果</strong>
+                        <span>展示自动生成视频的预览状态与播放控制信息。</span>
+                    </figcaption>
+                </figure>
+            </article>
+        </section>
+
+        <section class="footer-note">
+            综上，系统已经形成从照片输入、回忆组织、空间回顾到视频输出的完整流程。该展示页适合作为结论章节中的综合成果图，用于集中呈现本论文设计与实现工作的最终落点。
+        </section>
+    </main>
+</body>
+</html>

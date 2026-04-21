@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>系统详细用例图 - 学术增强版</title>
+    <style>
+        :root {
+            --paper: #ffffff;
+            --ink: #111111;
+            --ink-soft: #3a3a3a;
+            --rule: #000000;
+            --rule-soft: #bcbcbc;
+        }
+
+        body {
+            font-family: "Times New Roman", "SimSun", serif;
+            background: var(--paper);
+            color: var(--ink);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 950px; margin: 0 auto; text-align: center; }
+
+        .figure-title {
+            font-family: "SimSun", serif;
+            font-size: 15px;
+            margin-top: 20px;
+            font-weight: 700;
+            color: var(--ink);
+            letter-spacing: 0.02em;
+        }
+
+        svg {
+            background: var(--paper);
+            display: block;
+            margin: 0 auto;
+            border: 1px solid var(--rule-soft);
+            padding: 10px;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+        }
+
+        svg text {
+            fill: var(--ink) !important;
+            font-weight: 600 !important;
+            paint-order: stroke;
+            stroke: #ffffff;
+            stroke-width: 0.35px;
+            stroke-linejoin: round;
+        }
+
+        svg g[fill="#666"] text,
+        svg g[fill="#666"] {
+            fill: var(--ink-soft) !important;
+        }
+
+        svg line,
+        svg path,
+        svg rect,
+        svg circle,
+        svg ellipse,
+        svg polyline,
+        svg polygon {
+            stroke: var(--rule) !important;
+            stroke-width: 1.9px !important;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            vector-effect: non-scaling-stroke;
+        }
+
+        svg polygon { fill: var(--rule) !important; }
+        svg [stroke-dasharray] { stroke-width: 1.6px !important; }
+        svg [font-size="10"] { font-size: 11px !important; }
+        svg [font-size="11"] { font-size: 12px !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <svg width="900" height="750" viewBox="0 0 900 750" xmlns="http://www.w3.org/2000/svg">
+            <!-- 参与者：用户 -->
+            <g transform="translate(60, 350)">
+                <circle cx="0" cy="-25" r="12" fill="none" stroke="#000" stroke-width="1.5"/>
+                <line x1="0" y1="-13" x2="0" y2="25" stroke="#000" stroke-width="1.5"/>
+                <line x1="-20" y1="0" x2="20" y2="0" stroke="#000" stroke-width="1.5"/>
+                <line x1="0" y1="25" x2="-15" y2="50" stroke="#000" stroke-width="1.5"/>
+                <line x1="0" y1="25" x2="15" y2="50" stroke="#000" stroke-width="1.5"/>
+                <text x="0" y="75" text-anchor="middle" font-size="14" font-weight="bold">终端用户</text>
+            </g>
+
+            <!-- 系统边界 -->
+            <rect x="180" y="40" width="540" height="680" fill="none" stroke="#000" stroke-width="1.2"/>
+            <text x="450" y="65" text-anchor="middle" font-size="16" font-weight="bold">智能VLOG创作系统 (移动端 + 后端)</text>
+
+            <!-- 模块分类标识 -->
+            <g font-family="SimSun" font-size="11" fill="#666">
+                <text x="200" y="90">媒体导入与处理</text>
+                <line x1="200" y1="95" x2="300" y2="95" stroke="#ccc"/>
+                <text x="200" y="270">结构化回忆管理</text>
+                <line x1="200" y1="275" x2="300" y2="275" stroke="#ccc"/>
+                <text x="200" y="450">智能创作与修正</text>
+                <line x1="200" y1="455" x2="300" y2="455" stroke="#ccc"/>
+                <text x="200" y="600">视频导出与导出</text>
+                <line x1="200" y1="605" x2="300" y2="605" stroke="#ccc"/>
+            </g>
+
+            <!-- 用例：媒体导入 -->
+            <g transform="translate(450, 110)">
+                <ellipse cx="0" cy="0" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="5" text-anchor="middle" font-size="12">照片选定与元数据提取</text>
+                
+                <ellipse cx="0" cy="70" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="75" text-anchor="middle" font-size="12">批量查重与异步上传</text>
+                
+                <ellipse cx="140" cy="35" rx="70" ry="20" fill="none" stroke="#000" stroke-dasharray="3,3"/>
+                <text x="140" y="38" text-anchor="middle" font-size="10">任务进度查询</text>
+            </g>
+
+            <!-- 用例：浏览管理 -->
+            <g transform="translate(450, 310)">
+                <ellipse cx="0" cy="0" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="5" text-anchor="middle" font-size="12">回忆主页按月度分组浏览</text>
+                
+                <ellipse cx="0" cy="70" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="75" text-anchor="middle" font-size="12">旅行足迹全景地图查看</text>
+            </g>
+
+            <!-- 用例：智能创作 -->
+            <g transform="translate(450, 490)">
+                <ellipse cx="0" cy="0" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="5" text-anchor="middle" font-size="12">智能叙事故事生成</text>
+                
+                <ellipse cx="0" cy="70" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="75" text-anchor="middle" font-size="12">地理位置搜索与修正</text>
+            </g>
+
+            <!-- 用例：视频导出 -->
+            <g transform="translate(450, 640)">
+                <ellipse cx="0" cy="0" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="5" text-anchor="middle" font-size="12">幻灯片实时预览与配乐</text>
+                
+                <ellipse cx="0" cy="60" rx="90" ry="25" fill="none" stroke="#000"/>
+                <text x="0" y="65" text-anchor="middle" font-size="12">原生硬件加速编码导出</text>
+            </g>
+
+            <!-- 用户连线 -->
+            <g stroke="#000" stroke-width="1">
+                <line x1="85" y1="350" x2="360" y2="110"/>
+                <line x1="85" y1="350" x2="360" y2="180"/>
+                <line x1="85" y1="350" x2="360" y2="310"/>
+                <line x1="85" y1="350" x2="360" y2="380"/>
+                <line x1="85" y1="350" x2="360" y2="490"/>
+                <line x1="85" y1="350" x2="360" y2="560"/>
+                <line x1="85" y1="350" x2="360" y2="640"/>
+                <line x1="85" y1="350" x2="360" y2="700"/>
+            </g>
+
+            <!-- 参与者：外部服务 -->
+            <g transform="translate(830, 200)">
+                <rect x="-40" y="-30" width="80" height="60" fill="none" stroke="#000"/>
+                <text x="0" y="50" text-anchor="middle" font-size="12" font-weight="bold">地图服务API</text>
+            </g>
+            <g transform="translate(830, 500)">
+                <rect x="-40" y="-30" width="80" height="60" fill="none" stroke="#000"/>
+                <text x="0" y="50" text-anchor="middle" font-size="12" font-weight="bold">LLM 引擎</text>
+            </g>
+
+            <!-- 服务连线 -->
+            <g stroke="#000" stroke-width="1" stroke-dasharray="4,2">
+                <!-- 地图连线 -->
+                <line x1="790" y1="200" x2="540" y2="180"/> <!-- 对应去重后的逆地理 -->
+                <line x1="790" y1="200" x2="540" y2="560"/> <!-- 对应手动修正 -->
+                <!-- AI 连线 -->
+                <line x1="790" y1="500" x2="540" y2="490"/> <!-- 故事生成 -->
+            </g>
+
+        </svg>
+        <div class="figure-title">图 2-3 系统详细功能用例图</div>
+    </div>
+</body>
+</html>

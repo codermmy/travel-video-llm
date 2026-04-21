@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>端侧视觉分析结果示例</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 24px 32px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+
+        .content {
+            display: flex;
+            padding: 32px;
+            gap: 32px;
+        }
+
+        .image-section {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .image-section img {
+            width: 100%;
+            height: auto;
+            max-height: 600px;
+            object-fit: contain;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        }
+
+        .image-section .label {
+            margin-top: 16px;
+            padding: 8px 16px;
+            background: #f0f4f8;
+            border-radius: 20px;
+            font-size: 13px;
+            color: #4a5568;
+        }
+
+        .data-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title::before {
+            content: '';
+            width: 4px;
+            height: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-label {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .meta-value {
+            font-size: 14px;
+            color: #1e293b;
+            font-weight: 500;
+        }
+
+        .meta-value.status-completed {
+            color: #10b981;
+        }
+
+        .json-content {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+        }
+
+        .json-content pre {
+            margin: 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
+        .json-key {
+            color: #7dd3fc;
+        }
+
+        .json-string {
+            color: #a5f3fc;
+        }
+
+        .json-number {
+            color: #fbbf24;
+        }
+
+        .json-boolean {
+            color: #f472b6;
+        }
+
+        .json-null {
+            color: #94a3b8;
+        }
+
+        .caption-box {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .caption-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .caption-label {
+            font-size: 12px;
+            color: #64748b;
+            min-width: 80px;
+            font-weight: 600;
+        }
+
+        .caption-value {
+            font-size: 14px;
+            color: #1e293b;
+            padding: 8px 12px;
+            background: white;
+            border-radius: 6px;
+            flex: 1;
+        }
+
+        .tags-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tag {
+            padding: 6px 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .quality-flag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: #fef3c7;
+            color: #92400e;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .score-bar {
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .score-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+            border-radius: 4px;
+        }
+
+        @media (max-width: 900px) {
+            .content {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>端侧视觉分析结果示例</h1>
+            <p>移动端 ML Kit 模型对照片进行本地智能分析后生成的结构化数据</p>
+        </div>
+
+        <div class="content">
+            <div class="image-section">
+                <img src="image.png" alt="待分析的原始照片">
+                <span class="label">原始照片</span>
+            </div>
+
+            <div class="data-section">
+                <div class="card">
+                    <div class="card-title">检测标签</div>
+                    <div class="tags-container" style="gap: 12px;">
+                        <span class="tag" style="font-size: 16px; padding: 10px 20px;">bird（鸟类）</span>
+                        <span class="tag" style="font-size: 16px; padding: 10px 20px;">duck（鸭子）</span>
+                        <span class="tag" style="font-size: 16px; padding: 10px 20px;">insect（昆虫）</span>
+                        <span class="tag" style="font-size: 16px; padding: 10px 20px;">waterfowl（水禽）</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">核心识别结果</div>
+                    <div class="meta-grid">
+                        <div class="meta-item">
+                            <span class="meta-label">场景类别</span>
+                            <span class="meta-value">bird（鸟类）</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">活动提示</span>
+                            <span class="meta-value">bird</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">是否有人</span>
+                            <span class="meta-value">否（置信度 0.92）</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-label">封面推荐分</span>
+                            <span class="meta-value">0.78</span>
+                        </div>
+                    </div>
+                    <div class="score-bar" style="margin-top: 16px;">
+                        <div class="score-fill" style="width: 78%;"></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">结构化视觉数据</div>
+                    <div class="json-content">
+<pre>{
+  <span class="json-key">"schema_version"</span>: <span class="json-string">"single-device-vision/v1"</span>,
+  <span class="json-key">"source_platform"</span>: <span class="json-string">"android-mlkit"</span>,
+  <span class="json-key">"generated_at"</span>: <span class="json-string">"2026-04-21T13:10:01.937151Z"</span>,
+  <span class="json-key">"scene_category"</span>: <span class="json-string">"bird"</span>,
+  <span class="json-key">"object_tags"</span>: [<span class="json-string">"bird"</span>, <span class="json-string">"duck"</span>, <span class="json-string">"insect"</span>, <span class="json-string">"waterfowl"</span>],
+  <span class="json-key">"activity_hint"</span>: <span class="json-string">"bird"</span>,
+  <span class="json-key">"people_present"</span>: <span class="json-boolean">false</span>,
+  <span class="json-key">"people_count_bucket"</span>: <span class="json-string">"0"</span>,
+  <span class="json-key">"emotion_hint"</span>: <span class="json-null">null</span>,
+  <span class="json-key">"ocr_text"</span>: <span class="json-string">""</span>,
+  <span class="json-key">"landmark_hint"</span>: <span class="json-null">null</span>,
+  <span class="json-key">"image_quality_flags"</span>: [<span class="json-string">"low_resolution"</span>],
+  <span class="json-key">"cover_score"</span>: <span class="json-number">0.7786</span>,
+  <span class="json-key">"confidence_map"</span>: {
+    <span class="json-key">"scene_category"</span>: <span class="json-number">0.889</span>,
+    <span class="json-key">"people_present"</span>: <span class="json-number">0.92</span>,
+    <span class="json-key">"cover_score"</span>: <span class="json-number">0.7786</span>,
+    <span class="json-key">"activity_hint"</span>: <span class="json-number">0.889</span>
+  }
+}</pre>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">衍生文案</div>
+                    <div class="caption-box">
+                        <div class="caption-item">
+                            <span class="caption-label">Caption</span>
+                            <span class="caption-value">水禽 · 飞鸟 · 昆虫 · 静谧 · 自然 · 湖畔</span>
+                        </div>
+                        <div class="caption-item">
+                            <span class="caption-label">Visual Desc</span>
+                            <span class="caption-value">bird | bird | insect / waterfowl</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+</body>
+</html>

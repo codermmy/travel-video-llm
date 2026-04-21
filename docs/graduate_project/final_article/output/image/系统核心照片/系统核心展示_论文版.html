@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统核心成果展示</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "SimSun", "STSong", "Noto Serif SC", serif;
+            color: #1a1a1a;
+            background: #fff;
+            line-height: 1.6;
+            padding: 20px 30px;
+        }
+
+        .container {
+            max-width: 100%;
+        }
+
+        h1 {
+            font-size: 14px;
+            font-weight: normal;
+            text-align: center;
+            margin-bottom: 16px;
+            letter-spacing: 0.05em;
+        }
+
+        /* 五栏横向布局 */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+        }
+
+        .panel {
+            text-align: center;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            color: #333;
+        }
+
+        .panel-desc {
+            font-size: 9px;
+            color: #555;
+            margin-bottom: 8px;
+            text-align: justify;
+            line-height: 1.4;
+        }
+
+        .panel img {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 2px;
+        }
+
+        .panel .caption {
+            font-size: 8px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        /* 论文打印优化 */
+        @media print {
+            body {
+                padding: 10px 20px;
+            }
+
+            .grid {
+                break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图 系统核心功能展示</h1>
+
+        <div class="grid">
+            <!-- 主页首屏 -->
+            <div class="panel">
+                <div class="panel-title">（一）主页首屏</div>
+                <div class="panel-desc">系统入口，展示主题封面与核心统计入口。</div>
+                <img src="./01主页.jpg" alt="主页首屏">
+            </div>
+
+            <!-- 主页下滑 -->
+            <div class="panel">
+                <div class="panel-title">（二）主页下滑</div>
+                <div class="panel-desc">下滑后查看时间轴与照片流。</div>
+                <img src="./02主页-下滑可见.jpg" alt="主页下滑">
+            </div>
+
+            <!-- 地图页 -->
+            <div class="panel">
+                <div class="panel-title">（三）地图页</div>
+                <div class="panel-desc">按地理位置聚合，空间维度回顾旅程。</div>
+                <img src="./03地图.jpg" alt="地图页">
+            </div>
+
+            <!-- 事件详情页 -->
+            <div class="panel">
+                <div class="panel-title">（四）事件详情</div>
+                <div class="panel-desc">叙事片段组织，整合时间地点与图文。</div>
+                <img src="./04事件详情页面.jpg" alt="事件详情页">
+            </div>
+
+            <!-- 视频预览 -->
+            <div class="panel">
+                <div class="panel-title">（五）视频导出</div>
+                <div class="panel-desc">自动生成竖屏视频，完成输出闭环。</div>
+                <img src="./05幻灯片预览.jpg" alt="视频预览">
+            </div>
+        </div>
+    </div>
+</body>
+</html>
