@@ -1,0 +1,79 @@
+travel-video-llm/
+├── backend/                          # 后端服务 (Python/FastAPI)
+│   ├── alembic/                      # 数据库迁移
+│   │   └── versions/
+│   ├── app/
+│   │   ├── api/                      # API 路由层
+│   │   │   └── v1/
+│   │   │       ├── admin.py          # 管理接口
+│   │   │       ├── ai.py             # AI 服务接口
+│   │   │       ├── auth.py           # 认证接口
+│   │   │       ├── events.py         # 事件管理接口
+│   │   │       ├── health.py         # 健康检查
+│   │   │       ├── photos.py         # 照片管理接口
+│   │   │       ├── tasks.py          # 后台任务接口
+│   │   │       └── users.py          # 用户接口
+│   │   ├── core/                     # 核心配置
+│   │   ├── db/                       # 数据库模型
+│   │   ├── integrations/             # 第三方集成
+│   │   │   └── providers/             # AI 服务提供商
+│   │   ├── models/                   # 数据模型
+│   │   ├── schemas/                  # Pydantic 模式
+│   │   ├── services/                 # 业务逻辑层
+│   │   │   ├── ai_service.py         # AI 通用服务
+│   │   │   ├── chapter_ai_service.py # 章节 AI 服务
+│   │   │   ├── clustering_service.py # 照片聚类服务
+│   │   │   ├── event_ai_service.py   # 事件 AI 服务
+│   │   │   ├── event_enhancement_service.py
+│   │   │   ├── event_service.py      # 事件管理服务
+│   │   │   ├── photo_group_service.py
+│   │   │   ├── photo_service.py      # 照片服务
+│   │   │   ├── storage_service.py    # 存储服务
+│   │   │   └── vision_analysis_service.py  # 视觉分析
+│   │   ├── tasks/                    # 异步任务
+│   │   └── utils/                    # 工具函数
+│   ├── scripts/                      # 脚本工具
+│   └── tests/                        # 测试文件
+│       ├── test_admin_api.py
+│       ├── test_ai_api.py
+│       ├── test_auth.py
+│       ├── test_clustering.py
+│       ├── test_events_api.py
+│       ├── test_photos.py
+│       └── ...
+│
+├── mobile/                           # 移动端应用 (React Native/Expo)
+│   ├── app/                          # 页面路由
+│   │   ├── (auth)/                   # 认证页面
+│   │   ├── (tabs)/                   # 标签页导航
+│   │   ├── events/                   # 事件页面
+│   │   ├── profile/                  # 个人中心
+│   │   ├── slideshow.tsx             # 幻灯片页面
+│   │   └── _layout.tsx               # 布局配置
+│   ├── src/
+│   │   ├── components/               # UI 组件
+│   │   ├── constants/                # 常量定义
+│   │   ├── navigation/               # 导航配置
+│   │   ├── screens/                  # 页面组件
+│   │   ├── services/                 # API 服务
+│   │   ├── stores/                   # 状态管理
+│   │   ├── types/                    # TypeScript 类型
+│   │   └── utils/                    # 工具函数
+│   ├── modules/                      # 原生模块
+│   ├── assets/                       # 静态资源
+│   └── android/                      # Android 原生代码
+│
+├── docs/                             # 文档
+│   └── graduate_project/             # 毕设文档
+│       ├── final_article/            # 论文
+│       └── mid_pre/                  # 中期答辩
+│
+├── design-spec/                      # 设计规范
+│   ├── components/
+│   └── pages/
+│
+├── scripts/                          # 项目脚本
+│
+└── uploads/                          # 上传文件存储
+    ├── avatars/
+    └── photos/

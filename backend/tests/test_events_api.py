@@ -688,6 +688,43 @@ def test_batch_reassign_event_updates_versions_once(monkeypatch) -> None:
             ),
         ]
         db.add_all(photos)
+        db.flush()
+
+        chapter = EventChapter(
+            user_id=user.id,
+            event_id=event_a.id,
+            chapter_index=1,
+            chapter_title="章节 1",
+            photo_start_index=0,
+            photo_end_index=1,
+        )
+        db.add(chapter)
+        db.flush()
+
+        db.add(
+            PhotoGroup(
+                user_id=user.id,
+                event_id=event_a.id,
+                chapter_id=chapter.id,
+                group_index=1,
+                photo_start_index=0,
+                photo_end_index=1,
+            )
+        )
+        db.add(
+            EventEnhancementAsset(
+                user_id=user.id,
+                event_id=event_a.id,
+                photo_id=photos[0].id,
+                local_path="/tmp/events-test-batch-reassign-enhancement.jpg",
+                public_url=None,
+                storage_provider="local",
+                object_key=None,
+                file_size=123,
+                analysis_result=None,
+                expires_at=base_time + timedelta(days=7),
+            )
+        )
         db.commit()
         photo_ids = [photos[0].id, photos[1].id]
         event_a_id = event_a.id
@@ -721,6 +758,117 @@ def test_batch_reassign_event_updates_versions_once(monkeypatch) -> None:
     assert event_b_payload["eventVersion"] == 5
     assert event_b_payload["storyFreshness"] == "stale"
     assert event_b_payload["photoCount"] == 3
+
+
+def test_delete_event_cleans_related_records(monkeypatch) -> None:
+    token = _register_and_get_token("events-test-device-015")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    deleted_files: list[tuple[str | None, str | None]] = []
+    monkeypatch.setattr(
+        "app.services.event_service.storage_service.delete_uploaded_file",
+        lambda *, local_path, object_key: deleted_files.append((local_path, object_key)),
+    )
+
+    db: Session = TestingSessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.device_id == "events-test-device-015"))
+        assert user is not None
+
+        base_time = datetime(2024, 6, 7, 8, 0, 0, tzinfo=timezone.utc)
+        event = Event(
+            user_id=user.id,
+            title="待删除事件",
+            location_name="苏州",
+            start_time=base_time,
+            end_time=base_time + timedelta(minutes=5),
+            photo_count=1,
+            status="generated",
+        )
+        db.add(event)
+        db.flush()
+
+        photo = Photo(
+            user_id=user.id,
+            event_id=event.id,
+            asset_id="asset-delete-event-a",
+            shoot_time=base_time,
+            status="clustered",
+            photo_index=0,
+            vision_status="completed",
+        )
+        db.add(photo)
+        db.flush()
+
+        chapter = EventChapter(
+            user_id=user.id,
+            event_id=event.id,
+            chapter_index=1,
+            chapter_title="章节 1",
+            photo_start_index=0,
+            photo_end_index=0,
+        )
+        db.add(chapter)
+        db.flush()
+
+        db.add(
+            PhotoGroup(
+                user_id=user.id,
+                event_id=event.id,
+                chapter_id=chapter.id,
+                group_index=1,
+                photo_start_index=0,
+                photo_end_index=0,
+            )
+        )
+        db.add(
+            EventEnhancementAsset(
+                user_id=user.id,
+                event_id=event.id,
+                photo_id=photo.id,
+                local_path="/tmp/events-test-delete-enhancement.jpg",
+                public_url=None,
+                storage_provider="local",
+                object_key=None,
+                file_size=456,
+                analysis_result=None,
+                expires_at=base_time + timedelta(days=7),
+            )
+        )
+        db.commit()
+        event_id = event.id
+        photo_id = photo.id
+    finally:
+        db.close()
+
+    response = client.delete(f"/api/v1/events/{event_id}", headers=headers)
+    assert response.status_code == 200
+
+    db = TestingSessionLocal()
+    try:
+        assert db.scalar(select(Event).where(Event.id == event_id)) is None
+        assert (
+            db.scalar(select(EventChapter).where(EventChapter.event_id == event_id)) is None
+        )
+        assert db.scalar(select(PhotoGroup).where(PhotoGroup.event_id == event_id)) is None
+        assert (
+            db.scalar(
+                select(EventEnhancementAsset).where(
+                    EventEnhancementAsset.event_id == event_id
+                )
+            )
+            is None
+        )
+
+        photo = db.scalar(select(Photo).where(Photo.id == photo_id))
+        assert photo is not None
+        assert photo.event_id is None
+        assert photo.status == "uploaded"
+        assert photo.photo_index is None
+    finally:
+        db.close()
+
+    assert deleted_files == [("/tmp/events-test-delete-enhancement.jpg", None)]
 
 
 def test_create_event_deletes_source_event_when_all_selected_photos_moved() -> None:

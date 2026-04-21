@@ -10,7 +10,7 @@ web-build/
 
 # React Native
 *.orig
-
+docs/graduate_project/final_article/resource/
 # Python
 __pycache__/
 *.py[cod]

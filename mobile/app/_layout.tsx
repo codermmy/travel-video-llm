@@ -189,6 +189,7 @@ export default function RootLayout() {
               name="profile/import"
               options={{ headerShown: false, presentation: 'fullScreenModal' }}
             />
+            <Stack.Screen name="profile/test-page" options={{ headerShown: false }} />
             <Stack.Screen name="profile/import-tasks" options={{ headerShown: false }} />
             <Stack.Screen name="profile/import-task/[taskId]" options={{ headerShown: false }} />
           </Stack>

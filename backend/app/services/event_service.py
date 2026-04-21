@@ -4,13 +4,15 @@ from collections import defaultdict
 from decimal import Decimal
 from typing import Iterable, Optional, TypedDict
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.chapter import EventChapter
 from app.models.event import Event
+from app.models.event_enhancement_asset import EventEnhancementAsset
 from app.models.photo import Photo
 from app.models.photo_group import PhotoGroup
+from app.services.storage_service import storage_service
 from app.utils.geo import calculate_center_point
 
 
@@ -33,6 +35,42 @@ class EventService:
     @staticmethod
     def _normalize_event_version(event: Event) -> int:
         return int(event.event_version or 1)
+
+    def _delete_event_related_records(
+        self,
+        *,
+        event_id: str,
+        user_id: str,
+        db: Session,
+    ) -> None:
+        enhancement_assets = list(
+            db.scalars(
+                select(EventEnhancementAsset).where(
+                    and_(
+                        EventEnhancementAsset.user_id == user_id,
+                        EventEnhancementAsset.event_id == event_id,
+                    )
+                )
+            ).all()
+        )
+        for asset in enhancement_assets:
+            storage_service.delete_uploaded_file(
+                local_path=asset.local_path,
+                object_key=asset.object_key,
+            )
+            db.delete(asset)
+
+        db.execute(
+            delete(PhotoGroup).where(
+                and_(PhotoGroup.user_id == user_id, PhotoGroup.event_id == event_id)
+            )
+        )
+        db.execute(
+            delete(EventChapter).where(
+                and_(EventChapter.user_id == user_id, EventChapter.event_id == event_id)
+            )
+        )
+        db.flush()
 
     def is_story_ready(self, vision_summary: EventVisionSummaryData) -> bool:
         return bool(vision_summary["story_ready"])
@@ -435,6 +473,7 @@ class EventService:
         if int(remaining_photos or 0) > 0:
             return False
 
+        self._delete_event_related_records(event_id=event_id, user_id=user_id, db=db)
         db.delete(event)
         db.commit()
         return True
@@ -470,9 +509,11 @@ class EventService:
         ).all()
         for photo in photos:
             photo.event_id = None
+            photo.photo_index = None
             if photo.status == "clustered":
                 photo.status = "uploaded"
 
+        self._delete_event_related_records(event_id=event_id, user_id=user_id, db=db)
         db.delete(event)
         db.commit()
         return True

@@ -15,8 +15,9 @@ from app.models.user import User
 from app.services.clustering_service import (
     ClusteringConfig,
     PhotoData,
-    SemanticClustering,
+    RuleBasedClustering,
     SpacetimeClustering,
+    TemporalRules,
     cluster_user_photos,
 )
 
@@ -126,7 +127,7 @@ def test_cluster_marks_insufficient_photos_as_noise() -> None:
         db.commit()
 
         # 使用 min_photos_per_event=3 的配置来测试
-        config = ClusteringConfig(min_photos_per_event=3, hdbscan_min_cluster_size=3)
+        config = ClusteringConfig(min_photos_per_event=3)
         events = cluster_user_photos(user_id=user.id, db=db, config=config)
         assert events == []
 
@@ -226,9 +227,6 @@ def test_temporal_rules_split_large_internal_time_gaps() -> None:
 
         config = ClusteringConfig(
             min_photos_per_event=3,
-            hdbscan_min_cluster_size=3,
-            enable_semantic_clustering=False,
-            enable_temporal_rules=True,
             time_threshold_hours=48,
         )
         events = cluster_user_photos(user_id=user.id, db=db, config=config)
@@ -275,9 +273,6 @@ def test_temporal_rules_do_not_merge_large_no_gps_gaps() -> None:
 
         config = ClusteringConfig(
             min_photos_per_event=3,
-            hdbscan_min_cluster_size=3,
-            enable_semantic_clustering=False,
-            enable_temporal_rules=True,
             time_threshold_hours=48,
         )
         events = cluster_user_photos(user_id=user.id, db=db, config=config)
@@ -322,10 +317,7 @@ def test_temporal_rules_split_city_transitions() -> None:
         db.commit()
 
         config = ClusteringConfig(
-            min_photos_per_event=2,  # 更新为新默认值
-            hdbscan_min_cluster_size=3,
-            enable_semantic_clustering=False,
-            enable_temporal_rules=True,
+            min_photos_per_event=2,
             city_jump_threshold_km=100.0,
         )
         events = cluster_user_photos(user_id=user.id, db=db, config=config)
@@ -336,58 +328,6 @@ def test_temporal_rules_split_city_transitions() -> None:
         assert counts[-1] >= 5
     finally:
         db.close()
-
-
-def test_semantic_cluster_merge_for_adjacent_groups() -> None:
-    config = ClusteringConfig(
-        enable_semantic_clustering=True,
-        enable_ai_descriptions=False,
-        semantic_similarity_threshold=0.6,
-        distance_threshold_km=10.0,
-        time_threshold_hours=48,
-    )
-    semantic = SemanticClustering(config)
-
-    base = datetime(2024, 2, 1, 10, 0, 0, tzinfo=timezone.utc)
-    cluster_a = [
-        PhotoData(
-            id="a1",
-            user_id="u",
-            shoot_time=base,
-            gps_lat=30.60,
-            gps_lon=104.05,
-            thumbnail_url="/uploads/photos/a1.jpg",
-        ),
-        PhotoData(
-            id="a2",
-            user_id="u",
-            shoot_time=base + timedelta(minutes=5),
-            gps_lat=30.6003,
-            gps_lon=104.0502,
-            thumbnail_url="/uploads/photos/a2.jpg",
-        ),
-    ]
-    cluster_b = [
-        PhotoData(
-            id="b1",
-            user_id="u",
-            shoot_time=base + timedelta(minutes=25),
-            gps_lat=30.601,
-            gps_lon=104.051,
-            thumbnail_url="/uploads/photos/b1.jpg",
-        )
-    ]
-
-    def fake_description(photo: PhotoData) -> str:
-        if photo.id.startswith("a") or photo.id.startswith("b"):
-            return "古镇建筑和街景"
-        return "餐厅美食"
-
-    semantic._get_photo_description = fake_description  # type: ignore[method-assign]
-    merged = semantic.merge_semantic_clusters([cluster_a, cluster_b])
-
-    assert len(merged) == 1
-    assert len(merged[0]) == 3
 
 
 def _make_photo_data(
@@ -412,9 +352,6 @@ def _make_photo_data(
 def test_long_span_large_dataset_is_split_into_multiple_reasonable_clusters() -> None:
     config = ClusteringConfig(
         min_photos_per_event=5,
-        hdbscan_min_cluster_size=5,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         city_jump_threshold_km=100.0,
     )
@@ -467,52 +404,6 @@ def test_long_span_large_dataset_is_split_into_multiple_reasonable_clusters() ->
     assert max_span <= timedelta(days=14)
 
 
-def test_semantic_similarity_does_not_merge_far_apart_clusters() -> None:
-    config = ClusteringConfig(
-        enable_semantic_clustering=True,
-        enable_ai_descriptions=False,
-        semantic_similarity_threshold=0.6,
-        distance_threshold_km=20.0,
-        time_threshold_hours=48,
-    )
-    semantic = SemanticClustering(config)
-
-    base = datetime(2024, 2, 2, 10, 0, 0, tzinfo=timezone.utc)
-    cluster_a = [
-        PhotoData(
-            id="sa1",
-            user_id="u",
-            shoot_time=base,
-            gps_lat=39.9042,
-            gps_lon=116.4074,
-            thumbnail_url="/uploads/photos/sa1.jpg",
-        ),
-        PhotoData(
-            id="sa2",
-            user_id="u",
-            shoot_time=base + timedelta(minutes=5),
-            gps_lat=39.9044,
-            gps_lon=116.4076,
-            thumbnail_url="/uploads/photos/sa2.jpg",
-        ),
-    ]
-    cluster_b = [
-        PhotoData(
-            id="sb1",
-            user_id="u",
-            shoot_time=base + timedelta(minutes=20),
-            gps_lat=31.2304,
-            gps_lon=121.4737,
-            thumbnail_url="/uploads/photos/sb1.jpg",
-        )
-    ]
-
-    semantic._get_photo_description = lambda _photo: "城市建筑和街景"  # type: ignore[method-assign]
-    merged = semantic.merge_semantic_clusters([cluster_a, cluster_b])
-
-    assert len(merged) == 2
-
-
 def test_event_center_ignores_zero_zero_gps_values() -> None:
     db: Session = TestingSessionLocal()
     try:
@@ -543,12 +434,7 @@ def test_event_center_ignores_zero_zero_gps_values() -> None:
         )
         db.commit()
 
-        config = ClusteringConfig(
-            min_photos_per_event=3,
-            hdbscan_min_cluster_size=3,
-            enable_semantic_clustering=False,
-            enable_temporal_rules=True,
-        )
+        config = ClusteringConfig(min_photos_per_event=3)
         events = cluster_user_photos(user_id=user.id, db=db, config=config)
 
         assert len(events) == 1
@@ -564,9 +450,6 @@ def test_event_center_ignores_zero_zero_gps_values() -> None:
 def test_batch_like_upload_ordering_produces_stable_cluster_distribution() -> None:
     config = ClusteringConfig(
         min_photos_per_event=5,
-        hdbscan_min_cluster_size=5,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         city_jump_threshold_km=100.0,
     )
@@ -613,9 +496,6 @@ def test_batch_like_upload_ordering_produces_stable_cluster_distribution() -> No
 def test_clustering_performance_for_thousand_photos() -> None:
     config = ClusteringConfig(
         min_photos_per_event=5,
-        hdbscan_min_cluster_size=5,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         city_jump_threshold_km=120.0,
     )
@@ -644,13 +524,12 @@ def test_clustering_performance_for_thousand_photos() -> None:
     elapsed = perf_counter() - start
 
     assert clusters
-    assert elapsed < 15.0
+    # 纯规则聚类应该更快（从 ~15s 降至 ~0.5s）
+    assert elapsed < 2.0
 
 
 def test_night_singleton_filter() -> None:
     """测试夜间单张照片过滤功能。"""
-    from app.services.clustering_service import TemporalRules
-
     base = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
 
     # 白天单张照片 - 应该保留
@@ -749,12 +628,7 @@ def test_invalid_timestamp_detection() -> None:
 
 def test_cross_day_activity() -> None:
     """测试跨天活动（23:00 → 02:00）不被错误拆分。"""
-    config = ClusteringConfig(
-        min_photos_per_event=3,
-        hdbscan_min_cluster_size=3,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
-    )
+    config = ClusteringConfig(min_photos_per_event=3)
     clustering = SpacetimeClustering(config)
 
     # 跨天活动：23:00 到次日 02:00
@@ -782,9 +656,6 @@ def test_multi_city_travel() -> None:
     """测试多城市连续旅行场景（东京 - 京都 - 大阪）。"""
     config = ClusteringConfig(
         min_photos_per_event=3,
-        hdbscan_min_cluster_size=3,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
         city_jump_threshold_km=50.0,  # 50km 城市跳跃阈值
     )
     clustering = SpacetimeClustering(config)
@@ -859,9 +730,6 @@ def test_single_day_multiple_spots() -> None:
     """测试一天内多个景点场景（上午 A 地，下午 B 地）。"""
     config = ClusteringConfig(
         min_photos_per_event=3,
-        hdbscan_min_cluster_size=3,
-        enable_semantic_clustering=False,
-        enable_temporal_rules=True,
         city_jump_threshold_km=50.0,
     )
     clustering = SpacetimeClustering(config)
@@ -905,18 +773,107 @@ def test_single_day_multiple_spots() -> None:
     assert len(clusters[0]) == 20
 
 
+def test_rule_based_cluster_basic_split() -> None:
+    """测试纯规则聚类的基本分割逻辑。"""
+    config = ClusteringConfig(time_threshold_hours=48)
+    rule_clusterer = RuleBasedClustering(config)
+
+    base = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+    # 第一组照片（10 张，连续 10 分钟）
+    photos = [
+        PhotoData(
+            id=f"group1-{i}",
+            user_id="u",
+            shoot_time=base + timedelta(minutes=i),
+            gps_lat=30.0,
+            gps_lon=120.0,
+            thumbnail_url=f"/uploads/photos/group1-{i}.jpg",
+        )
+        for i in range(10)
+    ]
+
+    # 第二组照片（10 张，与第一组间隔 72 小时）
+    second_start = base + timedelta(hours=72)
+    photos.extend(
+        [
+            PhotoData(
+                id=f"group2-{i}",
+                user_id="u",
+                shoot_time=second_start + timedelta(minutes=i),
+                gps_lat=30.0,
+                gps_lon=120.0,
+                thumbnail_url=f"/uploads/photos/group2-{i}.jpg",
+            )
+            for i in range(10)
+        ]
+    )
+
+    clusters = rule_clusterer.cluster(photos)
+
+    # 应该分割为 2 个集群
+    assert len(clusters) == 2
+    assert len(clusters[0]) == 10
+    assert len(clusters[1]) == 10
+
+
+def test_rule_based_cluster_cross_city_200km() -> None:
+    """测试纯规则聚类对 >200km 跨城跳跃的检测。"""
+    config = ClusteringConfig(time_threshold_hours=48)
+    rule_clusterer = RuleBasedClustering(config)
+
+    base = datetime(2024, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
+
+    # 上海照片（10 张）
+    shanghai_lat, shanghai_lon = 31.2304, 121.4737
+    photos = [
+        PhotoData(
+            id=f"shanghai-{i}",
+            user_id="u",
+            shoot_time=base + timedelta(minutes=i * 5),
+            gps_lat=shanghai_lat,
+            gps_lon=shanghai_lon,
+            thumbnail_url=f"/uploads/photos/shanghai-{i}.jpg",
+        )
+        for i in range(10)
+    ]
+
+    # 北京照片（10 张，间隔 1 小时）
+    # 上海-北京距离约 1200km，远超 200km 阈值
+    beijing_lat, beijing_lon = 39.9042, 116.4074
+    beijing_start = base + timedelta(hours=1)
+    photos.extend(
+        [
+            PhotoData(
+                id=f"beijing-{i}",
+                user_id="u",
+                shoot_time=beijing_start + timedelta(minutes=i * 5),
+                gps_lat=beijing_lat,
+                gps_lon=beijing_lon,
+                thumbnail_url=f"/uploads/photos/beijing-{i}.jpg",
+            )
+            for i in range(10)
+        ]
+    )
+
+    clusters = rule_clusterer.cluster(photos)
+
+    # >200km 跳跃应该直接分割，不管时间间隔
+    assert len(clusters) == 2
+    assert all(p.id.startswith("shanghai") for p in clusters[0])
+    assert all(p.id.startswith("beijing") for p in clusters[1])
+
+
 # ============================================================
 # 用户体验测评官场景测试
 # 基于用户体验第一性原理，验证聚类算法是否符合预期
 # ============================================================
 
+
 def test_scenario_1_weekend_short_trip() -> None:
     """场景 1：周末短途游 - 100-300 张照片，1-2 天，期望 1-2 个事件，连拍不被拆分。"""
     config = ClusteringConfig(
         min_photos_per_event=2,
-        hdbscan_min_cluster_size=2,
-        enable_semantic_clustering=True,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         distance_threshold_km=50.0,
         city_jump_threshold_km=50.0,
@@ -961,9 +918,6 @@ def test_scenario_2_golden_week_long_trip() -> None:
     """场景 2：黄金周长途旅行 - 500-1500 张照片，5-7 天，多城市，期望按城市分组。"""
     config = ClusteringConfig(
         min_photos_per_event=3,
-        hdbscan_min_cluster_size=3,
-        enable_semantic_clustering=True,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         distance_threshold_km=50.0,
         city_jump_threshold_km=50.0,
@@ -1033,9 +987,6 @@ def test_scenario_3_business_leisure_mix() -> None:
     """
     config = ClusteringConfig(
         min_photos_per_event=2,
-        hdbscan_min_cluster_size=2,
-        enable_semantic_clustering=True,
-        enable_temporal_rules=True,
         time_threshold_hours=24,  # 降低时间阈值以更好地区分商务/休闲
         distance_threshold_km=30.0,
         city_jump_threshold_km=30.0,
@@ -1118,9 +1069,6 @@ def test_scenario_4_international_trip() -> None:
     """场景 4：海外长途旅行 - 1000-3000 张照片，10-15 天，跨国，期望不同国家 100% 分开。"""
     config = ClusteringConfig(
         min_photos_per_event=3,
-        hdbscan_min_cluster_size=3,
-        enable_semantic_clustering=True,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         distance_threshold_km=50.0,
         city_jump_threshold_km=50.0,
@@ -1179,9 +1127,6 @@ def test_scenario_5_daily_fragmented_records() -> None:
     """场景 5：日常碎片记录 - 每天 5-20 张，积累数周，期望形成有意义的周末/事件分组。"""
     config = ClusteringConfig(
         min_photos_per_event=2,
-        hdbscan_min_cluster_size=2,
-        enable_semantic_clustering=True,
-        enable_temporal_rules=True,
         time_threshold_hours=48,
         distance_threshold_km=50.0,
         city_jump_threshold_km=50.0,

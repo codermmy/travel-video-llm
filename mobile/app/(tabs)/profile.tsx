@@ -342,6 +342,14 @@ export default function ProfileScreen() {
             title="添加照片"
             onPress={() => router.push('/profile/import')}
           />
+          <ListRow
+            icon="flask-outline"
+            iconTint={JourneyPalette.accent}
+            iconBackgroundColor={JourneyPalette.accentSoft}
+            title="测试页面"
+            subtitle="验证组件、状态和基础交互"
+            onPress={() => router.push('/profile/test-page')}
+          />
         </View>
 
         <View style={[styles.sectionBlock, styles.sectionBlockSpaced]}>
