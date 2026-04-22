@@ -40,7 +40,7 @@ client = TestClient(app)
 
 
 def _register_and_get_token(device_id: str = "photo-test-device-001") -> str:
-    resp = client.post("/api/v1/auth/register", json={"device_id": device_id})
+    resp = client.post("/api/v1/auth/bootstrap", json={"device_id": device_id})
     assert resp.status_code == 200
     data = resp.json()["data"]
     return data["token"]
@@ -108,6 +108,125 @@ def test_photo_upload_and_metadata_duplicate_check() -> None:
     assert dup_data["newItems"] == []
     assert dup_data["existingIndices"] == [0]
     assert dup_data["totalCount"] == 1
+
+
+def test_lookup_by_fingerprint_returns_reused_photo_with_reusable_analysis() -> None:
+    token = _register_and_get_token("photo-test-device-lookup-001")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    shoot_time = datetime(2024, 2, 2, 8, 30, 0, tzinfo=timezone.utc).isoformat()
+    upload = client.post(
+        "/api/v1/photos/upload/metadata",
+        headers=headers,
+        json={
+            "triggerClustering": False,
+            "photos": [
+                {
+                    "assetId": "asset-lookup-001",
+                    "gpsLat": 31.2304,
+                    "gpsLon": 121.4737,
+                    "shootTime": shoot_time,
+                    "fileSize": 54321,
+                    "width": 4032,
+                    "height": 3024,
+                    "vision": {
+                        "schema_version": "single-device-vision/v1",
+                        "source_platform": "android-mlkit",
+                        "generated_at": shoot_time,
+                        "scene_category": "city_walk",
+                        "object_tags": ["street"],
+                        "activity_hint": "walking",
+                        "people_present": False,
+                        "people_count_bucket": "0",
+                        "emotion_hint": "calm",
+                        "ocr_text": "",
+                        "landmark_hint": "bund",
+                        "image_quality_flags": [],
+                        "cover_score": 0.92,
+                        "confidence_map": {"scene_category": 0.9},
+                    },
+                }
+            ],
+        },
+    )
+    assert upload.status_code == 200
+
+    lookup = client.post(
+        "/api/v1/photos/lookup-by-fingerprint",
+        headers=headers,
+        json={
+            "photos": [
+                {
+                    "clientRef": "0",
+                    "gpsLat": 31.2304,
+                    "gpsLon": 121.4737,
+                    "shootTime": shoot_time,
+                    "fileSize": 54321,
+                    "width": 4032,
+                    "height": 3024,
+                }
+            ]
+        },
+    )
+    assert lookup.status_code == 200
+    data = lookup.json()["data"]
+    assert data["reusedIndices"] == [0]
+    assert data["newIndices"] == []
+    result = data["results"][0]
+    assert result["status"] == "reused"
+    assert result["matchType"] == "rich_metadata"
+    assert result["canReuseVision"] is True
+    assert result["photo"]["assetId"] == "asset-lookup-001"
+
+
+def test_upload_metadata_returns_reused_instead_of_failed_for_existing_photo() -> None:
+    token = _register_and_get_token("photo-test-device-reused-001")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    shoot_time = datetime(2024, 3, 3, 9, 0, 0, tzinfo=timezone.utc).isoformat()
+    first = client.post(
+        "/api/v1/photos/upload/metadata",
+        headers=headers,
+        json={
+            "triggerClustering": False,
+            "photos": [
+                {
+                    "assetId": "asset-reused-001",
+                    "gpsLat": 30.0,
+                    "gpsLon": 120.0,
+                    "shootTime": shoot_time,
+                    "fileSize": 67890,
+                    "width": 3000,
+                    "height": 2000,
+                }
+            ],
+        },
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/v1/photos/upload/metadata",
+        headers=headers,
+        json={
+            "triggerClustering": False,
+            "photos": [
+                {
+                    "gpsLat": 30.0,
+                    "gpsLon": 120.0,
+                    "shootTime": shoot_time,
+                    "fileSize": 67890,
+                    "width": 3000,
+                    "height": 2000,
+                }
+            ],
+        },
+    )
+    assert second.status_code == 200
+    data = second.json()["data"]
+    assert data["uploaded"] == 0
+    assert data["reused"] == 1
+    assert data["failed"] == 0
+    assert data["items"][0]["status"] == "reused"
 
 
 def test_photo_list_and_stats() -> None:

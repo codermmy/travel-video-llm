@@ -20,7 +20,6 @@ const TOKEN_KEY = 'auth_token';
 const TOKEN_SAVED_AT_KEY = 'auth_token_saved_at';
 const USER_ID_KEY = 'user_id';
 const DEVICE_ID_KEY = 'device_id';
-const EMAIL_KEY = 'user_email';
 
 const NATIVE_STORAGE_DIR = 'app-storage';
 const NATIVE_STORAGE_FILE = 'token-storage.json';
@@ -313,29 +312,12 @@ export const tokenStorage = {
     await storage.removeItem(DEVICE_ID_KEY);
     authDebug('tokenStorage.removeDeviceId done');
   },
-  async saveEmail(email: string): Promise<void> {
-    const storage = await getStorage();
-    await storage.setItem(EMAIL_KEY, email);
-    authDebug('tokenStorage.saveEmail', { hasEmail: Boolean(email) });
-  },
-  async getEmail(): Promise<string | null> {
-    const storage = await getStorage();
-    const email = await storage.getItem(EMAIL_KEY);
-    authDebug('tokenStorage.getEmail', { hasEmail: Boolean(email) });
-    return email;
-  },
-  async removeEmail(): Promise<void> {
-    const storage = await getStorage();
-    await storage.removeItem(EMAIL_KEY);
-    authDebug('tokenStorage.removeEmail done');
-  },
   async clearAll(): Promise<void> {
     const storage = await getStorage();
     await storage.removeItem(TOKEN_KEY);
     await storage.removeItem(TOKEN_SAVED_AT_KEY);
     await storage.removeItem(USER_ID_KEY);
     await storage.removeItem(DEVICE_ID_KEY);
-    await storage.removeItem(EMAIL_KEY);
     authDebug('tokenStorage.clearAll done');
   },
 };

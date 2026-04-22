@@ -11,6 +11,8 @@ export interface PhotoExif {
 
 export interface PhotoMetadata extends Partial<LocalMediaReference> {
   uri: string;
+  fileHash?: string;
+  originalFilename?: string;
   width: number;
   height: number;
   fileSize?: number;
@@ -42,16 +44,39 @@ export interface PhotoRecord {
 
 export interface PhotoUploadResult {
   uploaded: number;
+  reused: number;
   failed: number;
   taskId?: string | null;
   items?: {
     id: string;
     clientRef?: string | null;
+    status?: 'uploaded' | 'reused';
+    matchType?: 'hash' | 'rich_metadata' | 'time_gps' | 'asset_id' | null;
+    canReuseVision?: boolean;
     assetId?: string | null;
+    fileHash?: string | null;
     gpsLat?: number | null;
     gpsLon?: number | null;
     shootTime?: string | null;
+    visionStatus?: 'pending' | 'processing' | 'completed' | 'failed' | 'unsupported' | null;
   }[];
+}
+
+export interface PhotoFingerprintLookupResultItem {
+  index: number;
+  clientRef?: string | null;
+  status: 'new' | 'reused' | 'ambiguous';
+  matchType?: 'hash' | 'rich_metadata' | 'time_gps' | 'asset_id' | null;
+  canReuseVision: boolean;
+  photo?: PhotoRecord | null;
+}
+
+export interface PhotoFingerprintLookupResult {
+  results: PhotoFingerprintLookupResultItem[];
+  newIndices: number[];
+  reusedIndices: number[];
+  ambiguousIndices: number[];
+  totalCount: number;
 }
 
 export interface PhotoListResult {

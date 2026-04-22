@@ -4,6 +4,7 @@
  */
 
 import { Platform } from 'react-native';
+import * as Application from 'expo-application';
 import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 
@@ -98,6 +99,32 @@ async function writeNativeDeviceId(value: string): Promise<void> {
   }
 }
 
+async function getStableNativeDeviceId(): Promise<string | null> {
+  if (Platform.OS === 'android') {
+    try {
+      const androidId = Application.getAndroidId();
+      if (androidId && androidId.trim().length > 0) {
+        return `android:${androidId.trim()}`;
+      }
+    } catch (error) {
+      console.warn('Failed to load Android id:', error);
+    }
+  }
+
+  if (Platform.OS === 'ios') {
+    try {
+      const vendorId = await Application.getIosIdForVendorAsync();
+      if (vendorId && vendorId.trim().length > 0) {
+        return `ios:${vendorId.trim()}`;
+      }
+    } catch (error) {
+      console.warn('Failed to load iOS vendor id:', error);
+    }
+  }
+
+  return null;
+}
+
 export async function getDeviceId(): Promise<string> {
   if (Platform.OS === 'web') {
     const existing = await webStorage.getItem(DEVICE_ID_KEY);
@@ -119,6 +146,13 @@ export async function getDeviceId(): Promise<string> {
   inFlight = (async () => {
     if (cachedDeviceId) {
       return cachedDeviceId;
+    }
+
+    const stableNativeDeviceId = await getStableNativeDeviceId();
+    if (stableNativeDeviceId) {
+      await writeNativeDeviceId(stableNativeDeviceId);
+      cachedDeviceId = stableNativeDeviceId;
+      return stableNativeDeviceId;
     }
 
     const existing = await readNativeDeviceId();

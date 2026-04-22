@@ -33,7 +33,7 @@ client = TestClient(app)
 
 def _register_and_get_token(device_id: str, nickname: str) -> tuple[str, str]:
     response = client.post(
-        "/api/v1/auth/register",
+        "/api/v1/auth/bootstrap",
         json={"device_id": device_id, "nickname": nickname},
     )
     assert response.status_code == 200

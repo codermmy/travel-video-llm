@@ -183,7 +183,7 @@ apiClient.interceptors.response.use(
         return Promise.reject(new Error('设备身份已失效，正在重新初始化，请稍后重试'));
       }
 
-      authDebug('apiClient skip forced logout for 401', {
+      authDebug('apiClient skip forced auth reset for 401', {
         request: `${method} ${url}`,
         reason: !hasToken ? 'no_local_token' : 'auth_endpoint',
       });

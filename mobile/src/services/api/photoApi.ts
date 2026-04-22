@@ -4,6 +4,7 @@ import type {
   PhotoBatchDeleteResult,
   PhotoBatchEventUpdateResult,
   PhotoDeleteResult,
+  PhotoFingerprintLookupResult,
   PhotoListResult,
   PhotoMetadata,
   PhotoRecord,
@@ -38,6 +39,8 @@ type CheckDuplicatesByMetadataData = {
 type PhotoUploadItem = {
   clientRef?: string;
   assetId?: string;
+  fileHash?: string;
+  originalFilename?: string;
   gpsLat?: number;
   gpsLon?: number;
   shootTime?: string;
@@ -145,6 +148,16 @@ async function uploadMetadata(
 }
 
 export const photoApi = {
+  lookupPhotosByFingerprint: async (
+    photos: PhotoUploadItem[],
+  ): Promise<PhotoFingerprintLookupResult> => {
+    const response = await apiClient.post<ApiResponse<PhotoFingerprintLookupResult>>(
+      '/api/v1/photos/lookup-by-fingerprint',
+      { photos },
+    );
+    return response.data.data;
+  },
+
   checkDuplicatesByMetadata: async (
     photos: PhotoMetadataItem[],
   ): Promise<CheckDuplicatesByMetadataData> => {
@@ -165,6 +178,11 @@ export const photoApi = {
     const items: PhotoUploadItem[] = photos.map((photo, index) => ({
       clientRef: String(index),
       assetId: photo.metadata.assetId,
+      fileHash: typeof photo.metadata.fileHash === 'string' ? photo.metadata.fileHash : undefined,
+      originalFilename:
+        typeof photo.metadata.originalFilename === 'string'
+          ? photo.metadata.originalFilename
+          : undefined,
       gpsLat: toOptionalFiniteNumber(photo.metadata.exif.gpsLat),
       gpsLon: toOptionalFiniteNumber(photo.metadata.exif.gpsLon),
       shootTime: toSafeIsoDateTime(photo.metadata.exif.shootTime),
@@ -175,6 +193,7 @@ export const photoApi = {
     }));
 
     let uploadedTotal = 0;
+    let reusedTotal = 0;
     let failedTotal = 0;
     let taskId: string | null | undefined = null;
     let processedTotal = 0;
@@ -187,6 +206,7 @@ export const photoApi = {
         triggerClustering: options?.triggerClustering ?? isLastChunk,
       });
       uploadedTotal += result.uploaded;
+      reusedTotal += result.reused ?? 0;
       failedTotal += result.failed;
       taskId = result.taskId ?? taskId;
       uploadedItems.push(...(result.items ?? []));
@@ -194,7 +214,13 @@ export const photoApi = {
       onProgress?.(processedTotal, items.length);
     }
 
-    return { uploaded: uploadedTotal, failed: failedTotal, taskId, items: uploadedItems };
+    return {
+      uploaded: uploadedTotal,
+      reused: reusedTotal,
+      failed: failedTotal,
+      taskId,
+      items: uploadedItems,
+    };
   },
 
   getPhotos: async (params?: {

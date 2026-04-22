@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +20,11 @@ from app.schemas.photo import (
     PhotoBatchDeleteResponse,
     CheckDuplicatesByMetadataData,
     CheckDuplicatesByMetadataRequest,
+    PhotoFingerprintLookupData,
+    PhotoFingerprintLookupItem,
+    PhotoFingerprintLookupRequest,
+    PhotoFingerprintLookupResultItem,
+    PhotoMatchType,
     PhotoBatchEventUpdateRequest,
     PhotoBatchEventUpdateResponse,
     PhotoDeleteResponse,
@@ -41,6 +47,20 @@ from app.tasks.clustering_tasks import trigger_clustering_task, trigger_event_st
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ExistingPhotoMatch:
+    photo: Photo
+    match_type: PhotoMatchType
+
+
+def _has_reusable_vision(photo: Photo) -> bool:
+    return bool(
+        (photo.vision_status == "completed" and isinstance(photo.vision_result, dict))
+        or (photo.visual_desc and photo.visual_desc.strip())
+        or (photo.emotion_tag and photo.emotion_tag.strip())
+    )
 
 
 def _refresh_impacted_events(
@@ -150,49 +170,143 @@ def _photo_to_out(photo: Photo) -> PhotoOut:
     )
 
 
-def _find_existing_photo_for_upload(
+def _build_time_gps_query(
     *,
-    db: Session,
     current_user_id: str,
-    item: PhotoUploadItem,
-) -> Photo | None:
-    asset_id = (item.assetId or "").strip()
-    if asset_id:
-        return db.scalar(
-            select(Photo).where(
-                and_(Photo.user_id == current_user_id, Photo.asset_id == asset_id)
-            )
-        )
-
-    if item.shootTime is None:
-        return None
-
+    shoot_time: datetime,
+    gps_lat: float | None,
+    gps_lon: float | None,
+):
     query = select(Photo).where(
         and_(
             Photo.user_id == current_user_id,
-            Photo.shoot_time >= item.shootTime - timedelta(seconds=2),
-            Photo.shoot_time <= item.shootTime + timedelta(seconds=2),
+            Photo.shoot_time >= shoot_time - timedelta(seconds=2),
+            Photo.shoot_time <= shoot_time + timedelta(seconds=2),
         )
     )
 
-    if item.gpsLat is not None and item.gpsLon is not None:
-        query = query.where(
+    if gps_lat is not None and gps_lon is not None:
+        return query.where(
             and_(
-                Photo.gps_lat == item.gpsLat,
-                Photo.gps_lon == item.gpsLon,
+                Photo.gps_lat == gps_lat,
+                Photo.gps_lon == gps_lon,
             )
         )
-    elif item.gpsLat is None and item.gpsLon is None:
-        query = query.where(
+
+    if gps_lat is None and gps_lon is None:
+        return query.where(
             and_(
                 Photo.gps_lat.is_(None),
                 Photo.gps_lon.is_(None),
             )
         )
-    else:
+
+    return None
+
+
+def _find_existing_photo_match(
+    *,
+    db: Session,
+    current_user_id: str,
+    item: PhotoFingerprintLookupItem | PhotoUploadItem,
+) -> ExistingPhotoMatch | None:
+    file_hash = (getattr(item, "fileHash", None) or "").strip()
+    if file_hash:
+        photo = db.scalar(
+            select(Photo).where(
+                and_(Photo.user_id == current_user_id, Photo.file_hash == file_hash)
+            )
+        )
+        if photo:
+            return ExistingPhotoMatch(photo=photo, match_type="hash")
+
+    asset_id = (item.assetId or "").strip()
+    if asset_id:
+        photo = db.scalar(
+            select(Photo).where(
+                and_(Photo.user_id == current_user_id, Photo.asset_id == asset_id)
+            )
+        )
+        if photo:
+            return ExistingPhotoMatch(photo=photo, match_type="asset_id")
+
+    if item.shootTime is None:
         return None
 
-    return db.scalar(query.limit(1))
+    time_gps_query = _build_time_gps_query(
+        current_user_id=current_user_id,
+        shoot_time=item.shootTime,
+        gps_lat=item.gpsLat,
+        gps_lon=item.gpsLon,
+    )
+    if time_gps_query is None:
+        return None
+
+    if (
+        item.fileSize is not None
+        and item.width is not None
+        and item.height is not None
+    ):
+        rich_candidates = list(
+            db.scalars(
+                time_gps_query.where(
+                    and_(
+                        Photo.file_size == item.fileSize,
+                        Photo.width == item.width,
+                        Photo.height == item.height,
+                    )
+                ).limit(2)
+            ).all()
+        )
+        if len(rich_candidates) == 1:
+            return ExistingPhotoMatch(photo=rich_candidates[0], match_type="rich_metadata")
+        if len(rich_candidates) > 1:
+            return None
+
+    candidates = list(db.scalars(time_gps_query.limit(2)).all())
+    if len(candidates) == 1:
+        return ExistingPhotoMatch(photo=candidates[0], match_type="time_gps")
+    return None
+
+
+def _is_ambiguous_photo_match(
+    *,
+    db: Session,
+    current_user_id: str,
+    item: PhotoFingerprintLookupItem | PhotoUploadItem,
+) -> bool:
+    if item.shootTime is None:
+        return False
+
+    time_gps_query = _build_time_gps_query(
+        current_user_id=current_user_id,
+        shoot_time=item.shootTime,
+        gps_lat=item.gpsLat,
+        gps_lon=item.gpsLon,
+    )
+    if time_gps_query is None:
+        return False
+
+    if (
+        item.fileSize is not None
+        and item.width is not None
+        and item.height is not None
+    ):
+        rich_candidates = list(
+            db.scalars(
+                time_gps_query.where(
+                    and_(
+                        Photo.file_size == item.fileSize,
+                        Photo.width == item.width,
+                        Photo.height == item.height,
+                    )
+                ).limit(2)
+            ).all()
+        )
+        if len(rich_candidates) > 1:
+            return True
+
+    return len(list(db.scalars(time_gps_query.limit(2)).all())) > 1
 
 
 @router.post(
@@ -274,6 +388,81 @@ def check_duplicates_by_metadata(
     )
 
 
+@router.post(
+    "/lookup-by-fingerprint",
+    response_model=ApiResponse[PhotoFingerprintLookupData],
+)
+def lookup_by_fingerprint(
+    request: PhotoFingerprintLookupRequest,
+    current_user_id: CurrentUserIdDep,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhotoFingerprintLookupData]:
+    results: list[PhotoFingerprintLookupResultItem] = []
+    new_indices: list[int] = []
+    reused_indices: list[int] = []
+    ambiguous_indices: list[int] = []
+
+    for index, item in enumerate(request.photos):
+        existing = _find_existing_photo_match(
+            db=db,
+            current_user_id=current_user_id,
+            item=item,
+        )
+        if existing is not None:
+            reused_indices.append(index)
+            results.append(
+                PhotoFingerprintLookupResultItem(
+                    index=index,
+                    clientRef=item.clientRef,
+                    status="reused",
+                    matchType=existing.match_type,
+                    canReuseVision=_has_reusable_vision(existing.photo),
+                    photo=_photo_to_out(existing.photo),
+                )
+            )
+            continue
+
+        if _is_ambiguous_photo_match(
+            db=db,
+            current_user_id=current_user_id,
+            item=item,
+        ):
+            ambiguous_indices.append(index)
+            results.append(
+                PhotoFingerprintLookupResultItem(
+                    index=index,
+                    clientRef=item.clientRef,
+                    status="ambiguous",
+                    matchType=None,
+                    canReuseVision=False,
+                    photo=None,
+                )
+            )
+            continue
+
+        new_indices.append(index)
+        results.append(
+            PhotoFingerprintLookupResultItem(
+                index=index,
+                clientRef=item.clientRef,
+                status="new",
+                matchType=None,
+                canReuseVision=False,
+                photo=None,
+            )
+        )
+
+    return ApiResponse.ok(
+        PhotoFingerprintLookupData(
+            results=results,
+            newIndices=new_indices,
+            reusedIndices=reused_indices,
+            ambiguousIndices=ambiguous_indices,
+            totalCount=len(request.photos),
+        )
+    )
+
+
 @router.post("/upload/metadata", response_model=ApiResponse[PhotoUploadData])
 def upload_metadata(
     request: PhotoUploadRequest,
@@ -281,12 +470,43 @@ def upload_metadata(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PhotoUploadData]:
     uploaded = 0
+    reused = 0
     failed = 0
     uploaded_items: list[PhotoUploadResultItem] = []
 
     try:
         for item in request.photos:
-            if _find_existing_photo_for_upload(
+            existing = _find_existing_photo_match(
+                db=db, current_user_id=current_user_id, item=item
+            )
+            if existing is not None:
+                reused += 1
+                uploaded_items.append(
+                    PhotoUploadResultItem(
+                        id=existing.photo.id,
+                        clientRef=item.clientRef,
+                        status="reused",
+                        matchType=existing.match_type,
+                        canReuseVision=_has_reusable_vision(existing.photo),
+                        assetId=existing.photo.asset_id,
+                        fileHash=existing.photo.file_hash,
+                        gpsLat=(
+                            float(existing.photo.gps_lat)
+                            if existing.photo.gps_lat is not None
+                            else None
+                        ),
+                        gpsLon=(
+                            float(existing.photo.gps_lon)
+                            if existing.photo.gps_lon is not None
+                            else None
+                        ),
+                        shootTime=existing.photo.shoot_time,
+                        visionStatus=_normalize_vision_status(existing.photo.vision_status),
+                    )
+                )
+                continue
+
+            if _is_ambiguous_photo_match(
                 db=db, current_user_id=current_user_id, item=item
             ):
                 failed += 1
@@ -295,6 +515,7 @@ def upload_metadata(
             photo = Photo(
                 user_id=current_user_id,
                 asset_id=item.assetId,
+                file_hash=item.fileHash,
                 gps_lat=item.gpsLat,
                 gps_lon=item.gpsLon,
                 shoot_time=item.shootTime,
@@ -324,10 +545,15 @@ def upload_metadata(
                 PhotoUploadResultItem(
                     id=photo.id,
                     clientRef=item.clientRef,
+                    status="uploaded",
+                    matchType=None,
+                    canReuseVision=item.vision is not None,
                     assetId=photo.asset_id,
+                    fileHash=photo.file_hash,
                     gpsLat=float(photo.gps_lat) if photo.gps_lat is not None else None,
                     gpsLon=float(photo.gps_lon) if photo.gps_lon is not None else None,
                     shootTime=photo.shoot_time,
+                    visionStatus=_normalize_vision_status(photo.vision_status),
                 )
             )
 
@@ -347,6 +573,7 @@ def upload_metadata(
     return ApiResponse.ok(
         PhotoUploadData(
             uploaded=uploaded,
+            reused=reused,
             failed=failed,
             taskId=task_id,
             items=uploaded_items,

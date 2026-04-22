@@ -2,19 +2,19 @@
  * 设备会话状态管理
  *
  * 当前产品模式：单设备、本机使用、默认不上图。
- * App 启动时会自动恢复本地设备会话；若本地无有效会话，则自动完成设备注册。
+ * App 启动时会自动恢复本地设备会话；若本地无有效会话，则自动完成设备引导。
  */
 import { create } from 'zustand';
 
 import { setUnauthorizedHandler } from '@/services/api/client';
 import {
+  bootstrapDeviceSession as bootstrapDeviceSessionApi,
   getLocalUserInfo,
   isApiError,
-  logout,
-  register as registerDeviceApi,
 } from '@/services/api/authApi';
 import { tokenStorage } from '@/services/storage/tokenStorage';
 import { authDebug, authWarn } from '@/utils/authDebug';
+import { getDeviceId } from '@/utils/deviceUtils';
 
 const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -22,16 +22,12 @@ type AuthState = {
   token: string | null;
   userId: string | null;
   deviceId: string | null;
-  email: string | null;
   isNewUser: boolean;
-  authType: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
 
   bootstrapDeviceSession: () => Promise<void>;
-  register: (nickname?: string) => Promise<boolean>;
-  logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   clearError: () => void;
 };
@@ -40,18 +36,14 @@ type DeviceSessionPayload = {
   token: string;
   user_id: string;
   device_id: string | null;
-  email: string | null;
   is_new_user: boolean;
-  auth_type: string;
 };
 
 const EMPTY_AUTH_STATE = {
   token: null,
   userId: null,
   deviceId: null,
-  email: null,
   isNewUser: false,
-  authType: null,
   isAuthenticated: false,
 };
 
@@ -61,26 +53,24 @@ export const useAuthStore = create<AuthState>((set, get) => {
       token: payload.token,
       userId: payload.user_id,
       deviceId: payload.device_id,
-      email: payload.email,
       isNewUser: payload.is_new_user,
-      authType: payload.auth_type,
       isAuthenticated: true,
       isLoading: false,
       error: null,
     });
   };
 
-  const registerDevice = async (nickname?: string): Promise<boolean> => {
+  const initializeDeviceSession = async (nickname?: string): Promise<boolean> => {
     try {
-      authDebug('authStore.register start');
-      const res = await registerDeviceApi(nickname);
+      authDebug('authStore.initializeDeviceSession start');
+      const res = await bootstrapDeviceSessionApi(nickname);
       if (!res.data) {
-        authWarn('authStore.register empty response');
-        set({ ...EMPTY_AUTH_STATE, isLoading: false, error: 'register_failed' });
+        authWarn('authStore.initializeDeviceSession empty response');
+        set({ ...EMPTY_AUTH_STATE, isLoading: false, error: 'device_bootstrap_failed' });
         return false;
       }
 
-      authDebug('authStore.register success', {
+      authDebug('authStore.initializeDeviceSession success', {
         userId: res.data.user_id,
         hasToken: Boolean(res.data.token),
       });
@@ -88,7 +78,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
       return true;
     } catch (error: unknown) {
       const errorMessage = getErrorMessage(error);
-      authWarn('authStore.register failed', { error: errorMessage });
+      authWarn('authStore.initializeDeviceSession failed', { error: errorMessage });
       set({ ...EMPTY_AUTH_STATE, isLoading: false, error: errorMessage });
       return false;
     }
@@ -98,9 +88,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     token: null,
     userId: null,
     deviceId: null,
-    email: null,
     isNewUser: false,
-    authType: null,
     isAuthenticated: false,
     isLoading: true,
     error: null,
@@ -110,32 +98,43 @@ export const useAuthStore = create<AuthState>((set, get) => {
       authDebug('authStore.bootstrapDeviceSession start');
 
       try {
-        const [info, token, tokenSavedAt] = await Promise.all([
+        const [info, token, tokenSavedAt, currentDeviceId] = await Promise.all([
           getLocalUserInfo(),
           tokenStorage.getToken(),
           tokenStorage.getTokenSavedAt(),
+          getDeviceId(),
         ]);
 
         authDebug('authStore.bootstrapDeviceSession snapshot', {
           hasToken: Boolean(token),
           hasUserId: Boolean(info.userId),
           tokenSavedAt,
+          hasStoredDeviceId: Boolean(info.deviceId),
+          currentDeviceId,
         });
 
         if (token) {
           const now = Date.now();
           const tokenAge = tokenSavedAt ? now - tokenSavedAt : 0;
           const isExpired = tokenSavedAt !== null && tokenAge > TOKEN_TTL_MS;
+          const deviceIdMismatch = !info.deviceId || info.deviceId !== currentDeviceId;
 
           authDebug('authStore.bootstrapDeviceSession tokenMeta', {
             tokenAge,
             isExpired,
+            deviceIdMismatch,
             ttlMs: TOKEN_TTL_MS,
           });
 
           if (isExpired) {
             authWarn('authStore.bootstrapDeviceSession token expired, clearing local auth');
             await tokenStorage.clearAll();
+          } else if (deviceIdMismatch || !info.userId) {
+            authDebug('authStore.bootstrapDeviceSession refresh device bootstrap', {
+              reason: !info.userId ? 'missing_user_id' : 'device_id_mismatch',
+            });
+            await initializeDeviceSession();
+            return;
           } else {
             if (tokenSavedAt === null) {
               authDebug('authStore.bootstrapDeviceSession tokenSavedAt missing, touching value');
@@ -146,9 +145,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
               token,
               userId: info.userId,
               deviceId: info.deviceId,
-              email: info.email,
               isNewUser: false,
-              authType: info.email ? 'email' : 'device',
               isAuthenticated: true,
               isLoading: false,
               error: null,
@@ -158,29 +155,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
           }
         }
 
-        authDebug('authStore.bootstrapDeviceSession register fresh device session');
-        await registerDevice();
+        authDebug('authStore.bootstrapDeviceSession bootstrap fresh device session');
+        await initializeDeviceSession();
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         authWarn('authStore.bootstrapDeviceSession failed', { error: errorMessage });
         set({ ...EMPTY_AUTH_STATE, isLoading: false, error: errorMessage });
       }
-    },
-
-    register: async (nickname?: string) => {
-      set({ isLoading: true, error: null });
-      return registerDevice(nickname);
-    },
-
-    logout: async () => {
-      authDebug('authStore.logout start');
-      await logout();
-      set({
-        ...EMPTY_AUTH_STATE,
-        isLoading: false,
-        error: null,
-      });
-      authDebug('authStore.logout done');
     },
 
     checkAuth: async () => {

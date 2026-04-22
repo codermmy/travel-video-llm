@@ -286,7 +286,10 @@ class EventService:
 
     def mark_structure_changed(self, event: Event) -> None:
         event.event_version = self._normalize_event_version(event) + 1
+        event.story_generated_from_version = None
+        event.story_requested_for_version = None
         event.story_freshness = "stale"
+        event.slideshow_generated_from_version = None
         event.slideshow_freshness = "stale"
         event.has_pending_structure_changes = True
         event.status = "ai_pending"

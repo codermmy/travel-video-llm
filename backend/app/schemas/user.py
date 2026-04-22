@@ -11,6 +11,11 @@ class UserRegister(BaseModel):
     device_id: str = Field(min_length=1, max_length=128)
     nickname: Optional[str] = Field(default=None, min_length=1, max_length=64)
 
+
+class DeviceBootstrapRequest(BaseModel):
+    device_id: str = Field(min_length=1, max_length=128)
+    nickname: Optional[str] = Field(default=None, min_length=1, max_length=64)
+
 class AuthResponse(BaseModel):
     token: str
     user_id: str

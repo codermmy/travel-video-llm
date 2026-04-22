@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 
 PeopleCountBucket = Literal["0", "1", "2-3", "4+"]
 PhotoVisionStatus = Literal["pending", "processing", "completed", "failed", "unsupported"]
+PhotoLookupStatus = Literal["new", "reused", "ambiguous"]
+PhotoMatchType = Literal["hash", "rich_metadata", "time_gps", "asset_id"]
 
 
 class PhotoMetadataItem(BaseModel):
@@ -48,6 +50,8 @@ class PhotoVisionResult(BaseModel):
 class PhotoUploadItem(BaseModel):
     clientRef: Optional[str] = None
     assetId: Optional[str] = None
+    fileHash: Optional[str] = None
+    originalFilename: Optional[str] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
     shootTime: Optional[datetime] = None
@@ -64,6 +68,7 @@ class PhotoUploadRequest(BaseModel):
 
 class PhotoUploadData(BaseModel):
     uploaded: int
+    reused: int = 0
     failed: int
     taskId: Optional[str] = None
     items: list["PhotoUploadResultItem"] = Field(default_factory=list)
@@ -72,10 +77,49 @@ class PhotoUploadData(BaseModel):
 class PhotoUploadResultItem(BaseModel):
     id: str
     clientRef: Optional[str] = None
+    status: Literal["uploaded", "reused"] = "uploaded"
+    matchType: Optional[PhotoMatchType] = None
+    canReuseVision: bool = False
     assetId: Optional[str] = None
+    fileHash: Optional[str] = None
     gpsLat: Optional[float] = None
     gpsLon: Optional[float] = None
     shootTime: Optional[datetime] = None
+    visionStatus: PhotoVisionStatus = "pending"
+
+
+class PhotoFingerprintLookupItem(BaseModel):
+    clientRef: Optional[str] = None
+    assetId: Optional[str] = None
+    fileHash: Optional[str] = None
+    originalFilename: Optional[str] = None
+    gpsLat: Optional[float] = None
+    gpsLon: Optional[float] = None
+    shootTime: Optional[datetime] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fileSize: Optional[int] = None
+
+
+class PhotoFingerprintLookupRequest(BaseModel):
+    photos: Annotated[list[PhotoFingerprintLookupItem], Field(min_length=1, max_length=2000)]
+
+
+class PhotoFingerprintLookupResultItem(BaseModel):
+    index: int
+    clientRef: Optional[str] = None
+    status: PhotoLookupStatus
+    matchType: Optional[PhotoMatchType] = None
+    canReuseVision: bool = False
+    photo: Optional["PhotoOut"] = None
+
+
+class PhotoFingerprintLookupData(BaseModel):
+    results: list[PhotoFingerprintLookupResultItem]
+    newIndices: list[int] = Field(default_factory=list)
+    reusedIndices: list[int] = Field(default_factory=list)
+    ambiguousIndices: list[int] = Field(default_factory=list)
+    totalCount: int
 
 
 class PhotoOut(BaseModel):
