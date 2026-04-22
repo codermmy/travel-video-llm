@@ -32,7 +32,7 @@ import { useSlideshowStore } from '@/stores/slideshowStore';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventChapter } from '@/types/chapter';
 import type { EventDetail } from '@/types/event';
-import { getCompactLocationText } from '@/utils/locationDisplay';
+import { getCompactLocationText, needsLocationSupplement } from '@/utils/locationDisplay';
 import { consumeEventPhotoManagerResult } from '@/utils/photoRouteResults';
 import { resolveCoverCandidateFromPhotos } from '@/utils/mediaRefs';
 
@@ -48,6 +48,7 @@ const CHAPTER_BODY_FALLBACK = '这段章节还没有正文描述。';
 const HERO_PLAY_BUTTON_SIZE = 76;
 
 type SheetStop = 1 | 2 | 3;
+type DetailViewMode = 'story' | 'video_fullscreen';
 
 type ChapterSection = {
   chapter: EventChapter;
@@ -204,6 +205,7 @@ export default function EventDetailScreen() {
   const [isMoreActionsVisible, setIsMoreActionsVisible] = useState(false);
   const [isStoryExpanded, setIsStoryExpanded] = useState(false);
   const [sheetStop, setSheetStop] = useState<SheetStop>(1);
+  const [viewMode, setViewMode] = useState<DetailViewMode>('story');
   const [isSheetDragging, setIsSheetDragging] = useState(false);
   const [expandedChapterIds, setExpandedChapterIds] = useState<Record<string, boolean>>({});
   const previewPrimeKeyRef = useRef<string | null>(null);
@@ -239,11 +241,11 @@ export default function EventDetailScreen() {
     }
 
     lastWindowHeightRef.current = windowHeight;
-    const nextOffset = stopOffsets[sheetStop - 1];
+    const nextOffset = viewMode === 'video_fullscreen' ? windowHeight : stopOffsets[sheetStop - 1];
     sheetTop.stopAnimation();
     sheetTop.setValue(nextOffset);
     sheetTopValueRef.current = nextOffset;
-  }, [sheetStop, sheetTop, stopOffsets, windowHeight]);
+  }, [sheetStop, sheetTop, stopOffsets, viewMode, windowHeight]);
 
   const animateSheetToStop = useCallback(
     (nextStop: SheetStop, animated = true) => {
@@ -269,6 +271,7 @@ export default function EventDetailScreen() {
 
   const collapseSheetToDefault = useCallback(
     (animated = true) => {
+      setViewMode('story');
       sheetScrollOffsetRef.current = 0;
       sheetScrollRef.current?.scrollTo({ y: 0, animated: false });
       animateSheetToStop(1, animated);
@@ -276,9 +279,26 @@ export default function EventDetailScreen() {
     [animateSheetToStop],
   );
 
+  const enterVideoFullscreen = useCallback(() => {
+    setViewMode('video_fullscreen');
+    setSheetStop(1);
+    setIsSheetDragging(false);
+    sheetScrollOffsetRef.current = 0;
+    sheetScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
+  const exitVideoFullscreen = useCallback(() => {
+    collapseSheetToDefault(false);
+  }, [collapseSheetToDefault]);
+
   const finishSheetDrag = useCallback(
     (deltaY: number) => {
       setIsSheetDragging(false);
+
+      if (dragStartStopIndexRef.current === 0 && deltaY > 18) {
+        enterVideoFullscreen();
+        return;
+      }
 
       const nearestStopIndex = getNearestStopIndex(sheetTopValueRef.current, stopOffsets);
       let nextStopIndex = nearestStopIndex;
@@ -293,19 +313,7 @@ export default function EventDetailScreen() {
 
       animateSheetToStop((nextStopIndex + 1) as SheetStop);
     },
-    [animateSheetToStop, stopOffsets],
-  );
-
-  const finishSheetContentLift = useCallback(
-    (deltaY: number) => {
-      setIsSheetDragging(false);
-      if (deltaY < -16 || sheetTopValueRef.current <= (stopOffsets[0] + stopOffsets[1]) / 2) {
-        animateSheetToStop(2);
-        return;
-      }
-      animateSheetToStop(1);
-    },
-    [animateSheetToStop, stopOffsets],
+    [animateSheetToStop, enterVideoFullscreen, stopOffsets],
   );
 
   const finishSheetContentDrop = useCallback(
@@ -335,10 +343,11 @@ export default function EventDetailScreen() {
           sheetTop.stopAnimation();
         },
         onPanResponderMove: (_event, gestureState) => {
+          const maxOffset = dragStartStopIndexRef.current === 0 ? windowHeight : stopOffsets[0];
           const nextOffset = clamp(
             dragStartOffsetRef.current + gestureState.dy,
             stopOffsets[2],
-            stopOffsets[0],
+            maxOffset,
           );
           sheetTop.setValue(nextOffset);
         },
@@ -350,42 +359,7 @@ export default function EventDetailScreen() {
         },
         onPanResponderTerminationRequest: () => false,
       }),
-    [finishSheetDrag, sheetStop, sheetTop, stopOffsets],
-  );
-
-  const sheetContentPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_event, gestureState) => {
-          if (sheetStop !== 1) {
-            return false;
-          }
-          const verticalDistance = Math.abs(gestureState.dy);
-          const horizontalDistance = Math.abs(gestureState.dx);
-          return gestureState.dy < -4 && verticalDistance > horizontalDistance;
-        },
-        onPanResponderGrant: () => {
-          dragStartOffsetRef.current = sheetTopValueRef.current;
-          setIsSheetDragging(true);
-          sheetTop.stopAnimation();
-        },
-        onPanResponderMove: (_event, gestureState) => {
-          const nextOffset = clamp(
-            dragStartOffsetRef.current + gestureState.dy,
-            stopOffsets[1],
-            stopOffsets[0],
-          );
-          sheetTop.setValue(nextOffset);
-        },
-        onPanResponderRelease: (_event, gestureState) => {
-          finishSheetContentLift(gestureState.dy);
-        },
-        onPanResponderTerminate: (_event, gestureState) => {
-          finishSheetContentLift(gestureState.dy);
-        },
-        onPanResponderTerminationRequest: () => false,
-      }),
-    [finishSheetContentLift, sheetStop, sheetTop, stopOffsets],
+    [finishSheetDrag, sheetStop, sheetTop, stopOffsets, windowHeight],
   );
 
   const sheetContentCollapsePanResponder = useMemo(
@@ -476,6 +450,7 @@ export default function EventDetailScreen() {
     setIsStoryExpanded(false);
     setExpandedChapterIds({});
     setIsSheetDragging(false);
+    setViewMode('story');
     sheetScrollOffsetRef.current = 0;
     sheetScrollRef.current?.scrollTo({ y: 0, animated: false });
     animateSheetToStop(1, false);
@@ -650,6 +625,10 @@ export default function EventDetailScreen() {
     () => (event ? resolveEventContextLabel(event) : DEFAULT_EVENT_CONTEXT),
     [event],
   );
+  const needsLocationBinding = useMemo(
+    () => (event ? needsLocationSupplement(event) : false),
+    [event],
+  );
   const heroTitle = useMemo(() => (event ? resolveHeroTitle(event) : DEFAULT_HERO_TITLE), [event]);
   const readingTitle = useMemo(
     () => (event ? resolveReadingTitle(event) : DEFAULT_READING_TITLE),
@@ -660,6 +639,9 @@ export default function EventDetailScreen() {
     [event],
   );
   const storyText = useMemo(() => (event ? resolveStoryText(event) : STORY_FALLBACK), [event]);
+  const isCompactStorySheet = viewMode === 'story' && sheetStop === 1;
+  const isExpandedStorySheet = viewMode === 'story' && sheetStop >= 2;
+  const isVideoFullscreen = viewMode === 'video_fullscreen';
 
   const openEditModal = useCallback(() => {
     if (!event) {
@@ -755,10 +737,22 @@ export default function EventDetailScreen() {
   const heroPlayTop = Math.max(topControlTop + 84, stopOffsets[1] - HERO_PLAY_BUTTON_SIZE - 12);
   const heroCopyTop = Math.max(stopOffsets[1] + 8, heroPlayTop + HERO_PLAY_BUTTON_SIZE + 12);
   const sheetRadius = sheetStop === 1 ? 38 : sheetStop === 2 ? 34 : 30;
-  const showVideoIndicator = sheetStop !== 1;
+  const showVideoIndicator = viewMode === 'story' && sheetStop !== 1;
   const isSheetCompact = sheetStop === 3;
-  const sheetScrollEnabled = sheetStop !== 1;
-  const showHeroCollapseLayer = sheetStop >= 2;
+  const sheetScrollEnabled = viewMode === 'story';
+
+  let heroBackgroundActionLabel = '展开视频全屏预览';
+  let onHeroBackgroundPress: (() => void) | null = null;
+
+  if (isVideoFullscreen) {
+    heroBackgroundActionLabel = '退出视频全屏预览';
+    onHeroBackgroundPress = exitVideoFullscreen;
+  } else if (isExpandedStorySheet) {
+    heroBackgroundActionLabel = '收起故事面板';
+    onHeroBackgroundPress = () => collapseSheetToDefault();
+  } else if (isCompactStorySheet) {
+    onHeroBackgroundPress = enterVideoFullscreen;
+  }
 
   return (
     <View style={styles.container}>
@@ -788,12 +782,12 @@ export default function EventDetailScreen() {
           style={styles.heroOverlay}
         />
 
-        {showHeroCollapseLayer ? (
+        {onHeroBackgroundPress ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="收起故事面板"
-            onPress={() => collapseSheetToDefault()}
-            style={styles.heroTapDismissLayer}
+            accessibilityLabel={heroBackgroundActionLabel}
+            onPress={onHeroBackgroundPress}
+            style={styles.heroBackgroundPressLayer}
           />
         ) : null}
 
@@ -840,131 +834,182 @@ export default function EventDetailScreen() {
         </View>
       </View>
 
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            top: sheetTop,
-            borderTopLeftRadius: sheetRadius,
-            borderTopRightRadius: sheetRadius,
-          },
-        ]}
-      >
-        <View style={styles.sheetTopEdge} {...sheetPanResponder.panHandlers} />
-
-        <View
+      {!isVideoFullscreen ? (
+        <Animated.View
           style={[
-            styles.videoIndicator,
-            showVideoIndicator ? styles.videoIndicatorVisible : styles.videoIndicatorHidden,
-            isSheetCompact ? styles.videoIndicatorCompact : styles.videoIndicatorMid,
+            styles.sheet,
+            {
+              top: sheetTop,
+              borderTopLeftRadius: sheetRadius,
+              borderTopRightRadius: sheetRadius,
+            },
           ]}
-        />
+        >
+          <View style={styles.sheetTopEdge} {...sheetPanResponder.panHandlers} />
 
-        <View style={styles.sheetGrabZone} {...sheetPanResponder.panHandlers}>
-          <View style={[styles.sheetHandle, isSheetDragging && styles.sheetHandleActive]} />
-        </View>
-
-        <View style={styles.sheetScrollContainer}>
-          <ScrollView
-            ref={sheetScrollRef}
-            style={styles.sheetScroll}
-            scrollEnabled={sheetScrollEnabled}
-            contentInsetAdjustmentBehavior="never"
-            showsVerticalScrollIndicator={false}
-            onScroll={(event) => {
-              sheetScrollOffsetRef.current = Math.max(event.nativeEvent.contentOffset.y, 0);
-            }}
-            scrollEventThrottle={16}
-            contentContainerStyle={[
-              styles.sheetScrollContent,
-              { paddingBottom: Math.max(insets.bottom + 28, 42) },
+          <View
+            style={[
+              styles.videoIndicator,
+              showVideoIndicator ? styles.videoIndicatorVisible : styles.videoIndicatorHidden,
+              isSheetCompact ? styles.videoIndicatorCompact : styles.videoIndicatorMid,
             ]}
-            {...(sheetStop === 2 ? sheetContentCollapsePanResponder.panHandlers : {})}
-          >
-            <View>
-              <Text style={styles.eyebrow}>{eventContextText}</Text>
-              <Text numberOfLines={3} style={styles.sheetTitle}>
-                {readingTitle}
-              </Text>
+          />
 
-              <View style={styles.storyPreview}>
-                <Text numberOfLines={isStoryExpanded ? undefined : 3} style={styles.storyCopy}>
-                  {storyText}
-                </Text>
+          <View style={styles.sheetGrabZone} {...sheetPanResponder.panHandlers}>
+            <View style={[styles.sheetHandle, isSheetDragging && styles.sheetHandleActive]} />
+          </View>
 
-                {!isStoryExpanded ? (
-                  <LinearGradient
-                    colors={['rgba(248, 250, 252, 0)', 'rgba(248, 250, 252, 1)']}
-                    style={styles.storyFadeMask}
-                    pointerEvents="none"
-                  />
+          <View style={styles.sheetScrollContainer}>
+            <ScrollView
+              ref={sheetScrollRef}
+              style={styles.sheetScroll}
+              scrollEnabled={sheetScrollEnabled}
+              contentInsetAdjustmentBehavior="never"
+              showsVerticalScrollIndicator={false}
+              onScroll={(scrollEvent) => {
+                sheetScrollOffsetRef.current = Math.max(scrollEvent.nativeEvent.contentOffset.y, 0);
+              }}
+              scrollEventThrottle={16}
+              contentContainerStyle={[
+                styles.sheetScrollContent,
+                { paddingBottom: Math.max(insets.bottom + 28, 42) },
+              ]}
+              {...(sheetStop === 2 ? sheetContentCollapsePanResponder.panHandlers : {})}
+            >
+              <View>
+                {isCompactStorySheet ? (
+                  <Text style={styles.eyebrow}>{eventContextText}</Text>
                 ) : null}
 
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={isStoryExpanded ? '收起故事' : '展开故事'}
-                  onPress={() => setIsStoryExpanded((previous) => !previous)}
-                  style={({ pressed }) => [styles.storyToggle, pressed && styles.pressed]}
-                >
-                  <MaterialCommunityIcons
-                    name="chevron-down"
-                    size={20}
-                    color={JourneyPalette.ink}
-                    style={isStoryExpanded ? styles.toggleIconOpen : null}
-                  />
-                </Pressable>
+                {isExpandedStorySheet ? (
+                  <>
+                    <Text style={styles.eyebrow}>{eventContextText}</Text>
+                    <Text numberOfLines={3} style={styles.sheetTitle}>
+                      {readingTitle}
+                    </Text>
+
+                    {needsLocationBinding && event ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="为当前事件绑定地点"
+                        onPress={() => router.push(`/event-location/${event.id}`)}
+                        style={({ pressed }) => [
+                          styles.locationBindingCard,
+                          pressed && styles.locationBindingCardPressed,
+                        ]}
+                      >
+                        <View style={styles.locationBindingIcon}>
+                          <MaterialCommunityIcons
+                            name="map-marker-alert-outline"
+                            size={18}
+                            color={JourneyPalette.warning}
+                          />
+                        </View>
+
+                        <View style={styles.locationBindingCopy}>
+                          <Text style={styles.locationBindingTitle}>这段回忆还没绑定地点</Text>
+                          <Text numberOfLines={2} style={styles.locationBindingSubtitle}>
+                            绑定后，这段回忆会出现在地图上，也会参与同区域事件聚合。
+                          </Text>
+                        </View>
+
+                        <View style={styles.locationBindingAction}>
+                          <Text style={styles.locationBindingActionText}>去绑定</Text>
+                          <MaterialCommunityIcons
+                            name="chevron-right"
+                            size={18}
+                            color={JourneyPalette.warning}
+                          />
+                        </View>
+                      </Pressable>
+                    ) : null}
+
+                    <View style={styles.storyPreview}>
+                      <Text
+                        numberOfLines={isStoryExpanded ? undefined : 3}
+                        style={styles.storyCopy}
+                      >
+                        {storyText}
+                      </Text>
+
+                      {!isStoryExpanded ? (
+                        <LinearGradient
+                          colors={['rgba(248, 250, 252, 0)', 'rgba(248, 250, 252, 1)']}
+                          style={styles.storyFadeMask}
+                          pointerEvents="none"
+                        />
+                      ) : null}
+
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={isStoryExpanded ? '收起故事' : '展开故事'}
+                        onPress={() => setIsStoryExpanded((previous) => !previous)}
+                        style={({ pressed }) => [styles.storyToggle, pressed && styles.pressed]}
+                      >
+                        <MaterialCommunityIcons
+                          name="chevron-down"
+                          size={20}
+                          color={JourneyPalette.ink}
+                          style={isStoryExpanded ? styles.toggleIconOpen : null}
+                        />
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
+
+                {chapterSections.length > 0 ? (
+                  <View style={styles.chapterList}>
+                    {chapterSections.map(
+                      ({
+                        chapter,
+                        chapterNumber,
+                        chapterPhotos,
+                        titleText,
+                        summaryText,
+                        bodyText,
+                      }) => (
+                        <EventJourneyChapterCard
+                          key={chapter.id}
+                          chapter={{
+                            ...chapter,
+                            chapterTitle: titleText,
+                          }}
+                          chapterNumber={chapterNumber}
+                          photos={chapterPhotos}
+                          summaryText={summaryText}
+                          bodyText={bodyText}
+                          expanded={Boolean(expandedChapterIds[chapter.id])}
+                          onToggle={() => {
+                            setExpandedChapterIds((previous) => ({
+                              ...previous,
+                              [chapter.id]: !previous[chapter.id],
+                            }));
+                          }}
+                          onPhotoPress={(photo, index) => {
+                            onPhotoPress(photo, chapter.photoStartIndex + index);
+                          }}
+                        />
+                      ),
+                    )}
+                  </View>
+                ) : isCompactStorySheet ? (
+                  <View style={styles.compactEmptyState}>
+                    <MaterialCommunityIcons
+                      name="notebook-outline"
+                      size={22}
+                      color={JourneyPalette.muted}
+                    />
+                    <Text style={styles.compactEmptyTitle}>还没有章节</Text>
+                    <Text style={styles.compactEmptySubtitle}>
+                      先保留这段视频预览，等整理好照片后再生成旅程章节。
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-
-              {chapterSections.length > 0 ? (
-                <View style={styles.chapterList}>
-                  {chapterSections.map(
-                    ({
-                      chapter,
-                      chapterNumber,
-                      chapterPhotos,
-                      titleText,
-                      summaryText,
-                      bodyText,
-                    }) => (
-                      <EventJourneyChapterCard
-                        key={chapter.id}
-                        chapter={{
-                          ...chapter,
-                          chapterTitle: titleText,
-                        }}
-                        chapterNumber={chapterNumber}
-                        photos={chapterPhotos}
-                        summaryText={summaryText}
-                        bodyText={bodyText}
-                        expanded={Boolean(expandedChapterIds[chapter.id])}
-                        onToggle={() => {
-                          setExpandedChapterIds((previous) => ({
-                            ...previous,
-                            [chapter.id]: !previous[chapter.id],
-                          }));
-                        }}
-                        onPhotoPress={(photo, index) => {
-                          onPhotoPress(photo, chapter.photoStartIndex + index);
-                        }}
-                      />
-                    ),
-                  )}
-                </View>
-              ) : null}
-            </View>
-          </ScrollView>
-
-          {sheetStop === 1 ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="展开故事面板"
-              onPress={() => animateSheetToStop(2)}
-              style={styles.sheetPreviewTapOverlay}
-              {...sheetContentPanResponder.panHandlers}
-            />
-          ) : null}
-        </View>
-      </Animated.View>
+            </ScrollView>
+          </View>
+        </Animated.View>
+      ) : null}
 
       <EventEditSheet
         visible={isEditModalVisible}
@@ -1083,7 +1128,7 @@ const styles = StyleSheet.create({
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  heroTapDismissLayer: {
+  heroBackgroundPressLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1,
   },
@@ -1215,9 +1260,6 @@ const styles = StyleSheet.create({
   sheetScroll: {
     flex: 1,
   },
-  sheetPreviewTapOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
   sheetScrollContent: {
     paddingTop: 14,
     paddingHorizontal: 24,
@@ -1236,6 +1278,55 @@ const styles = StyleSheet.create({
     lineHeight: 36,
     fontWeight: '900',
     letterSpacing: -1.8,
+  },
+  locationBindingCard: {
+    marginBottom: 20,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: JourneyPalette.warningBorder,
+    backgroundColor: JourneyPalette.warningSoft,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  locationBindingCardPressed: {
+    transform: [{ scale: 0.985 }],
+    opacity: 0.92,
+  },
+  locationBindingIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#FFF7D6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationBindingCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  locationBindingTitle: {
+    color: '#92400E',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  locationBindingSubtitle: {
+    color: '#B45309',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  locationBindingAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  locationBindingActionText: {
+    color: JourneyPalette.warning,
+    fontSize: 13,
+    fontWeight: '900',
   },
   storyPreview: {
     position: 'relative',
@@ -1274,6 +1365,29 @@ const styles = StyleSheet.create({
   },
   chapterList: {
     gap: 16,
+  },
+  compactEmptyState: {
+    marginTop: 10,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
+    backgroundColor: 'rgba(255,255,255,0.62)',
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    gap: 8,
+  },
+  compactEmptyTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  compactEmptySubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   centerScreen: {
     flex: 1,

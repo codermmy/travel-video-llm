@@ -17,6 +17,11 @@ type SelectedMapScope = {
   eventCount: number;
 };
 
+function getPendingEventTitle(event: EventRecord): string {
+  const title = event.title?.trim();
+  return title || '未命名回忆';
+}
+
 export default function MapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -55,7 +60,13 @@ export default function MapScreen() {
   );
   const filteredMappableEvents = allMappableEvents;
 
-  const scopeLabel = `${selectedScope?.locationLabel?.trim() || '全部区域'} · ${selectedScope?.eventCount ?? 0} 个回忆`;
+  const scopeLabel = `${selectedScope?.locationLabel?.trim() || '全国'} · ${selectedScope?.eventCount ?? allMappableEvents.length} 个回忆`;
+  const pendingBannerText = useMemo(() => {
+    if (pendingLocationEvents.length === 1) {
+      return `“${getPendingEventTitle(pendingLocationEvents[0])}” 需要补充地点`;
+    }
+    return `有 ${pendingLocationEvents.length} 个事件需要补充地点`;
+  }, [pendingLocationEvents]);
 
   const handleSelectionScopeChange = useCallback((scope: SelectedMapScope | null) => {
     setSelectedScope((current) => {
@@ -176,7 +187,7 @@ export default function MapScreen() {
               numberOfLines={1}
               style={styles.pendingBannerText}
             >
-              有 {pendingLocationEvents.length} 个事件需要补充地点
+              {pendingBannerText}
             </Text>
             <Pressable
               style={({ pressed }) => [styles.pendingBannerAction, pressed && styles.pressed]}

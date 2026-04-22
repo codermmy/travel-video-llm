@@ -13,6 +13,14 @@ export type CameraUpdate = {
   bearing?: number;
 };
 
+export type CameraEvent = {
+  cameraPosition: CameraUpdate;
+  latLngBounds?: {
+    southwest: LatLng;
+    northeast: LatLng;
+  };
+};
+
 export type MapViewRef = {
   moveCamera: (update: CameraUpdate, duration?: number) => void;
 };
@@ -25,6 +33,7 @@ export type MapViewProps = {
   };
   onLoad?: () => void;
   onPress?: () => void;
+  onCameraIdle?: (event: { nativeEvent: CameraEvent }) => void;
   zoomControlsEnabled?: boolean;
   showsUserLocation?: boolean;
   children?: React.ReactNode;

@@ -7,23 +7,27 @@ import { ClusterMarker } from '@/components/map/ClusterMarker';
 import { EventCardList } from '@/components/map/EventCardList';
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
-import type { MapViewStack } from '@/types/mapStack';
+import type { CameraState } from '@/types/mapStack';
 import {
   clusterEvents,
-  getAdaptiveClusterThreshold,
+  getInitialCameraState,
   hasValidGps,
-  initializeStack,
-  popStack,
-  returnToInitialState,
+  haversineDistance,
 } from '@/utils/mapClusterUtils';
 import { getCompactLocationText } from '@/utils/locationDisplay';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
-import type { AMapModule, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
+import type { AMapModule, CameraEvent, MapViewProps, MapViewRef, MarkerProps } from './amapTypes';
 
 declare function require(moduleName: string): unknown;
 
 const DEFAULT_AMAP_ANDROID_KEY = '__AMAP_ANDROID_KEY__';
 const DEFAULT_AMAP_IOS_KEY = '__AMAP_IOS_KEY__';
+const DEFAULT_CAMERA: CameraState = {
+  target: { latitude: 39.9042, longitude: 116.4074 },
+  zoom: 5,
+};
+const RESET_DISTANCE_THRESHOLD_KM = 0.3;
+const RESET_ZOOM_THRESHOLD = 0.2;
 
 interface MapViewContainerProps {
   events: EventRecord[];
@@ -53,7 +57,7 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   const [isMapReady, setIsMapReady] = useState(false);
 
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
-  const [stack, setStack] = useState<MapViewStack | null>(null);
+  const [cameraState, setCameraState] = useState<CameraState>(DEFAULT_CAMERA);
 
   const isWeb = Platform.OS === 'web';
   const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -124,35 +128,33 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   }, [amapAndroidKey, amapIosKey, isExpoGo, isPlatformKeyConfigured, isWeb]);
 
   const validEvents = useMemo(() => events.filter(hasValidGps), [events]);
+  const initialCamera = useMemo(
+    () => (validEvents.length > 0 ? getInitialCameraState(validEvents) : DEFAULT_CAMERA),
+    [validEvents],
+  );
 
   useEffect(() => {
-    if (!isMapReady || validEvents.length === 0) {
-      if (validEvents.length === 0) {
-        setSelectedClusterId(null);
-      }
-      return;
-    }
-    setStack(initializeStack(validEvents));
+    setCameraState(initialCamera);
     setSelectedClusterId(null);
-  }, [isMapReady, validEvents]);
+  }, [initialCamera]);
 
   useEffect(() => {
-    if (!stack || !mapRef.current) {
+    if (!isMapReady || !mapRef.current) {
       return;
     }
 
-    const currentState = stack.states[stack.currentIndex];
-    mapRef.current.moveCamera(currentState, 500);
-  }, [stack]);
+    mapRef.current.moveCamera(initialCamera, 0);
+  }, [initialCamera, isMapReady]);
 
   const clusters = useMemo(() => {
-    if (!stack || validEvents.length === 0) {
+    if (validEvents.length === 0) {
       return [];
     }
-    const currentState = stack.states[stack.currentIndex];
-    const thresholdKm = getAdaptiveClusterThreshold(currentState.zoom);
-    return clusterEvents(validEvents, thresholdKm);
-  }, [stack, validEvents]);
+    return clusterEvents(
+      validEvents,
+      cameraState.zoom ?? initialCamera.zoom ?? DEFAULT_CAMERA.zoom ?? 5,
+    );
+  }, [cameraState.zoom, initialCamera.zoom, validEvents]);
 
   const selectedCluster = useMemo(() => {
     if (!selectedClusterId) {
@@ -162,23 +164,42 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   }, [clusters, selectedClusterId]);
 
   const canResetView = useMemo(() => {
-    if (!stack || validEvents.length === 0) {
+    if (validEvents.length === 0 || !cameraState.target || !initialCamera.target) {
       return false;
     }
-    return stack.currentIndex > 0;
-  }, [stack, validEvents.length]);
+
+    const zoomDiff = Math.abs(
+      (cameraState.zoom ?? initialCamera.zoom ?? 0) - (initialCamera.zoom ?? 0),
+    );
+    const distance = haversineDistance(
+      cameraState.target.latitude,
+      cameraState.target.longitude,
+      initialCamera.target.latitude,
+      initialCamera.target.longitude,
+    );
+
+    return zoomDiff > RESET_ZOOM_THRESHOLD || distance > RESET_DISTANCE_THRESHOLD_KM;
+  }, [
+    cameraState.target,
+    cameraState.zoom,
+    initialCamera.target,
+    initialCamera.zoom,
+    validEvents.length,
+  ]);
 
   useEffect(() => {
     onCanResetChange?.(canResetView);
   }, [canResetView, onCanResetChange]);
 
   useEffect(() => {
-    if (!stack || resetToken <= 0 || !canResetView) {
+    if (resetToken <= 0 || !canResetView || !mapRef.current) {
       return;
     }
-    setStack(returnToInitialState(stack));
+
+    mapRef.current.moveCamera(initialCamera, 400);
+    setCameraState(initialCamera);
     setSelectedClusterId(null);
-  }, [canResetView, resetToken, stack]);
+  }, [canResetView, initialCamera, resetToken]);
 
   useEffect(() => {
     if (clusters.length === 0) {
@@ -217,12 +238,36 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
   const handleMapPress = () => {
     if (selectedClusterId) {
       setSelectedClusterId(null);
+    }
+  };
+
+  const handleCameraIdle = (event: { nativeEvent: CameraEvent }) => {
+    const nextCamera = event.nativeEvent.cameraPosition;
+    const nextTarget = nextCamera?.target;
+
+    if (!nextTarget) {
       return;
     }
 
-    if (stack && stack.currentIndex > 0) {
-      setStack((prev) => (prev ? popStack(prev) : prev));
-    }
+    setCameraState((current) => {
+      const currentTarget = current.target;
+      const nextZoom = nextCamera.zoom ?? current.zoom ?? initialCamera.zoom;
+
+      if (
+        currentTarget.latitude === nextTarget.latitude &&
+        currentTarget.longitude === nextTarget.longitude &&
+        current.zoom === nextZoom
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        ...nextCamera,
+        target: nextTarget,
+        zoom: nextZoom,
+      };
+    });
   };
 
   if (isWeb) {
@@ -308,9 +353,8 @@ export const MapViewContainer: React.FC<MapViewContainerProps> = ({
         style={styles.map}
         onLoad={() => setIsMapReady(true)}
         onPress={handleMapPress}
-        initialCameraPosition={
-          stack?.initialState || { target: { latitude: 39.9042, longitude: 116.4074 }, zoom: 5 }
-        }
+        onCameraIdle={handleCameraIdle}
+        initialCameraPosition={initialCamera}
       >
         {clusters.map((cluster) => (
           <MarkerComponent

@@ -16,11 +16,20 @@ declare module 'react-native-amap3d' {
 
   export type CameraUpdate = Partial<CameraPosition>;
 
+  export type CameraEvent = {
+    cameraPosition: CameraPosition;
+    latLngBounds?: {
+      southwest: LatLng;
+      northeast: LatLng;
+    };
+  };
+
   export interface MapViewProps {
     style?: StyleProp<ViewStyle>;
     initialCameraPosition?: CameraPosition;
     onLoad?: () => void;
     onPress?: () => void;
+    onCameraIdle?: (event: { nativeEvent: CameraEvent }) => void;
     zoomControlsEnabled?: boolean;
     showsUserLocation?: boolean;
     children?: React.ReactNode;

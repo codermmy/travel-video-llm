@@ -4,6 +4,7 @@ import { Text } from 'react-native-paper';
 
 import { JourneyPalette } from '@/styles/colors';
 import type { EventRecord } from '@/types/event';
+import { needsLocationSupplement } from '@/utils/locationDisplay';
 import { getPreferredEventCoverUri } from '@/utils/mediaRefs';
 
 function formatDateRange(event: EventRecord): string {
@@ -48,23 +49,23 @@ function buildMeta(event: EventRecord): string {
 type TimelineEventCardProps = {
   event: EventRecord;
   onPress: (eventId: string) => void;
+  onPressBindLocation?: (eventId: string) => void;
   onLongPress?: (event: EventRecord) => void;
 };
 
 export function TimelineEventCard({
   event,
   onPress,
+  onPressBindLocation,
   onLongPress,
 }: TimelineEventCardProps) {
   const title = event.title?.trim() ? event.title : '未命名事件';
   const coverUri = getPreferredEventCoverUri(event);
+  const showBindLocationTag = needsLocationSupplement(event) && Boolean(onPressBindLocation);
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        pressed && styles.cardPressed,
-      ]}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress(event.id)}
       onLongPress={() => onLongPress?.(event)}
       delayLongPress={240}
@@ -90,6 +91,22 @@ export function TimelineEventCard({
 
         <View style={styles.bottomRow}>
           <Text style={styles.dateMeta}>{buildMeta(event)}</Text>
+          {showBindLocationTag ? (
+            <Pressable
+              onPress={(pressEvent) => {
+                pressEvent.stopPropagation();
+                onPressBindLocation?.(event.id);
+              }}
+              style={({ pressed }) => [styles.locationTag, pressed && styles.locationTagPressed]}
+            >
+              <MaterialCommunityIcons
+                name="map-marker-alert-outline"
+                size={14}
+                color={JourneyPalette.warning}
+              />
+              <Text style={styles.locationTagText}>待绑定地点</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Pressable>
@@ -148,13 +165,36 @@ const styles = StyleSheet.create({
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginTop: 10,
   },
   dateMeta: {
+    flex: 1,
     color: JourneyPalette.muted,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
+  },
+  locationTag: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: JourneyPalette.warningBorder,
+    backgroundColor: JourneyPalette.warningSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  locationTagPressed: {
+    transform: [{ scale: 0.97 }],
+    opacity: 0.88,
+  },
+  locationTagText: {
+    color: JourneyPalette.warning,
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

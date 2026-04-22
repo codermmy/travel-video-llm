@@ -28,6 +28,7 @@ import { JourneyPalette } from '@/styles/colors';
 import type { EventDetail } from '@/types/event';
 import type { LocationCityCandidate, LocationPlaceCandidate } from '@/types/location';
 import { getChinaCitySections, getHotChinaCities, searchChinaCities } from '@/utils/chinaCities';
+import { getReadableLocationText } from '@/utils/locationDisplay';
 
 function isSamePlace(left: LocationPlaceCandidate, right: LocationPlaceCandidate): boolean {
   return (
@@ -46,6 +47,11 @@ function getPlaceTitle(place: LocationPlaceCandidate): string {
 function getPlaceSubtitle(place: LocationPlaceCandidate): string {
   const subtitle = (place.address || place.detailedLocation).trim();
   return subtitle || '暂无地址信息';
+}
+
+function getEventTitle(event: EventDetail | null): string {
+  const title = event?.title?.trim();
+  return title || '未命名回忆';
 }
 
 export default function EventLocationScreen() {
@@ -136,6 +142,8 @@ export default function EventLocationScreen() {
   const filteredCities = useMemo(() => searchChinaCities(cityQuery), [cityQuery]);
   const citySections = useMemo(() => getChinaCitySections(filteredCities), [filteredCities]);
   const photoCount = event?.photoCount ?? 0;
+  const eventTitle = useMemo(() => getEventTitle(event), [event]);
+  const currentLocationLabel = useMemo(() => getReadableLocationText(event), [event]);
 
   const handleSelectPlace = useCallback(
     async (place: LocationPlaceCandidate) => {
@@ -202,7 +210,7 @@ export default function EventLocationScreen() {
         <View style={styles.screen}>
           <PageHeader
             title="补全地点"
-            subtitle={`为 ${photoCount} 张照片手动指定位置`}
+            subtitle={`正在为「${eventTitle}」绑定地点`}
             topInset
             style={styles.header}
             rightSlot={
@@ -213,6 +221,63 @@ export default function EventLocationScreen() {
               />
             }
           />
+
+          <View style={styles.eventContextCard}>
+            <View style={styles.eventContextIconBox}>
+              <MaterialCommunityIcons
+                name="image-filter-hdr"
+                size={20}
+                color={JourneyPalette.accent}
+              />
+            </View>
+            <View style={styles.eventContextCopy}>
+              <Text numberOfLines={1} style={styles.eventContextTitle}>
+                {eventTitle}
+              </Text>
+              <Text numberOfLines={2} style={styles.eventContextSubtitle}>
+                {photoCount} 张照片
+                {currentLocationLabel
+                  ? ` · 当前地点：${currentLocationLabel}`
+                  : ' · 当前还没有绑定地点'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.cityStepContainer}>
+            <Text style={styles.stepEyebrow}>第 1 步</Text>
+            <Pressable
+              onPress={() => setCitySheetVisible(true)}
+              style={({ pressed }) => [styles.cityStepCard, pressed && styles.pressed]}
+            >
+              <View style={styles.cityStepIconBox}>
+                <MaterialCommunityIcons
+                  name="city-variant-outline"
+                  size={20}
+                  color={JourneyPalette.accent}
+                />
+              </View>
+
+              <View style={styles.cityStepCopy}>
+                <Text style={styles.cityStepTitle}>
+                  {selectedCity ? `已选择 ${selectedCity.name}` : '先选择城市'}
+                </Text>
+                <Text numberOfLines={2} style={styles.cityStepSubtitle}>
+                  {selectedCity
+                    ? '地点搜索会限定在当前城市内，你也可以随时更换。'
+                    : '地点搜索前需要先锁定城市范围，否则很难找到正确地点。'}
+                </Text>
+              </View>
+
+              <View style={styles.cityStepAction}>
+                <Text style={styles.cityStepActionText}>{selectedCity ? '更换' : '去选择'}</Text>
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={18}
+                  color={JourneyPalette.accent}
+                />
+              </View>
+            </Pressable>
+          </View>
 
           <View style={styles.searchContainer}>
             <View style={styles.searchBox}>
@@ -226,7 +291,7 @@ export default function EventLocationScreen() {
                   }
                 }}
                 editable={Boolean(selectedCity) && !saving}
-                placeholder="搜索地点或标志物..."
+                placeholder={selectedCity ? '搜索地点或标志物...' : '请先选择城市后再搜索'}
                 placeholderTextColor={JourneyPalette.muted}
                 style={[styles.searchInput, !selectedCity && styles.searchInputDisabled]}
               />
@@ -256,7 +321,13 @@ export default function EventLocationScreen() {
 
           <View style={styles.suggestionList}>
             <View style={styles.labelGroup}>
-              <Text style={styles.sectionLabel}>推荐地点</Text>
+              <Text style={styles.sectionLabel}>
+                {!selectedCity
+                  ? '等待选择城市'
+                  : placeQuery.trim()
+                    ? '搜索结果'
+                    : '输入关键词开始搜索'}
+              </Text>
             </View>
 
             <ScrollView
@@ -270,7 +341,34 @@ export default function EventLocationScreen() {
                 </View>
               ) : null}
 
-              {!placeSearching
+              {!selectedCity ? (
+                <EmptyStateCard
+                  icon="city-variant-outline"
+                  title="先选择城市"
+                  description="先确定城市，地点搜索才会更准确。"
+                  action={
+                    <ActionButton
+                      label="选择城市"
+                      onPress={() => setCitySheetVisible(true)}
+                      fullWidth={false}
+                    />
+                  }
+                />
+              ) : !placeSearching && !placeQuery.trim() ? (
+                <EmptyStateCard
+                  icon="magnify"
+                  title="开始搜索地点"
+                  description={`已选择 ${selectedCity.name}，输入景点、商圈、地标或门店名称开始搜索。`}
+                />
+              ) : !placeSearching && placeResults.length === 0 ? (
+                <EmptyStateCard
+                  icon="map-marker-off-outline"
+                  title="没有找到地点"
+                  description="换个关键词试试，或者重新选择城市。"
+                />
+              ) : null}
+
+              {!placeSearching && selectedCity && placeResults.length > 0
                 ? placeResults.map((place, index) => {
                     const isSelected = selectedPlace ? isSamePlace(selectedPlace, place) : false;
 
@@ -461,6 +559,99 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingBottom: 20,
+  },
+  eventContextCard: {
+    marginHorizontal: 20,
+    marginBottom: 18,
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    backgroundColor: JourneyPalette.card,
+    borderWidth: 1,
+    borderColor: JourneyPalette.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  eventContextIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 16,
+    backgroundColor: JourneyPalette.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventContextCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  eventContextTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  eventContextSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  cityStepContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  stepEyebrow: {
+    color: JourneyPalette.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  cityStepCard: {
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: JourneyPalette.accentSoft,
+    borderWidth: 1,
+    borderColor: '#D6E3FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  cityStepIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: JourneyPalette.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cityStepCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  cityStepTitle: {
+    color: JourneyPalette.ink,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  cityStepSubtitle: {
+    color: JourneyPalette.inkSoft,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  cityStepAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  cityStepActionText: {
+    color: JourneyPalette.accent,
+    fontSize: 13,
+    fontWeight: '900',
   },
   searchContainer: {
     paddingHorizontal: 20,

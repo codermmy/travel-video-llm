@@ -1,5 +1,5 @@
 import type { EventRecord } from '@/types/event';
-import type { CameraState, MapViewStack } from '@/types/mapStack';
+import type { CameraState } from '@/types/mapStack';
 
 export type EventPoint = EventRecord & { gpsLat: number; gpsLon: number };
 
@@ -14,7 +14,8 @@ export interface EventCluster {
 }
 
 const EARTH_RADIUS_KM = 6371;
-const MAX_STACK_DEPTH = 10;
+const TILE_SIZE = 256;
+const CLUSTER_PIXEL_RADIUS = 56;
 
 function toRadians(degree: number): number {
   return (degree * Math.PI) / 180;
@@ -45,31 +46,36 @@ export function hasValidGps(event: EventRecord): event is EventPoint {
   return true;
 }
 
-export function getAdaptiveClusterThreshold(zoom: number): number {
-  if (zoom >= 14) return 0;
-  if (zoom >= 10) return 0.1;
-  if (zoom >= 6) return 1;
-  return 10;
-}
-
 function buildClusterId(events: EventPoint[]): string {
   const ids = events.map((event) => event.id).sort();
   return ids.join('__');
 }
 
-export function clusterEvents(events: EventPoint[], thresholdKm: number): EventCluster[] {
+function projectToWorldPixel(lat: number, lon: number, zoom: number): { x: number; y: number } {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const clampedLat = Math.max(Math.min(lat, 85.05112878), -85.05112878);
+  const sinLat = Math.sin(toRadians(clampedLat));
+
+  return {
+    x: ((lon + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+  };
+}
+
+function getPixelDistance(left: { x: number; y: number }, right: { x: number; y: number }): number {
+  const dx = left.x - right.x;
+  const dy = left.y - right.y;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+export function clusterEvents(events: EventPoint[], zoom: number): EventCluster[] {
   if (events.length === 0) {
     return [];
   }
 
-  if (thresholdKm <= 0) {
-    return events.map((event) => ({
-      id: event.id,
-      center: { latitude: event.gpsLat, longitude: event.gpsLon },
-      events: [event],
-      count: 1,
-    }));
-  }
+  const projectedPoints = new Map(
+    events.map((event) => [event.id, projectToWorldPixel(event.gpsLat, event.gpsLon, zoom)]),
+  );
 
   const clusters: EventCluster[] = [];
   const processed = new Set<string>();
@@ -79,18 +85,37 @@ export function clusterEvents(events: EventPoint[], thresholdKm: number): EventC
       continue;
     }
 
-    const nearby: EventPoint[] = [event];
+    const nearby: EventPoint[] = [];
+    const queue: EventPoint[] = [event];
     processed.add(event.id);
 
-    for (const other of events) {
-      if (processed.has(other.id)) {
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current) {
         continue;
       }
 
-      const dist = haversineDistance(event.gpsLat, event.gpsLon, other.gpsLat, other.gpsLon);
-      if (dist <= thresholdKm) {
-        nearby.push(other);
-        processed.add(other.id);
+      nearby.push(current);
+      const currentProjection = projectedPoints.get(current.id);
+      if (!currentProjection) {
+        continue;
+      }
+
+      for (const other of events) {
+        if (processed.has(other.id)) {
+          continue;
+        }
+
+        const otherProjection = projectedPoints.get(other.id);
+        if (!otherProjection) {
+          continue;
+        }
+
+        const dist = getPixelDistance(currentProjection, otherProjection);
+        if (dist <= CLUSTER_PIXEL_RADIUS) {
+          processed.add(other.id);
+          queue.push(other);
+        }
       }
     }
 
@@ -146,60 +171,14 @@ function estimateZoom(bounds: {
   return 5;
 }
 
-export function initializeStack(events: EventPoint[]): MapViewStack {
+export function getInitialCameraState(events: EventPoint[]): CameraState {
   const bounds = computeBounds(events);
-  const initialState: CameraState = {
+  return {
     target: {
       latitude: (bounds.minLat + bounds.maxLat) / 2,
       longitude: (bounds.minLon + bounds.maxLon) / 2,
     },
     zoom: estimateZoom(bounds),
-  };
-
-  return {
-    states: [initialState],
-    initialState,
-    currentIndex: 0,
-  };
-}
-
-export function zoomIntoCluster(cluster: EventCluster, stack: MapViewStack): MapViewStack {
-  if (stack.currentIndex >= MAX_STACK_DEPTH - 1) {
-    return stack;
-  }
-
-  const currentZoom = stack.states[stack.currentIndex]?.zoom ?? stack.initialState.zoom;
-  const nextState: CameraState = {
-    target: {
-      latitude: cluster.center.latitude,
-      longitude: cluster.center.longitude,
-    },
-    zoom: Math.min(currentZoom + 3, 18),
-  };
-
-  return {
-    ...stack,
-    states: [...stack.states.slice(0, stack.currentIndex + 1), nextState],
-    currentIndex: stack.currentIndex + 1,
-  };
-}
-
-export function popStack(stack: MapViewStack): MapViewStack {
-  if (stack.currentIndex <= 0) {
-    return stack;
-  }
-
-  return {
-    ...stack,
-    currentIndex: stack.currentIndex - 1,
-  };
-}
-
-export function returnToInitialState(stack: MapViewStack): MapViewStack {
-  return {
-    ...stack,
-    states: [stack.initialState],
-    currentIndex: 0,
   };
 }
 

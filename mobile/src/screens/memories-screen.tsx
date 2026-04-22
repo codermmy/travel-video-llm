@@ -96,6 +96,13 @@ export default function MemoriesScreen() {
     [router],
   );
 
+  const goToEventLocation = useCallback(
+    (eventId: string) => {
+      router.push(`/event-location/${eventId}`);
+    },
+    [router],
+  );
+
   const openHeroStory = useCallback(() => {
     if (heroEvent) {
       router.push(`/slideshow?eventId=${heroEvent.id}`);
@@ -134,9 +141,15 @@ export default function MemoriesScreen() {
 
   const renderTimelineCard = useCallback(
     ({ item }: { item: EventRecord; index: number; section: MonthSection }) => {
-      return <TimelineEventCard event={item} onPress={goToEventDetail} />;
+      return (
+        <TimelineEventCard
+          event={item}
+          onPress={goToEventDetail}
+          onPressBindLocation={goToEventLocation}
+        />
+      );
     },
-    [goToEventDetail],
+    [goToEventDetail, goToEventLocation],
   );
 
   const heroSection = (
